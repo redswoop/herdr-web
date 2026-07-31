@@ -91,9 +91,22 @@ export function BlockedCard({
             🔒 wants to run <span className="tool-name">{ctx.tool}</span>
           </div>
           {ctx.detail && <pre className="perm-detail">{ctx.detail.slice(0, 2000)}</pre>}
-          {opt('allow', 'Yes, allow', ['1'], { cls: 'confirm' })}
-          {opt('always', 'Yes, don’t ask again', ['2'])}
-          {opt('deny', 'No / tell it what to do', ['3'], { cls: 'deny' })}
+          {ctx.options?.length
+            ? // real numbers + labels from the screen, label doubles as expect
+              ctx.options.map((o) =>
+                opt(String(o.n), o.label, [String(o.n)], {
+                  desc: o.description,
+                  expect: o.label.slice(0, 30),
+                  cls: /^yes/i.test(o.label) ? 'confirm' : /^no/i.test(o.label) ? 'deny' : '',
+                }),
+              )
+            : // screen didn't parse — the classic 3-option layout as a guess,
+              // 409-guarded only by the tool name
+              [
+                opt('allow', 'Yes, allow', ['1'], { cls: 'confirm' }),
+                opt('always', 'Yes, don’t ask again', ['2']),
+                opt('deny', 'No / tell it what to do', ['3'], { cls: 'deny' }),
+              ]}
         </div>
       </div>
     );

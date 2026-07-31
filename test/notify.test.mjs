@@ -65,7 +65,16 @@ test('coordinator: debounce, enrich, coalesce, retract — full round trip', asy
   });
 
   const ctx = {
-    'w1:p1': { kind: 'permission', tool: 'Bash', detail: 'rm -rf /' },
+    'w1:p1': {
+      kind: 'permission', tool: 'Bash', detail: 'rm -rf /',
+      // options come parsed off the live screen; buttons must use their real
+      // numbers + labels (prompts aren't uniform — guessing digits answers wrong)
+      options: [
+        { n: 1, label: 'Yes', description: '', selected: true },
+        { n: 2, label: "Yes, don't ask again", description: '', selected: false },
+        { n: 3, label: 'No', description: '', selected: false },
+      ],
+    },
     'w1:p2': { kind: 'unknown' },
   };
   const co = new Coordinator(store, async (id) => ctx[id], 25);
@@ -83,8 +92,11 @@ test('coordinator: debounce, enrich, coalesce, retract — full round trip', asy
   let msg = decrypt(received[0].body);
   assert.equal(msg.title, 'claude needs you');
   assert.match(msg.body, /Bash/);
-  assert.equal(msg.actions.length, 2);
-  assert.deepEqual(msg.actions[0], { title: 'Allow', keys: ['1'], expect: 'Bash' });
+  assert.equal(msg.actions.length, 2); // Android caps at 2 — Yes + Yes-always
+  assert.deepEqual(msg.actions[0], { title: 'Yes', keys: ['1'], expect: 'Yes' });
+  assert.deepEqual(msg.actions[1], {
+    title: "Yes, don't ask again", keys: ['2'], expect: "Yes, don't ask again",
+  });
   assert.match(received[0].headers.authorization, /^vapid t=.+, k=.+/);
   assert.equal(received[0].headers.topic, 'herdr-herd');
 
@@ -101,6 +113,21 @@ test('coordinator: debounce, enrich, coalesce, retract — full round trip', asy
   await tick();
   const last = decrypt(received.at(-1).body);
   assert.equal(last.type, 'clear');
+});
+
+test('permission without parsed options gets no answer buttons', async () => {
+  const store = await new PushStore().init();
+  await store.add({
+    endpoint: `http://127.0.0.1:${port}/sub2`,
+    keys: { p256dh: b64u.enc(ua.getPublicKey()), auth: b64u.enc(authSecret) },
+  });
+  // screen parse failed → guessing digits could answer wrong; tap-to-open only
+  const co = new Coordinator(store, async () => ({ kind: 'permission', tool: 'Bash', detail: '' }), 5);
+  co.onTransition({ paneId: 'w1:p9', agent: 'claude', cwd: '/x' }, 'blocked');
+  await tick();
+  const msg = decrypt(received.at(-1).body);
+  assert.match(msg.body, /Bash/);
+  assert.equal(msg.actions, undefined);
 });
 
 test('store: prunes a 410 subscription', async () => {

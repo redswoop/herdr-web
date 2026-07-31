@@ -53,34 +53,56 @@ export function useAgentSession(
     }
   }, [status]);
 
-  const applyEvents = useCallback((evs: TEvent[]) => {
-    setItems((prev) => {
-      const next = [...prev];
-      for (const ev of evs) {
-        if (ev.kind === 'user') {
-          const i = next.findIndex(
-            (it) =>
-              it.type === 'mine' &&
-              it.mine.text === ev.text.trim() &&
-              it.mine.state !== 'confirmed' &&
-              !it.mine.reconciled,
-          );
-          if (i !== -1) {
-            const it = next[i] as { type: 'mine'; mine: Mine };
-            // consume the event; interrupted bubbles keep their ⏹ marker
-            const keep = it.mine.state === 'stopping' || it.mine.state === 'stopped';
-            next[i] = {
-              type: 'mine',
-              mine: { ...it.mine, state: keep ? it.mine.state : 'confirmed', reconciled: true },
-            };
-            continue;
-          }
-        }
-        next.push({ type: 'event', ev, key: keyRef.current++ });
-      }
-      return next;
-    });
+  // items are kept sorted by `at`. Events carry their session-file timestamp;
+  // local items claim "just after everything known" via nextAt(), except the
+  // interrupt marker, which gets the server's Esc-time so events flushed
+  // before the stop (but delivered after, the SSE tick is 700ms) sort above it
+  const maxAtRef = useRef(0);
+  const claimAt = useCallback((t: number) => {
+    if (t > maxAtRef.current) maxAtRef.current = t;
+    return t;
   }, []);
+  const nextAt = useCallback(() => (maxAtRef.current += 1), []);
+
+  const insertSorted = (list: Item[], item: Item) => {
+    let i = list.length;
+    while (i > 0 && list[i - 1].at > item.at) i -= 1;
+    list.splice(i, 0, item);
+  };
+
+  const applyEvents = useCallback(
+    (evs: TEvent[]) => {
+      setItems((prev) => {
+        const next = [...prev];
+        for (const ev of evs) {
+          const ts = ev.ts ? Date.parse(ev.ts) : NaN;
+          const at = Number.isNaN(ts) ? nextAt() : claimAt(ts);
+          if (ev.kind === 'user') {
+            const i = next.findIndex(
+              (it) =>
+                it.type === 'mine' &&
+                it.mine.text === ev.text.trim() &&
+                it.mine.state !== 'confirmed' &&
+                !it.mine.reconciled,
+            );
+            if (i !== -1) {
+              const it = next[i] as { type: 'mine'; mine: Mine; at: number };
+              // consume the event; interrupted bubbles keep their ⏹ marker
+              const keep = it.mine.state === 'stopping' || it.mine.state === 'stopped';
+              next[i] = {
+                ...it,
+                mine: { ...it.mine, state: keep ? it.mine.state : 'confirmed', reconciled: true },
+              };
+              continue;
+            }
+          }
+          insertSorted(next, { type: 'event', ev, key: keyRef.current++, at });
+        }
+        return next;
+      });
+    },
+    [claimAt, nextAt],
+  );
 
   useEffect(() => {
     let alive = true;
@@ -92,6 +114,7 @@ export function useAgentSession(
     setRestoredDraft(null);
     inflightRef.current = null; // an in-flight POST belongs to the previous pane
     tuiClearRef.current = null;
+    maxAtRef.current = 0;
     if (decayRef.current) {
       clearTimeout(decayRef.current);
       decayRef.current = null;
@@ -132,9 +155,7 @@ export function useAgentSession(
   const setMineState = useCallback((key: number, state: MineState) => {
     setItems((prev) =>
       prev.map((it) =>
-        it.type === 'mine' && it.mine.key === key
-          ? { type: 'mine', mine: { ...it.mine, state } }
-          : it,
+        it.type === 'mine' && it.mine.key === key ? { ...it, mine: { ...it.mine, state } } : it,
       ),
     );
   }, []);
@@ -143,7 +164,10 @@ export function useAgentSession(
   const send = useCallback(
     async (text: string) => {
       const key = keyRef.current++;
-      setItems((prev) => [...prev, { type: 'mine', mine: { key, text, state: 'sending' } }]);
+      setItems((prev) => [
+        ...prev,
+        { type: 'mine', mine: { key, text, state: 'sending' }, at: nextAt() },
+      ]);
       setSubmitted(true); // arm the stop button now, not when the roster catches up
       let deliver!: (ok: boolean) => void;
       inflightRef.current = new Promise<boolean>((res) => (deliver = res));
@@ -157,7 +181,7 @@ export function useAgentSession(
         setItems((prev) =>
           prev.map((it) =>
             it.type === 'mine' && it.mine.key === key && it.mine.state === 'sending'
-              ? { type: 'mine', mine: { ...it.mine, state: 'sent' } }
+              ? { ...it, mine: { ...it.mine, state: 'sent' } }
               : it,
           ),
         );
@@ -212,16 +236,25 @@ export function useAgentSession(
       if (!r.ok) {
         alert(await errorOf(r));
       } else {
-        const { salvage } = (await r.json()) as { salvage: string | null };
+        const { salvage, at } = (await r.json()) as { salvage: string | null; at?: number };
         // mark the cut inline where the stream actually stopped: salvaged
-        // partial output (if any), then an "interrupted" divider
-        setItems((prev) => [
-          ...prev,
-          ...(salvage
-            ? [{ type: 'event', ev: { kind: 'salvage', text: salvage }, key: keyRef.current++ } as Item]
-            : []),
-          { type: 'event', ev: { kind: 'interrupted', text: '' }, key: keyRef.current++ },
-        ]);
+        // partial output (if any), then an "interrupted" divider. Sorted by
+        // the server's Esc-time (same clock as the session file), so events
+        // flushed pre-stop but delivered post-stop insert above the divider.
+        const base = typeof at === 'number' && at > 0 ? claimAt(at) : nextAt();
+        setItems((prev) => {
+          const next = [...prev];
+          if (salvage) {
+            insertSorted(next, {
+              type: 'event', ev: { kind: 'salvage', text: salvage }, key: keyRef.current++, at: base,
+            });
+          }
+          insertSorted(next, {
+            type: 'event', ev: { kind: 'interrupted', text: '' }, key: keyRef.current++, at: base + 1,
+          });
+          return next;
+        });
+        claimAt(base + 1);
         if (last) {
           const mine = last as Mine;
           setMineState(mine.key, 'stopped');
@@ -248,7 +281,7 @@ export function useAgentSession(
     } finally {
       stopPendingRef.current = false;
     }
-  }, [paneId, agentKind, setMineState]);
+  }, [paneId, agentKind, setMineState, claimAt, nextAt]);
 
   const working = status === 'working' || submitted;
 

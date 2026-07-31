@@ -21,7 +21,14 @@ const TOKEN = process.env.HERDR_WEB_TOKEN ?? null;
 
 // Build stamp: hash of the code THIS process loaded (public/ is read from disk
 // per-request, so only server-side files count). Shown in the UI header.
-import { createHash } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
+
+// constant-time compare; hashing first sidesteps the equal-length requirement
+function tokenEq(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const h = (s) => createHash('sha256').update(s).digest();
+  return timingSafeEqual(h(a), h(b));
+}
 const BUILD = await (async () => {
   const h = createHash('sha1');
   const files = ['server.js', ...(await fsp.readdir(path.join(ROOT, 'lib'))).sort().map((f) => `lib/${f}`)];
@@ -46,7 +53,15 @@ const coordinator = new Coordinator(
 let roster = { agents: [], herdrDown: false, updatedAt: 0 };
 const rosterClients = new Set(); // SSE responses
 
-async function refreshRoster() {
+// Coalesce concurrent callers (interval + event debounce) — overlapping runs
+// could double-fire coordinator.onTransition for the same status change.
+let refreshInFlight = null;
+function refreshRoster() {
+  refreshInFlight ??= doRefreshRoster().finally(() => { refreshInFlight = null; });
+  return refreshInFlight;
+}
+
+async function doRefreshRoster() {
   try {
     const res = await rpc('agent.list');
     const agents = await Promise.all((res.agents ?? []).map(async (a) => {
@@ -242,6 +257,14 @@ async function blockedContext(paneId) {
   if (ctx.kind === 'unknown') {
     const screen = await readScreen(paneId);
     ctx = parseMenuScreen(screen) ?? { kind: 'unknown' };
+  } else if (ctx.kind === 'permission') {
+    // permission prompts aren't uniform (Yes/No vs Yes/Yes-always/No…) — read
+    // the real options off the screen so an answer can't hit the wrong number;
+    // when nothing parses, callers must not guess digits
+    try {
+      const menu = parseMenuScreen(await readScreen(paneId));
+      if (menu) ctx.options = menu.options;
+    } catch {}
   }
   return ctx;
 }
@@ -294,11 +317,11 @@ function checkAuth(req, res, url) {
   if (!TOKEN) return true;
   const qtok = url.searchParams.get('token');
   const cookie = (req.headers.cookie ?? '').split(/;\s*/).find((c) => c.startsWith('hw_token='));
-  if (qtok === TOKEN) {
+  if (tokenEq(qtok, TOKEN)) {
     res.setHeader('set-cookie', `hw_token=${TOKEN}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000`);
     return true;
   }
-  if (cookie?.slice('hw_token='.length) === TOKEN) return true;
+  if (tokenEq(cookie?.slice('hw_token='.length), TOKEN)) return true;
   sendJson(res, 401, { error: 'missing/bad token — open /?token=...' });
   return false;
 }
@@ -443,7 +466,9 @@ const server = http.createServer(async (req, res) => {
           salvage = trimSalvage(r.read?.text ?? '', prompt);
         } catch {}
         await rpc('agent.send_keys', { target: paneId, keys: ['Escape'] });
-        return sendJson(res, 200, { ok: true, salvage });
+        // Esc-time on this machine's clock — the same clock that stamps the
+        // session file, so the client can sort the cut marker among events
+        return sendJson(res, 200, { ok: true, salvage, at: Date.now() });
       }
 
       if (req.method === 'POST' && action === 'keys') {
@@ -464,7 +489,7 @@ const server = http.createServer(async (req, res) => {
 async function serveStatic(pathname, res) {
   let rel = pathname === '/' ? 'index.html' : pathname.slice(1);
   const file = path.normalize(path.join(PUBLIC, rel));
-  if (!file.startsWith(PUBLIC)) return sendJson(res, 404, { error: 'not found' });
+  if (!file.startsWith(PUBLIC + path.sep)) return sendJson(res, 404, { error: 'not found' });
   try {
     const body = await fsp.readFile(file);
     res.writeHead(200, {

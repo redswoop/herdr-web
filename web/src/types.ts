@@ -58,9 +58,12 @@ export interface RestoredDraft {
   n: number;
 }
 
+/** `at` is the sort key (ms): events use their session-file timestamp, local
+ *  items (bubbles, salvage, divider) use server time or a monotonic fallback,
+ *  so late-arriving stream events insert above the interrupt marker. */
 export type Item =
-  | { type: 'event'; ev: TEvent; key: number }
-  | { type: 'mine'; mine: Mine };
+  | { type: 'event'; ev: TEvent; key: number; at: number }
+  | { type: 'mine'; mine: Mine; at: number };
 
 export interface AskQuestion {
   question: string;
@@ -73,7 +76,13 @@ export type BlockedCtx =
   | { kind: 'none' }
   | { kind: 'unknown' }
   | { kind: 'ask'; questions: AskQuestion[] }
-  | { kind: 'permission'; tool: string; detail: string }
+  | {
+      kind: 'permission';
+      tool: string;
+      detail: string;
+      /** real options parsed off the screen; absent when the parse failed */
+      options?: { n: number; label: string; description: string; selected: boolean }[];
+    }
   | {
       kind: 'menu';
       header: string;
