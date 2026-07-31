@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { agentPath, errorOf, post } from '../api';
-import type { AgentStatus } from '../types';
+import type { RestoredDraft } from '../types';
 
 const KEYS = [
   ['esc', 'Escape'],
@@ -14,16 +14,18 @@ const KEYS = [
 
 export function Composer({
   paneId,
-  status,
+  working,
   cooldown,
+  restoredDraft,
   showKeys,
   onSend,
   onInterrupt,
   onToggleKeys,
 }: {
   paneId: string;
-  status: AgentStatus | undefined;
+  working: boolean;
   cooldown: boolean;
+  restoredDraft: RestoredDraft | null;
   showKeys: boolean;
   onSend: (text: string) => Promise<void>;
   onInterrupt: () => void;
@@ -33,7 +35,7 @@ export function Composer({
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   const hasText = !!text.trim();
-  const stop = !hasText && status === 'working';
+  const stop = !hasText && working;
 
   const grow = () => {
     const ta = taRef.current;
@@ -41,6 +43,21 @@ export function Composer({
     ta.style.height = 'auto';
     ta.style.height = `${Math.min(ta.scrollHeight, innerHeight * 0.3)}px`;
   };
+
+  // a stopped prompt comes back filled + select-all'd (URL-bar style: typing
+  // replaces it, tapping in edits it) — unless a new draft is already typed
+  useEffect(() => {
+    if (!restoredDraft) return;
+    setText((cur) => (cur.trim() ? cur : restoredDraft.text));
+    requestAnimationFrame(() => {
+      grow();
+      const ta = taRef.current;
+      if (ta && ta.value === restoredDraft.text) {
+        ta.focus();
+        ta.select();
+      }
+    });
+  }, [restoredDraft]);
 
   const send = async () => {
     const t = text.trim();
@@ -75,25 +92,49 @@ export function Composer({
         <button className="ghost kbd-toggle" aria-label="toggle key pad" onClick={onToggleKeys}>
           ⌨
         </button>
-        <textarea
-          ref={taRef}
-          rows={1}
-          placeholder="prompt…"
-          autoCapitalize="off"
-          autoComplete="off"
-          enterKeyHint="send"
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            grow();
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              send();
-            }
-          }}
-        />
+        <div className={`ta-wrap ${hasText ? 'has-clear' : ''}`}>
+          <textarea
+            ref={taRef}
+            rows={1}
+            placeholder="prompt…"
+            autoCapitalize="off"
+            autoComplete="off"
+            enterKeyHint="send"
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              grow();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                send();
+              }
+            }}
+          />
+          {hasText && (
+            <button
+              className="ta-clear"
+              aria-label="clear draft"
+              onMouseDown={(e) => e.preventDefault() /* keep the textarea focused */}
+              onClick={() => {
+                setText('');
+                requestAnimationFrame(grow);
+                taRef.current?.focus();
+              }}
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18">
+                <circle cx="12" cy="12" r="10" fill="currentColor" opacity="0.55" />
+                <path
+                  d="M9 9l6 6M15 9l-6 6"
+                  stroke="var(--surface-2)"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          )}
+        </div>
         <button
           className={`send ${stop ? 'stop' : ''}`}
           aria-label={stop ? 'stop' : 'send'}

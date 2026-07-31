@@ -10,7 +10,11 @@ import { Transcript } from './Transcript';
 export function AgentView({ agent, onBack }: { agent: Agent | undefined; onBack: () => void }) {
   const paneId = agent?.paneId ?? '';
   const status = agent?.status;
-  const { items, error, send, interrupt, cooldown } = useAgentSession(paneId);
+  const { items, error, send, interrupt, cooldown, working, restoredDraft } = useAgentSession(
+    paneId,
+    status,
+    agent?.agent,
+  );
   const { ctx, refresh } = useBlockedContext(paneId, status);
   const [screen, setScreen] = useState<string | null>(null);
   const [keysPinned, setKeysPinned] = useState(false);
@@ -26,15 +30,18 @@ export function AgentView({ agent, onBack }: { agent: Agent | undefined; onBack:
 
   // the latest locally-sent bubble gets tap-to-stop while the agent works
   const cancellableKey = useMemo(() => {
-    if (status !== 'working') return null;
+    if (!working) return null;
     for (let i = items.length - 1; i >= 0; i -= 1) {
       const it = items[i];
-      if (it.type === 'mine' && (it.mine.state === 'sent' || it.mine.state === 'confirmed')) {
+      if (
+        it.type === 'mine' &&
+        (it.mine.state === 'sending' || it.mine.state === 'sent' || it.mine.state === 'confirmed')
+      ) {
         return it.mine.key;
       }
     }
     return null;
-  }, [items, status]);
+  }, [items, working]);
 
   const onAnswer = async (keys: string[], expect: string | null) => {
     const r = await post(agentPath(paneId, 'answer'), { keys, expect });
@@ -101,8 +108,9 @@ export function AgentView({ agent, onBack }: { agent: Agent | undefined; onBack:
 
       <Composer
         paneId={paneId}
-        status={status}
+        working={working}
         cooldown={cooldown}
+        restoredDraft={restoredDraft}
         showKeys={showKeys}
         onSend={send}
         onInterrupt={interrupt}

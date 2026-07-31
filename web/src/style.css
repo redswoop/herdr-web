@@ -244,6 +244,15 @@ button.option.deny { background: color-mix(in srgb, var(--blocked) 18%, var(--su
 .keysrow button:active { background: var(--accent); color: var(--accent-ink); }
 .inputrow { display: flex; gap: 8px; align-items: flex-end; }
 .kbd-toggle { font-size: 19px; padding: 8px 6px; }
+.ta-wrap { position: relative; flex: 1; display: flex; }
+.ta-wrap.has-clear textarea { padding-right: 40px; }
+.ta-clear {
+  position: absolute; right: 7px; bottom: 7px;
+  width: 28px; height: 28px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--sub); background: transparent;
+}
+.ta-clear:active { color: var(--text); }
 textarea {
   flex: 1; resize: none; border: 1px solid var(--hairline);
   border-radius: 21px;

@@ -38,6 +38,16 @@ export interface Mine {
   key: number;
   text: string;
   state: MineState;
+  /** this bubble already consumed its session-file user event (stopped bubbles
+   *  keep their ⏹ state, so the flag stops them swallowing a re-send of the
+   *  same text) */
+  reconciled?: boolean;
+}
+
+/** A stopped prompt handed back to the composer; n makes repeats distinct. */
+export interface RestoredDraft {
+  text: string;
+  n: number;
 }
 
 export type Item =

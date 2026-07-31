@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { agentPath, errorOf, post } from '../api';
-import type { Item, Mine, MineState, TEvent } from '../types';
+import type { AgentStatus, Item, Mine, MineState, RestoredDraft, TEvent } from '../types';
 
 /**
  * Owns the transcript item list for one agent: events streamed from the
@@ -8,13 +8,46 @@ import type { Item, Mine, MineState, TEvent } from '../types';
  * A locally-sent prompt renders instantly ('sending' → 'sent'); when the same
  * text shows up in the session file it flips to 'confirmed' in place instead
  * of double-rendering.
+ *
+ * Also owns the "is the agent busy" signal the stop button runs on: the
+ * roster's status lags prompt delivery by a poll cycle, so `working` goes
+ * optimistic the moment a prompt is handed to the web server and hands off to
+ * the roster once it catches up.
  */
-export function useAgentSession(paneId: string) {
+export function useAgentSession(
+  paneId: string,
+  status: AgentStatus | undefined,
+  agentKind: string | undefined,
+) {
   const [items, setItems] = useState<Item[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState(false); // brief lockout after an interrupt
   const keyRef = useRef(0);
   const [gen, setGen] = useState(0); // bumped on server 'reset' → full reload
+
+  // optimistic busy flag: armed on submit, cleared when the roster confirms
+  // 'working' (handoff) or after a decay window if it never does
+  const [submitted, setSubmitted] = useState(false);
+  const inflightRef = useRef<Promise<boolean> | null>(null); // prompt POST; resolves "delivered?"
+  const decayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stopPendingRef = useRef(false);
+
+  // a stopped prompt is handed back to the composer to edit & resend
+  const [restoredDraft, setRestoredDraft] = useState<RestoredDraft | null>(null);
+  const restoreNonceRef = useRef(0);
+  // pending "clear the TUI input line" sequence after a stop — a resend must
+  // wait for it, or the new prompt types on top of the restored text
+  const tuiClearRef = useRef<Promise<void> | null>(null);
+
+  useEffect(() => {
+    if (status === 'working') {
+      setSubmitted(false); // roster caught up — it owns the button now
+      if (decayRef.current) {
+        clearTimeout(decayRef.current);
+        decayRef.current = null;
+      }
+    }
+  }, [status]);
 
   const applyEvents = useCallback((evs: TEvent[]) => {
     setItems((prev) => {
@@ -25,11 +58,17 @@ export function useAgentSession(paneId: string) {
             (it) =>
               it.type === 'mine' &&
               it.mine.text === ev.text.trim() &&
-              (it.mine.state === 'sending' || it.mine.state === 'sent'),
+              it.mine.state !== 'confirmed' &&
+              !it.mine.reconciled,
           );
           if (i !== -1) {
             const it = next[i] as { type: 'mine'; mine: Mine };
-            next[i] = { type: 'mine', mine: { ...it.mine, state: 'confirmed' } };
+            // consume the event; interrupted bubbles keep their ⏹ marker
+            const keep = it.mine.state === 'stopping' || it.mine.state === 'stopped';
+            next[i] = {
+              type: 'mine',
+              mine: { ...it.mine, state: keep ? it.mine.state : 'confirmed', reconciled: true },
+            };
             continue;
           }
         }
@@ -45,6 +84,14 @@ export function useAgentSession(paneId: string) {
     let retry: ReturnType<typeof setTimeout> | null = null;
     setItems([]);
     setError(null);
+    setSubmitted(false);
+    setRestoredDraft(null);
+    inflightRef.current = null; // an in-flight POST belongs to the previous pane
+    tuiClearRef.current = null;
+    if (decayRef.current) {
+      clearTimeout(decayRef.current);
+      decayRef.current = null;
+    }
 
     const load = async () => {
       try {
@@ -93,37 +140,107 @@ export function useAgentSession(paneId: string) {
     async (text: string) => {
       const key = keyRef.current++;
       setItems((prev) => [...prev, { type: 'mine', mine: { key, text, state: 'sending' } }]);
-      const r = await post(agentPath(paneId, 'prompt'), { text });
-      if (!r.ok) {
+      setSubmitted(true); // arm the stop button now, not when the roster catches up
+      let deliver!: (ok: boolean) => void;
+      inflightRef.current = new Promise<boolean>((res) => (deliver = res));
+      try {
+        // a just-stopped turn leaves its clear sequence pending — the prompt
+        // must land after the C-c, never between the Esc and the C-c
+        if (tuiClearRef.current) await tuiClearRef.current;
+        const r = await post(agentPath(paneId, 'prompt'), { text });
+        if (!r.ok) throw new Error(await errorOf(r));
+        // don't clobber a bubble a queued stop already marked 'stopping'
+        setItems((prev) =>
+          prev.map((it) =>
+            it.type === 'mine' && it.mine.key === key && it.mine.state === 'sending'
+              ? { type: 'mine', mine: { ...it.mine, state: 'sent' } }
+              : it,
+          ),
+        );
+        deliver(true);
+        // ultra-short turns can finish without the roster ever reporting
+        // 'working' — decay back to the send arrow rather than pinning stop
+        if (decayRef.current) clearTimeout(decayRef.current);
+        decayRef.current = setTimeout(() => setSubmitted(false), 10_000);
+      } catch (e) {
         setItems((prev) => prev.filter((it) => !(it.type === 'mine' && it.mine.key === key)));
-        throw new Error(await errorOf(r));
+        setSubmitted(false);
+        throw e;
+      } finally {
+        deliver(false); // no-op if already delivered; unblocks a queued stop on failure
+        inflightRef.current = null;
       }
-      setMineState(key, 'sent');
     },
     [paneId, setMineState],
   );
 
-  /** Esc interrupts the current turn in both claude and grok TUIs. */
+  /**
+   * Esc interrupts the current turn in both claude and grok TUIs. A stop
+   * tapped while the prompt POST is still in flight queues behind it — the
+   * Escape must not outrun the prompt and land on an idle TUI.
+   */
   const interrupt = useCallback(async () => {
+    if (stopPendingRef.current) return;
+    stopPendingRef.current = true;
     setCooldown(true); // a second Esc would hit the idle TUI
-    setTimeout(() => setCooldown(false), 1500);
-    let last: Mine | null = null;
-    setItems((prev) => {
-      for (let i = prev.length - 1; i >= 0; i -= 1) {
-        const it = prev[i];
-        if (it.type === 'mine' && (it.mine.state === 'sent' || it.mine.state === 'confirmed')) {
-          last = it.mine;
-          return prev.map((x, j) =>
-            j === i ? { type: 'mine', mine: { ...it.mine, state: 'stopping' } } : x,
-          );
+    try {
+      let last: Mine | null = null;
+      setItems((prev) => {
+        for (let i = prev.length - 1; i >= 0; i -= 1) {
+          const it = prev[i];
+          if (
+            it.type === 'mine' &&
+            (it.mine.state === 'sending' ||
+              it.mine.state === 'sent' ||
+              it.mine.state === 'confirmed')
+          ) {
+            last = it.mine;
+            return prev.map((x, j) =>
+              j === i ? { type: 'mine', mine: { ...it.mine, state: 'stopping' } } : x,
+            );
+          }
         }
+        return prev;
+      });
+      const inflight = inflightRef.current;
+      if (inflight && !(await inflight)) {
+        // the submit failed — nothing reached the agent, nothing to stop
+        setCooldown(false);
+        return;
       }
-      return prev;
-    });
-    const r = await post(agentPath(paneId, 'keys'), { keys: ['Escape'] });
-    if (!r.ok) alert(await errorOf(r));
-    else if (last) setMineState((last as Mine).key, 'stopped');
-  }, [paneId, setMineState]);
+      const r = await post(agentPath(paneId, 'keys'), { keys: ['Escape'] });
+      if (!r.ok) {
+        alert(await errorOf(r));
+      } else {
+        if (last) {
+          const mine = last as Mine;
+          setMineState(mine.key, 'stopped');
+          // hand the stopped prompt back to the composer to edit & resend
+          setRestoredDraft({ text: mine.text, n: restoreNonceRef.current++ });
+          if (agentKind === 'claude') {
+            // claude code restores the interrupted prompt into its own input
+            // line; the draft lives in our composer now, so clear it there
+            // (one C-c clears a non-empty input — it only quits on a double
+            // press when empty). grok doesn't restore on Esc, so no clear.
+            tuiClearRef.current = (async () => {
+              await new Promise((res) => setTimeout(res, 700)); // let the restore land
+              await post(agentPath(paneId, 'keys'), { keys: ['C-c'] });
+            })()
+              .catch(() => {})
+              .finally(() => {
+                tuiClearRef.current = null;
+              });
+          }
+        }
+        setSubmitted(false);
+      }
+      setTimeout(() => setCooldown(false), 1500);
+    } finally {
+      stopPendingRef.current = false;
+    }
+  }, [paneId, agentKind, setMineState]);
 
-  return { items, error, send, interrupt, cooldown };
+  const working = status === 'working' || submitted;
+
+  return { items, error, send, interrupt, cooldown, working, restoredDraft };
 }
