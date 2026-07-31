@@ -50,7 +50,7 @@ const coordinator = new Coordinator(
 
 // ---------- roster ----------
 
-let roster = { agents: [], herdrDown: false, updatedAt: 0 };
+let roster = { agents: [], workspaces: [], herdrDown: false, updatedAt: 0 };
 const rosterClients = new Set(); // SSE responses
 
 // Coalesce concurrent callers (interval + event debounce) — overlapping runs
@@ -63,7 +63,10 @@ function refreshRoster() {
 
 async function doRefreshRoster() {
   try {
-    const res = await rpc('agent.list');
+    const [res, wsRes] = await Promise.all([
+      rpc('agent.list'),
+      rpc('workspace.list').catch(() => null), // roster survives on agent.list alone
+    ]);
     const agents = await Promise.all((res.agents ?? []).map(async (a) => {
       const adapter = adapterFor(a.agent);
       let session = null;
@@ -74,13 +77,31 @@ async function doRefreshRoster() {
         paneId: a.pane_id,
         workspaceId: a.workspace_id,
         agent: a.agent,
+        displayAgent: a.display_agent ?? null,
+        label: a.name ?? null,
         title: a.terminal_title_stripped ?? a.terminal_title ?? '',
         status: a.agent_status,
         cwd: a.cwd,
+        focused: !!a.focused,
+        launchPending: !!a.launch_pending,
+        stateLabels: a.state_labels ?? {},
         revision: a.revision,
         hasTranscript: !!session,
         sessionId: session?.sessionId ?? null,
       };
+    }));
+    const workspaces = (wsRes?.workspaces ?? []).map((w) => ({
+      workspaceId: w.workspace_id,
+      number: w.number,
+      label: w.label,
+      focused: !!w.focused,
+      worktree: w.worktree
+        ? {
+            repoName: w.worktree.repo_name ?? null,
+            isLinked: !!w.worktree.is_linked_worktree,
+            checkoutPath: w.worktree.checkout_path ?? null,
+          }
+        : null,
     }));
     // status-transition detection for push (herdr-down blips must not read as
     // "everything resolved", so removals are only derived from a good refresh)
@@ -92,9 +113,9 @@ async function doRefreshRoster() {
       }
       for (const paneId of prev.keys()) coordinator.onRemove(paneId);
     }
-    roster = { agents, herdrDown: false, updatedAt: Date.now(), build: BUILD, bootedAt: BOOTED_AT };
+    roster = { agents, workspaces, herdrDown: false, updatedAt: Date.now(), build: BUILD, bootedAt: BOOTED_AT };
   } catch (e) {
-    roster = { agents: [], herdrDown: true, error: String(e.message ?? e), updatedAt: Date.now(), build: BUILD, bootedAt: BOOTED_AT };
+    roster = { agents: [], workspaces: [], herdrDown: true, error: String(e.message ?? e), updatedAt: Date.now(), build: BUILD, bootedAt: BOOTED_AT };
   }
   const payload = `event: roster\ndata: ${JSON.stringify(roster)}\n\n`;
   for (const res of rosterClients) res.write(payload);

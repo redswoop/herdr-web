@@ -4,16 +4,35 @@ export interface Agent {
   paneId: string;
   workspaceId: string;
   agent: string;
+  /** herdr's pretty name for the agent binary (e.g. "Claude Code") */
+  displayAgent: string | null;
+  /** user-assigned pane label in herdr */
+  label: string | null;
   title: string;
   status: AgentStatus;
   cwd: string | null;
+  /** this pane currently has focus in the TUI */
+  focused: boolean;
+  /** agent.start issued but the process hasn't come up yet */
+  launchPending: boolean;
+  /** freeform per-pane labels herdr's detectors attach (mode, model, …) */
+  stateLabels: Record<string, string>;
   revision: number;
   hasTranscript: boolean;
   sessionId: string | null;
 }
 
+export interface Workspace {
+  workspaceId: string;
+  number: number;
+  label: string;
+  focused: boolean;
+  worktree: { repoName: string | null; isLinked: boolean; checkoutPath: string | null } | null;
+}
+
 export interface Roster {
   agents: Agent[];
+  workspaces?: Workspace[];
   herdrDown?: boolean;
   error?: string;
   updatedAt: number;

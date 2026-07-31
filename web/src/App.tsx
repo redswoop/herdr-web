@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AgentView } from './components/AgentView';
-import { RosterView } from './components/RosterView';
+import { Sidebar } from './components/Sidebar';
 import { usePush } from './hooks/usePush';
 import { useRoster } from './hooks/useRoster';
 
@@ -13,6 +13,16 @@ export default function App() {
   const { roster, connected } = useRoster();
   const push = usePush();
   const [pane, setPane] = useState<string | null>(paneFromHash);
+  const [sideHidden, setSideHidden] = useState(
+    () => localStorage.getItem('herdr.sideHidden') === '1',
+  );
+
+  const toggleSide = () => {
+    setSideHidden((h) => {
+      localStorage.setItem('herdr.sideHidden', h ? '0' : '1');
+      return !h;
+    });
+  };
 
   useEffect(() => {
     const onHash = () => setPane(paneFromHash());
@@ -26,28 +36,53 @@ export default function App() {
     document.title = blocked ? `(${blocked}) herdr` : 'herdr';
   }, [roster]);
 
-  if (pane) {
-    return (
-      <AgentView
-        key={pane}
-        agent={roster.agents.find((a) => a.paneId === pane)}
-        onBack={() => {
-          location.hash = '';
-        }}
-      />
-    );
-  }
+  const agent = pane ? roster.agents.find((a) => a.paneId === pane) : undefined;
+  const blockedCount = roster.agents.filter((a) => a.status === 'blocked').length;
 
   return (
-    <RosterView
-      roster={roster}
-      connected={connected}
-      pushSupported={push.supported}
-      pushOn={push.subscribed}
-      onToggPush={push.toggle}
-      onOpen={(id) => {
-        location.hash = `#/agent/${encodeURIComponent(id)}`;
-      }}
-    />
+    <div className={`shell ${pane ? 'has-selection' : ''} ${sideHidden ? 'side-hidden' : ''}`}>
+      <Sidebar
+        roster={roster}
+        connected={connected}
+        selected={pane}
+        onSelect={(id) => {
+          location.hash = `#/agent/${encodeURIComponent(id)}`;
+        }}
+        pushSupported={push.supported}
+        pushOn={push.subscribed}
+        onTogglePush={push.toggle}
+        onCollapse={toggleSide}
+      />
+      <div className="rail">
+        <button className="ghost rail-toggle" aria-label="show session list" onClick={toggleSide}>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M6 7l5 5-5 5M13 7l5 5-5 5" />
+          </svg>
+        </button>
+        {blockedCount > 0 && (
+          <span className="rail-blocked" title={`${blockedCount} blocked`}>{blockedCount}</span>
+        )}
+        <span className={`dot rail-dot ${connected ? 'ok' : ''}`} title="daemon connection" />
+      </div>
+      <div className="detail">
+        {pane ? (
+          <AgentView
+            key={pane}
+            agent={agent}
+            onBack={() => {
+              location.hash = '';
+            }}
+          />
+        ) : (
+          <div className="placeholder">
+            <div className="placeholder-inner">
+              <div className="placeholder-emoji">🐑</div>
+              <div>pick a session</div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

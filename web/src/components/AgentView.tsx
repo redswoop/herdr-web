@@ -80,9 +80,11 @@ export function AgentView({ agent, onBack }: { agent: Agent | undefined; onBack:
         </button>
         <div className="who">
           <div className="agent-name">
-            {agent ? `${agent.agent} · ${agent.paneId}` : paneId}
+            {agent ? agent.label || agent.title || agent.paneId : paneId}
           </div>
-          <div className="sub">{agent?.cwd ?? ''}</div>
+          <div className="sub">
+            {agent ? [agent.displayAgent ?? agent.agent, agent.cwd].filter(Boolean).join(' · ') : ''}
+          </div>
         </div>
         <span className={`chip ${status ?? ''}`}>{status ?? '—'}</span>
       </header>
