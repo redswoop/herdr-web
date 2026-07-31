@@ -20,6 +20,10 @@ export function useAgentSession(
   agentKind: string | undefined,
 ) {
   const [items, setItems] = useState<Item[]>([]);
+  const itemsRef = useRef<Item[]>([]);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
   const [error, setError] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState(false); // brief lockout after an interrupt
   const keyRef = useRef(0);
@@ -177,7 +181,9 @@ export function useAgentSession(
   /**
    * Esc interrupts the current turn in both claude and grok TUIs. A stop
    * tapped while the prompt POST is still in flight queues behind it — the
-   * Escape must not outrun the prompt and land on an idle TUI.
+   * Escape must not outrun the prompt and land on an idle TUI. The server
+   * photographs the pane before the Esc lands (claude doesn't persist the
+   * in-flight message on abort) and returns the salvaged text.
    */
   const interrupt = useCallback(async () => {
     if (stopPendingRef.current) return;
@@ -185,33 +191,37 @@ export function useAgentSession(
     setCooldown(true); // a second Esc would hit the idle TUI
     try {
       let last: Mine | null = null;
-      setItems((prev) => {
-        for (let i = prev.length - 1; i >= 0; i -= 1) {
-          const it = prev[i];
-          if (
-            it.type === 'mine' &&
-            (it.mine.state === 'sending' ||
-              it.mine.state === 'sent' ||
-              it.mine.state === 'confirmed')
-          ) {
-            last = it.mine;
-            return prev.map((x, j) =>
-              j === i ? { type: 'mine', mine: { ...it.mine, state: 'stopping' } } : x,
-            );
-          }
+      for (let i = itemsRef.current.length - 1; i >= 0; i -= 1) {
+        const it = itemsRef.current[i];
+        if (
+          it.type === 'mine' &&
+          (it.mine.state === 'sending' || it.mine.state === 'sent' || it.mine.state === 'confirmed')
+        ) {
+          last = it.mine;
+          break;
         }
-        return prev;
-      });
+      }
+      if (last) setMineState(last.key, 'stopping');
       const inflight = inflightRef.current;
       if (inflight && !(await inflight)) {
         // the submit failed — nothing reached the agent, nothing to stop
         setCooldown(false);
         return;
       }
-      const r = await post(agentPath(paneId, 'keys'), { keys: ['Escape'] });
+      const r = await post(agentPath(paneId, 'interrupt'), { prompt: last?.text ?? null });
       if (!r.ok) {
         alert(await errorOf(r));
       } else {
+        const { salvage } = (await r.json()) as { salvage: string | null };
+        // mark the cut inline where the stream actually stopped: salvaged
+        // partial output (if any), then an "interrupted" divider
+        setItems((prev) => [
+          ...prev,
+          ...(salvage
+            ? [{ type: 'event', ev: { kind: 'salvage', text: salvage }, key: keyRef.current++ } as Item]
+            : []),
+          { type: 'event', ev: { kind: 'interrupted', text: '' }, key: keyRef.current++ },
+        ]);
         if (last) {
           const mine = last as Mine;
           setMineState(mine.key, 'stopped');

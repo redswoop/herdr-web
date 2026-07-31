@@ -6,6 +6,7 @@ const AUX_LABEL: Record<string, string> = {
   thought: '💭 thinking',
   tool_result: '📤 result',
   note: 'ℹ️ note',
+  salvage: '⏹ salvaged from screen',
 };
 
 export function Transcript({
@@ -59,6 +60,9 @@ export function Transcript({
 }
 
 function EventNode({ ev }: { ev: TEvent }) {
+  if (ev.kind === 'interrupted') {
+    return <div className="interrupt-divider">⏹ interrupted</div>;
+  }
   if (ev.kind === 'user') {
     return <div className="msg user" dangerouslySetInnerHTML={{ __html: md(ev.text) }} />;
   }

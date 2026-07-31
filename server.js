@@ -190,6 +190,45 @@ function parseMenuScreen(text) {
   return { kind: 'menu', header, question, detail: detail.join('\n'), options: opts };
 }
 
+// Trim a raw pane capture down to the content worth salvaging: cut the
+// composer/status chrome off the bottom and, when the stopped prompt's echo
+// is findable, everything above it. Chrome patterns cover claude code
+// (rules + ❯ + ⏵⏵ status, ✻ spinner) and grok (╭│╰ box + help line).
+const CHROME_RES = [
+  /^\s*$/,
+  /^\s*[╭╰]─/, // box top/bottom
+  /^\s*─{5,}\s*$/, // horizontal rule
+  /^\s*│.*│\s*$/, // boxed input/status line
+  /^\s*❯/, // bare input line
+  /^\s*⏵/, // claude status line
+  /^\s*[✻✳✶✢✽]\s/, // spinner / "Cogitated for 1m 6s"
+  /esc to interrupt/,
+  /shift\+tab/i,
+  /shortcuts/i,
+];
+function trimSalvage(text, promptText) {
+  const lines = text.split('\n');
+  let end = lines.length;
+  while (end > 0 && CHROME_RES.some((re) => re.test(lines[end - 1]))) end -= 1;
+  let start = 0;
+  const firstLine = (promptText ?? '').split('\n')[0].trim().slice(0, 40);
+  if (firstLine) {
+    for (let i = end - 1; i >= 0; i -= 1) {
+      const m = lines[i].trim();
+      if ((m.startsWith('>') || m.startsWith('❯')) && m.slice(1).trim().startsWith(firstLine)) {
+        start = i + 1;
+        break;
+      }
+    }
+  }
+  const out = lines
+    .slice(start, end)
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return out ? out.slice(-8000) : null;
+}
+
 // What is the agent blocked ON? Session file first (pending tool_use), then
 // the visible screen parsed for a numbered menu. Shared by the API route and
 // the push coordinator (the notification body carries the question).
@@ -388,6 +427,23 @@ const server = http.createServer(async (req, res) => {
         if (!text?.trim()) throw httpErr(400, 'empty prompt');
         await rpc('agent.prompt', { target: paneId, text });
         return sendJson(res, 200, { ok: true });
+      }
+
+      // Interrupt the turn, photographing the pane first: claude never
+      // persists the in-flight message to the session file on abort, so the
+      // screen is the only place that text exists. Capture is best-effort —
+      // the Esc goes regardless.
+      if (req.method === 'POST' && action === 'interrupt') {
+        const { prompt } = await readBody(req);
+        let salvage = null;
+        try {
+          const r = await rpc('agent.read', {
+            target: paneId, source: 'recent_unwrapped', lines: 400, format: 'text',
+          });
+          salvage = trimSalvage(r.read?.text ?? '', prompt);
+        } catch {}
+        await rpc('agent.send_keys', { target: paneId, keys: ['Escape'] });
+        return sendJson(res, 200, { ok: true, salvage });
       }
 
       if (req.method === 'POST' && action === 'keys') {

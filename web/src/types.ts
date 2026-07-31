@@ -21,7 +21,15 @@ export interface Roster {
   bootedAt?: string;
 }
 
-export type EventKind = 'user' | 'assistant' | 'thought' | 'tool_use' | 'tool_result' | 'note';
+export type EventKind =
+  | 'user'
+  | 'assistant'
+  | 'thought'
+  | 'tool_use'
+  | 'tool_result'
+  | 'note'
+  | 'salvage' // client-only: screen capture taken at interrupt time
+  | 'interrupted'; // client-only: divider marking where the stream was cut
 
 export interface TEvent {
   kind: EventKind;

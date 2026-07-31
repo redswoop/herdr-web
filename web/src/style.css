@@ -275,6 +275,16 @@ textarea::placeholder { color: var(--sub); }
   box-shadow: 0 2px 10px color-mix(in srgb, var(--blocked) 35%, transparent);
 }
 
+.interrupt-divider {
+  display: flex; align-items: center; gap: 10px;
+  color: var(--blocked); font-size: 12.5px;
+  margin: 6px 0;
+}
+.interrupt-divider::before, .interrupt-divider::after {
+  content: ''; flex: 1;
+  border-top: 1px solid color-mix(in srgb, var(--blocked) 40%, transparent);
+}
+
 /* ---------- animation ---------- */
 @keyframes rise {
   from { opacity: 0; transform: translateY(6px); }
