@@ -57,6 +57,10 @@ export interface TEvent {
   ts?: string;
   id?: string;
   input?: unknown;
+  /** API message id — usage repeats per content-block line, dedupe on this */
+  msgId?: string;
+  /** claude only: output tokens + context size for the API call */
+  usage?: { out: number; ctx: number };
 }
 
 /** A locally-sent prompt: rendered instantly, reconciled against the session file. */

@@ -102,6 +102,7 @@ export function AgentView({ agent, onBack }: { agent: Agent | undefined; onBack:
       <Transcript
         items={items}
         error={error}
+        working={working}
         cancellableKey={cancellableKey}
         onInterrupt={interrupt}
       />

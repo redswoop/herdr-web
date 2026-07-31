@@ -1,22 +1,133 @@
-import { useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { esc, md } from '../md';
 import type { Item, Mine, TEvent } from '../types';
 
 const AUX_LABEL: Record<string, string> = {
-  thought: '💭 thinking',
   tool_result: '📤 result',
   note: 'ℹ️ note',
   salvage: '⏹ salvaged from screen',
 };
 
+/** timestamps below this are local monotonic counters, not epoch ms */
+const EPOCH_MS = 1e12;
+
+type Step =
+  | { type: 'thought'; key: number; text: string }
+  | { type: 'tool'; key: number; name: string; id?: string; input: unknown; args: string; result: string | null }
+  | { type: 'result'; key: number; text: string };
+
+type Node =
+  | { type: 'item'; key: string; item: Item }
+  | { type: 'group'; key: string; steps: Step[]; startAt: number; endAt: number }
+  | { type: 'meta'; key: string; dur: number | null; tok: number; ctx: number | null };
+
+/**
+ * Collapse each run of thought/tool_use/tool_result events into one activity
+ * group (results paired to their calls by id), and append a stats footer
+ * (elapsed · tokens · context) after each finished turn. Turn = user prompt
+ * up to the next one; stats only render when the session file carries real
+ * timestamps/usage (claude does, grok doesn't).
+ */
+function buildNodes(items: Item[], working: boolean): Node[] {
+  const nodes: Node[] = [];
+  let group: { key: string; steps: Step[]; startAt: number; endAt: number } | null = null;
+  let turn: {
+    key: string;
+    startAt: number;
+    endAt: number;
+    out: Map<string, number>;
+    ctx: number | null;
+    sawWork: boolean;
+  } | null = null;
+
+  const flushGroup = () => {
+    if (group) nodes.push({ type: 'group', ...group });
+    group = null;
+  };
+  const flushTurn = () => {
+    if (!turn) return;
+    const dur =
+      turn.startAt > EPOCH_MS && turn.endAt > turn.startAt ? turn.endAt - turn.startAt : null;
+    let tok = 0;
+    turn.out.forEach((n) => (tok += n));
+    if (turn.sawWork && ((dur !== null && dur >= 1000) || tok > 0)) {
+      nodes.push({ type: 'meta', key: `t${turn.key}`, dur, tok, ctx: turn.ctx });
+    }
+    turn = null;
+  };
+
+  for (const it of items) {
+    const ev = it.type === 'event' ? it.ev : null;
+    const isPrompt = it.type === 'mine' || ev?.kind === 'user';
+
+    if (isPrompt) {
+      flushGroup();
+      flushTurn();
+      turn = {
+        key: it.type === 'mine' ? `m${it.mine.key}` : `e${(it as { key: number }).key}`,
+        startAt: it.at,
+        endAt: it.at,
+        out: new Map(),
+        ctx: null,
+        sawWork: false,
+      };
+      nodes.push({ type: 'item', key: turn.key, item: it });
+      continue;
+    }
+
+    // ev is non-null from here (mine was handled above)
+    const e = ev as TEvent;
+    const key = (it as { key: number }).key;
+    if (turn) {
+      if (it.at > EPOCH_MS && it.at > turn.endAt) turn.endAt = it.at;
+      if (e.usage) {
+        const id = e.msgId ?? `k${key}`;
+        turn.out.set(id, Math.max(turn.out.get(id) ?? 0, e.usage.out));
+        turn.ctx = e.usage.ctx;
+      }
+      if (e.kind !== 'interrupted') turn.sawWork = true;
+    }
+
+    if (e.kind === 'thought' || e.kind === 'tool_use' || e.kind === 'tool_result') {
+      if (e.kind === 'tool_result' && e.id && group) {
+        const call = group.steps.find(
+          (s): s is Step & { type: 'tool' } => s.type === 'tool' && s.id === e.id && s.result === null,
+        );
+        if (call) {
+          call.result = e.text;
+          group.endAt = Math.max(group.endAt, it.at);
+          continue;
+        }
+      }
+      if (!group) group = { key: `g${key}`, steps: [], startAt: it.at, endAt: it.at };
+      group.endAt = Math.max(group.endAt, it.at);
+      if (e.kind === 'thought') group.steps.push({ type: 'thought', key, text: e.text });
+      else if (e.kind === 'tool_use') {
+        group.steps.push({
+          type: 'tool', key, name: e.name ?? 'tool', id: e.id, input: e.input, args: e.text, result: null,
+        });
+      } else group.steps.push({ type: 'result', key, text: e.text });
+      continue;
+    }
+
+    flushGroup();
+    nodes.push({ type: 'item', key: `e${key}`, item: it });
+  }
+  flushGroup();
+  if (!working) flushTurn();
+  return nodes;
+}
+
 export function Transcript({
   items,
   error,
+  working,
   cancellableKey,
   onInterrupt,
 }: {
   items: Item[];
   error: string | null;
+  working: boolean;
   cancellableKey: number | null; // mine bubble that gets tap-to-stop
   onInterrupt: () => void;
 }) {
@@ -41,20 +152,28 @@ export function Transcript({
     );
   }
 
+  const nodes = buildNodes(items, working);
   return (
     <main className="scroll transcript" ref={ref} onScroll={onScroll}>
-      {items.map((it) =>
-        it.type === 'mine' ? (
+      {nodes.map((n, i) => {
+        if (n.type === 'group') {
+          return <ActivityGroup key={n.key} node={n} live={working && i === nodes.length - 1} />;
+        }
+        if (n.type === 'meta') {
+          return <TurnMeta key={n.key} dur={n.dur} tok={n.tok} ctx={n.ctx} />;
+        }
+        const it = n.item;
+        return it.type === 'mine' ? (
           <MineBubble
-            key={`m${it.mine.key}`}
+            key={n.key}
             mine={it.mine}
             cancellable={it.mine.key === cancellableKey}
             onInterrupt={onInterrupt}
           />
         ) : (
-          <EventNode key={`e${it.key}`} ev={it.ev} />
-        ),
-      )}
+          <EventNode key={n.key} ev={it.ev} />
+        );
+      })}
     </main>
   );
 }
@@ -69,24 +188,199 @@ function EventNode({ ev }: { ev: TEvent }) {
   if (ev.kind === 'assistant') {
     return <div className="msg assistant" dangerouslySetInnerHTML={{ __html: md(ev.text) }} />;
   }
-  const body = ev.text.length > 20_000 ? `${ev.text.slice(0, 20_000)}\n… [truncated]` : ev.text;
   return (
     <details className="aux">
-      <summary>
-        {ev.kind === 'tool_use' ? (
-          <>
-            🔧 <span className="tool-name">{ev.name ?? 'tool'}</span>
-          </>
-        ) : (
-          AUX_LABEL[ev.kind] ?? ev.kind
-        )}
-      </summary>
+      <summary>{AUX_LABEL[ev.kind] ?? ev.kind}</summary>
       <div className="body">
-        <pre dangerouslySetInnerHTML={{ __html: esc(body) }} />
+        <pre dangerouslySetInnerHTML={{ __html: esc(clip(ev.text)) }} />
       </div>
     </details>
   );
 }
+
+/* ---------- activity group ---------- */
+
+function ActivityGroup({ node, live }: { node: Node & { type: 'group' }; live: boolean }) {
+  const [open, setOpen] = useState(false);
+  const tools = node.steps.filter((s) => s.type === 'tool');
+  const thoughts = node.steps.length - tools.length;
+
+  // "Bash ×3 · Read ×2 · Grep" — top three tools by use count
+  const tally = new Map<string, number>();
+  for (const t of tools) tally.set(t.name, (tally.get(t.name) ?? 0) + 1);
+  const names = [...tally.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([n, c]) => (c > 1 ? `${n} ×${c}` : n))
+    .join(' · ');
+
+  const last = node.steps[node.steps.length - 1];
+  const runningName =
+    last?.type === 'tool' && last.result === null ? last.name : 'thinking';
+
+  const dur =
+    node.startAt > EPOCH_MS && node.endAt > node.startAt ? node.endAt - node.startAt : null;
+
+  const count = tools.length
+    ? `${tools.length} tool${tools.length === 1 ? '' : 's'}`
+    : `thought${thoughts === 1 ? '' : ` ×${thoughts}`}`;
+
+  return (
+    <div className={`activity ${open ? 'open' : ''}`}>
+      <button className="act-head" onClick={() => setOpen((o) => !o)}>
+        <span className="chev">▸</span>
+        {live ? (
+          <>
+            <span className="live-dot" />
+            <span className="act-count">{runningName}…</span>
+          </>
+        ) : (
+          <span className="act-count">{count}</span>
+        )}
+        {names && <span className="act-names">{names}</span>}
+        {dur !== null && dur >= 1000 && <span className="act-dur">{fmtDur(dur)}</span>}
+      </button>
+      {open && (
+        <div className="act-steps">
+          {node.steps.map((s) => (
+            <StepRow key={s.key} step={s} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StepRow({ step }: { step: Step }) {
+  const [open, setOpen] = useState(false);
+  if (step.type === 'thought') {
+    return (
+      <div className="step">
+        <button className="step-head" onClick={() => setOpen((o) => !o)}>
+          <span className="step-name thought">💭</span>
+          <span className="step-sum">{firstLine(step.text)}</span>
+        </button>
+        {open && (
+          <div className="step-detail">
+            <pre dangerouslySetInnerHTML={{ __html: esc(clip(step.text)) }} />
+          </div>
+        )}
+      </div>
+    );
+  }
+  if (step.type === 'result') {
+    return (
+      <div className="step">
+        <button className="step-head" onClick={() => setOpen((o) => !o)}>
+          <span className="step-name">result</span>
+          <span className="step-sum">{firstLine(step.text)}</span>
+        </button>
+        {open && (
+          <div className="step-detail">
+            <pre dangerouslySetInnerHTML={{ __html: esc(clip(step.text)) }} />
+          </div>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="step">
+      <button className="step-head" onClick={() => setOpen((o) => !o)}>
+        <span className="step-name">{step.name}</span>
+        <span className="step-sum">{stepSummary(step.name, step.input, step.args)}</span>
+        {step.result === null && <span className="step-pending">…</span>}
+      </button>
+      {open && (
+        <div className="step-detail">
+          {step.args && <pre dangerouslySetInnerHTML={{ __html: esc(clip(step.args)) }} />}
+          {step.result !== null && (
+            <>
+              <div className="step-detail-label">result</div>
+              <pre dangerouslySetInnerHTML={{ __html: esc(clip(step.result)) }} />
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TurnMeta({ dur, tok, ctx }: { dur: number | null; tok: number; ctx: number | null }) {
+  const parts = [
+    dur !== null ? fmtDur(dur) : null,
+    tok > 0 ? `${fmtTok(tok)} tokens` : null,
+    ctx !== null && ctx > 0 ? `ctx ${fmtTok(ctx)}` : null,
+  ].filter(Boolean);
+  if (!parts.length) return null;
+  return <div className="turn-meta">{parts.join(' · ')}</div>;
+}
+
+/* ---------- helpers ---------- */
+
+function clip(text: string): string {
+  return text.length > 20_000 ? `${text.slice(0, 20_000)}\n… [truncated]` : text;
+}
+
+function firstLine(text: string): string {
+  const l = text.trimStart();
+  const nl = l.indexOf('\n');
+  return nl === -1 ? l : l.slice(0, nl);
+}
+
+function shortPath(p: string): string {
+  return p.split('/').filter(Boolean).slice(-2).join('/');
+}
+
+/** one-line gist of a tool call — the command, the file, the pattern */
+function stepSummary(name: string, input: unknown, args: string): string {
+  const i = (input ?? {}) as Record<string, unknown>;
+  const s = (v: unknown) => (typeof v === 'string' ? v : '');
+  switch (name) {
+    case 'Bash':
+      return firstLine(s(i.command)) || s(i.description);
+    case 'Read':
+    case 'Write':
+    case 'Edit':
+    case 'NotebookEdit':
+      return shortPath(s(i.file_path) || s(i.path) || s(i.notebook_path));
+    case 'Grep':
+    case 'Glob': {
+      const where = shortPath(s(i.path));
+      return [s(i.pattern), where].filter(Boolean).join(' in ');
+    }
+    case 'Agent':
+    case 'Task':
+      return s(i.description) || firstLine(s(i.prompt)).slice(0, 100);
+    case 'WebFetch':
+      return s(i.url);
+    case 'WebSearch':
+      return s(i.query);
+    case 'Skill':
+      return [s(i.skill), s(i.args)].filter(Boolean).join(' ');
+    case 'TodoWrite':
+      return 'update todo list';
+    default: {
+      const first = Object.values(i).find((v) => typeof v === 'string' && v.trim());
+      return first ? firstLine(first as string) : firstLine(args);
+    }
+  }
+}
+
+function fmtDur(ms: number): string {
+  const sec = Math.round(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  if (m < 60) return `${m}m ${String(sec % 60).padStart(2, '0')}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+function fmtTok(n: number): string {
+  if (n < 1000) return `${n}`;
+  if (n < 10_000) return `${(n / 1000).toFixed(1)}k`;
+  return `${Math.round(n / 1000)}k`;
+}
+
+/* ---------- prompt bubble ---------- */
 
 const MINE_STATUS: Record<Mine['state'], string> = {
   sending: '· sending',
