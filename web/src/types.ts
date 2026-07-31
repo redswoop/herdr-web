@@ -121,6 +121,18 @@ export type Item =
   | { type: 'event'; ev: TEvent; key: number; at: number }
   | { type: 'mine'; mine: Mine; at: number };
 
+/** GET /api/file — server-side stat + read of a path on the host */
+export interface FileInfo {
+  path: string;
+  size: number;
+  mtime: number;
+  kind: 'text' | 'image' | 'binary' | 'dir' | 'special';
+  content?: string;
+  truncated?: boolean;
+  entries?: { name: string; dir: boolean }[];
+  clipped?: boolean;
+}
+
 export interface AskQuestion {
   question: string;
   header?: string;

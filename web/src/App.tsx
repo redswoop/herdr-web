@@ -6,15 +6,17 @@ import { TokenGate } from './components/TokenGate';
 import { usePush } from './hooks/usePush';
 import { useRoster } from './hooks/useRoster';
 
-function paneFromHash(): string | null {
-  const m = location.hash.match(/^#\/agent\/(.+)$/);
-  return m ? decodeURIComponent(m[1]) : null;
+function routeFromHash(): { pane: string | null; file: string | null } {
+  const m = location.hash.match(/^#\/agent\/([^/]+)(?:\/file\/(.+))?$/);
+  if (!m) return { pane: null, file: null };
+  return { pane: decodeURIComponent(m[1]), file: m[2] ? decodeURIComponent(m[2]) : null };
 }
 
 export default function App() {
   const { roster, connected, authNeeded } = useRoster();
   const push = usePush();
-  const [pane, setPane] = useState<string | null>(paneFromHash);
+  const [route, setRoute] = useState(routeFromHash);
+  const pane = route.pane;
   const [sideHidden, setSideHidden] = useState(
     () => localStorage.getItem('herdr.sideHidden') === '1',
   );
@@ -28,7 +30,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    const onHash = () => setPane(paneFromHash());
+    const onHash = () => setRoute(routeFromHash());
     addEventListener('hashchange', onHash);
     return () => removeEventListener('hashchange', onHash);
   }, []);
@@ -86,6 +88,7 @@ export default function App() {
           <AgentView
             key={pane}
             agent={agent}
+            file={route.file}
             onBack={() => {
               location.hash = '';
             }}

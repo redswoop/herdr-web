@@ -486,6 +486,88 @@ async function agentRpc(method, params) {
   }
 }
 
+// ---------- file viewer ----------
+// Read-only peek at files on this machine for the web UI's file overlay.
+// Same trust boundary as the rest of the API — the token already gates a UI
+// that can ask an agent to read anything — so no path jail, just no writes.
+
+const TEXT_MAX = 512 * 1024;
+const RAW_MAX = 50 * 1024 * 1024;
+const IMG_MIME = {
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
+  '.webp': 'image/webp', '.svg': 'image/svg+xml', '.avif': 'image/avif',
+  '.ico': 'image/x-icon', '.bmp': 'image/bmp',
+};
+
+function resolveUserPath(url) {
+  const p = url.searchParams.get('path');
+  if (!p) throw httpErr(400, 'path required');
+  const home = os.homedir();
+  const untilde = (s) => s.replace(/^~(?=\/|$)/, home);
+  return path.resolve(untilde(url.searchParams.get('cwd') || home), untilde(p));
+}
+
+function fsErr(e) {
+  if (e?.code === 'ENOENT' || e?.code === 'ENOTDIR') return httpErr(404, 'no such file');
+  if (e?.code === 'EACCES' || e?.code === 'EPERM') return httpErr(403, 'permission denied');
+  return e;
+}
+
+async function fileInfo(url) {
+  const target = resolveUserPath(url);
+  let st;
+  try { st = await fsp.stat(target); } catch (e) { throw fsErr(e); }
+  const base = { path: target, size: st.size, mtime: st.mtimeMs };
+  if (st.isDirectory()) {
+    let ents;
+    try { ents = await fsp.readdir(target, { withFileTypes: true }); } catch (e) { throw fsErr(e); }
+    const entries = ents
+      .map((d) => ({ name: d.name, dir: d.isDirectory() }))
+      .sort((a, b) => Number(b.dir) - Number(a.dir) || a.name.localeCompare(b.name));
+    return { ...base, kind: 'dir', entries: entries.slice(0, 1000), clipped: ents.length > 1000 };
+  }
+  if (!st.isFile()) return { ...base, kind: 'special' };
+  if (IMG_MIME[path.extname(target).toLowerCase()]) return { ...base, kind: 'image' };
+  let fh;
+  try { fh = await fsp.open(target); } catch (e) { throw fsErr(e); }
+  try {
+    const buf = Buffer.alloc(Math.min(st.size, TEXT_MAX));
+    const { bytesRead } = await fh.read(buf, 0, buf.length, 0);
+    if (buf.subarray(0, Math.min(bytesRead, 8192)).includes(0)) return { ...base, kind: 'binary' };
+    return {
+      ...base,
+      kind: 'text',
+      content: buf.subarray(0, bytesRead).toString('utf8'),
+      truncated: st.size > TEXT_MAX,
+    };
+  } finally {
+    await fh.close();
+  }
+}
+
+async function serveRawFile(url, res) {
+  const target = resolveUserPath(url);
+  let body;
+  try {
+    const st = await fsp.stat(target);
+    if (!st.isFile()) throw httpErr(422, 'not a regular file');
+    if (st.size > RAW_MAX) throw httpErr(413, 'file too large');
+    body = await fsp.readFile(target);
+  } catch (e) {
+    throw fsErr(e);
+  }
+  const ext = path.extname(target).toLowerCase();
+  res.writeHead(200, {
+    'content-type': IMG_MIME[ext] ?? MIME[ext] ?? 'application/octet-stream',
+    'cache-control': 'no-store',
+    'content-length': body.length,
+    // a hostile file (e.g. an svg an agent downloaded) must not script our origin
+    'content-security-policy': 'sandbox',
+    'x-content-type-options': 'nosniff',
+  });
+  res.end(body);
+}
+
 // ---------- http ----------
 
 function httpErr(status, message) {
@@ -559,6 +641,13 @@ const server = http.createServer(async (req, res) => {
       rosterClients.add(res);
       res.on('close', () => rosterClients.delete(res));
       return;
+    }
+
+    if (req.method === 'GET' && seg[1] === 'file' && !seg[2]) {
+      return sendJson(res, 200, await fileInfo(url));
+    }
+    if (req.method === 'GET' && seg[1] === 'file' && seg[2] === 'raw') {
+      return await serveRawFile(url, res);
     }
 
     if (req.method === 'GET' && seg[1] === 'kinds' && !seg[2]) {

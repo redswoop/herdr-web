@@ -39,7 +39,8 @@ button {
 button:active { transform: scale(0.97); }
 button:disabled { cursor: default; }
 
-.view { display: flex; flex-direction: column; height: 100%; }
+.view-split { display: flex; height: 100%; min-width: 0; }
+.view { display: flex; flex-direction: column; height: 100%; flex: 1; min-width: 0; }
 
 /* ---------- shell: sidebar + detail ---------- */
 .shell { display: flex; height: 100dvh; }
@@ -322,6 +323,18 @@ button:disabled { cursor: default; }
   font-size: 0.88em; font-family: var(--mono);
 }
 .msg pre code { background: none; padding: 0; }
+.msg a, .file-md a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  text-underline-offset: 2px;
+  word-break: break-all;
+  cursor: pointer;
+}
+.msg a:active, .file-md a:active { text-decoration-color: var(--accent); }
+/* file links (no href) read as quieter, dotted affordances */
+.msg a[data-file], .file-md a[data-file] { text-decoration-style: dotted; }
+.msg code a[data-file], .file-md code a[data-file] { color: inherit; }
 
 .sent-status {
   font-size: 11px; color: var(--sub); margin-top: 5px; text-align: right;
@@ -404,6 +417,12 @@ button:disabled { cursor: default; }
   font-family: var(--mono); font-size: 11.5px; color: var(--sub);
 }
 .step-pending { flex: none; color: var(--working); }
+.step-file {
+  text-decoration: underline dotted color-mix(in srgb, var(--accent) 55%, transparent);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.step-file:hover { color: var(--accent); }
 .step-detail { padding: 2px 6px 8px; }
 .step-detail pre {
   margin: 0 0 6px;
@@ -577,6 +596,120 @@ textarea::placeholder { color: var(--sub); }
 .interrupt-divider::before, .interrupt-divider::after {
   content: ''; flex: 1;
   border-top: 1px solid color-mix(in srgb, var(--blocked) 40%, transparent);
+}
+
+/* ---------- file viewer ---------- */
+/* phone: full-screen overlay; desktop: right-hand activity panel */
+.file-viewer {
+  position: fixed; inset: 0; z-index: 30;
+  display: flex; flex-direction: column;
+  background: var(--bg);
+  animation: rise 0.18s ease both;
+}
+@media (min-width: 721px) {
+  .file-viewer {
+    position: static;
+    z-index: auto;
+    flex: 0 0 clamp(340px, 44%, 680px);
+    min-width: 0;
+    height: 100%;
+    border-left: 1px solid var(--hairline);
+    animation: slide-in 0.18s ease both;
+  }
+}
+@keyframes slide-in {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.only-wide { display: none; }
+@media (min-width: 721px) {
+  .only-narrow { display: none; }
+  .only-wide { display: inline; }
+}
+.file-bar { gap: 10px; position: relative; }
+.file-close { font-size: 18px; flex: none; }
+.file-toggle.on { background: var(--surface-2); border-radius: var(--r-sm); }
+.pop-backdrop { position: fixed; inset: 0; z-index: 9; }
+.file-hist {
+  position: absolute; top: calc(100% + 6px); right: 10px; z-index: 10;
+  width: min(420px, calc(100% - 20px));
+  max-height: 50dvh; overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  padding: 4px;
+  animation: rise 0.14s ease both;
+}
+.hist-row { display: flex; align-items: center; gap: 2px; border-radius: 6px; }
+.hist-row:hover { background: var(--surface-2); }
+.hist-row.cur .hist-path { color: var(--accent); }
+.hist-path {
+  flex: 1; min-width: 0;
+  text-align: left;
+  font-family: var(--mono); font-size: 12px;
+  color: var(--text);
+  padding: 7px 8px;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  direction: rtl; /* ellipsis on the LEFT — the filename end matters most */
+}
+.hist-x {
+  flex: none;
+  color: var(--sub); font-size: 12px;
+  padding: 6px 8px; border-radius: 6px;
+}
+.hist-x:hover { color: var(--text); background: var(--surface-3); }
+.file-path {
+  flex: 1; min-width: 0;
+  font-family: var(--mono); font-size: 12.5px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  padding: 7px 10px;
+  outline: none;
+}
+.file-path:focus { border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.file-toggle { font-size: 13px; color: var(--accent); flex: none; text-decoration: none; }
+.file-body { flex: 1; padding: 14px 16px; }
+.file-pre {
+  font: 12.5px/1.5 var(--mono);
+  white-space: pre; overflow-x: auto;
+  margin: 0;
+}
+.file-md { max-width: 760px; line-height: 1.55; }
+.file-md pre {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  overflow-x: auto;
+  font: 12.5px/1.45 var(--mono);
+}
+.file-md code {
+  background: var(--surface-2); border-radius: 5px; padding: 1px 5px;
+  font-size: 0.88em; font-family: var(--mono);
+}
+.file-md pre code { background: none; padding: 0; }
+.file-img { max-width: 100%; height: auto; border-radius: var(--r-sm); }
+.file-dir { display: flex; flex-direction: column; gap: 1px; max-width: 560px; }
+.file-dir button {
+  display: flex; align-items: center; gap: 8px;
+  text-align: left; padding: 8px 10px;
+  border-radius: var(--r-sm);
+  font-family: var(--mono); font-size: 13px;
+  color: var(--text);
+  transition: background 0.12s;
+}
+.file-dir button:hover { background: var(--surface-2); }
+.file-ico { flex: none; font-size: 14px; }
+.file-note { color: var(--sub); font-size: 12px; padding: 10px 0; }
+.file-meta {
+  flex: none;
+  padding: 8px 16px;
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--hairline);
+  color: var(--sub); font-size: 11.5px; font-family: var(--mono);
 }
 
 /* ---------- new chat modal ---------- */

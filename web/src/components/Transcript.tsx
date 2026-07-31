@@ -144,6 +144,7 @@ export function Transcript({
   working,
   cancellableKey,
   onInterrupt,
+  onOpenFile,
 }: {
   items: Item[];
   error: string | null;
@@ -151,9 +152,20 @@ export function Transcript({
   working: boolean;
   cancellableKey: number | null; // mine bubble that gets tap-to-stop
   onInterrupt: () => void;
+  onOpenFile: (path: string) => void;
 }) {
   const ref = useRef<HTMLElement>(null);
   const follow = useRef(true);
+
+  // md() emits href-less <a data-file> for path-looking text — one delegated
+  // handler beats wiring callbacks through dangerouslySetInnerHTML
+  const onClick = (e: React.MouseEvent) => {
+    const a = (e.target as HTMLElement).closest('a[data-file]') as HTMLElement | null;
+    if (a?.dataset.file) {
+      e.preventDefault();
+      onOpenFile(a.dataset.file);
+    }
+  };
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -182,10 +194,17 @@ export function Transcript({
   // (fresh prompt, assistant text mid-turn) gets the standalone working pill
   const showPill = working && nodes[nodes.length - 1]?.type !== 'group';
   return (
-    <main className="scroll transcript" ref={ref} onScroll={onScroll}>
+    <main className="scroll transcript" ref={ref} onScroll={onScroll} onClick={onClick}>
       {nodes.map((n, i) => {
         if (n.type === 'group') {
-          return <ActivityGroup key={n.key} node={n} live={working && i === nodes.length - 1} />;
+          return (
+            <ActivityGroup
+              key={n.key}
+              node={n}
+              live={working && i === nodes.length - 1}
+              onOpenFile={onOpenFile}
+            />
+          );
         }
         if (n.type === 'meta') {
           return <TurnMeta key={n.key} dur={n.dur} tok={n.tok} ctx={n.ctx} />;
@@ -271,7 +290,15 @@ function EventNode({ ev }: { ev: TEvent }) {
 
 /* ---------- activity group ---------- */
 
-function ActivityGroup({ node, live }: { node: Node & { type: 'group' }; live: boolean }) {
+function ActivityGroup({
+  node,
+  live,
+  onOpenFile,
+}: {
+  node: Node & { type: 'group' };
+  live: boolean;
+  onOpenFile: (path: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   const tools = node.steps.filter((s) => s.type === 'tool');
   const thoughts = node.steps.length - tools.length;
@@ -314,7 +341,7 @@ function ActivityGroup({ node, live }: { node: Node & { type: 'group' }; live: b
       {open && (
         <div className="act-steps">
           {node.steps.map((s) => (
-            <StepRow key={s.key} step={s} />
+            <StepRow key={s.key} step={s} onOpenFile={onOpenFile} />
           ))}
         </div>
       )}
@@ -322,7 +349,7 @@ function ActivityGroup({ node, live }: { node: Node & { type: 'group' }; live: b
   );
 }
 
-function StepRow({ step }: { step: Step }) {
+function StepRow({ step, onOpenFile }: { step: Step; onOpenFile: (path: string) => void }) {
   const [open, setOpen] = useState(false);
   if (step.type === 'thought') {
     return (
@@ -354,11 +381,24 @@ function StepRow({ step }: { step: Step }) {
       </div>
     );
   }
+  const file = stepFile(step.name, step.input);
   return (
     <div className="step">
       <button className="step-head" onClick={() => setOpen((o) => !o)}>
         <span className="step-name">{step.name}</span>
-        <span className="step-sum">{stepSummary(step.name, step.input, step.args)}</span>
+        {file ? (
+          <span
+            className="step-sum step-file"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenFile(file);
+            }}
+          >
+            {stepSummary(step.name, step.input, step.args)}
+          </span>
+        ) : (
+          <span className="step-sum">{stepSummary(step.name, step.input, step.args)}</span>
+        )}
         {step.result === null && <span className="step-pending">…</span>}
       </button>
       {open && (
@@ -422,6 +462,21 @@ function firstLine(text: string): string {
 
 function shortPath(p: string): string {
   return p.split('/').filter(Boolean).slice(-2).join('/');
+}
+
+/** the file a tool call touched, when it's unambiguous — powers tap-to-view */
+function stepFile(name: string, input: unknown): string | null {
+  const i = (input ?? {}) as Record<string, unknown>;
+  const s = (v: unknown) => (typeof v === 'string' ? v : '');
+  switch (name) {
+    case 'Read':
+    case 'Write':
+    case 'Edit':
+    case 'NotebookEdit':
+      return s(i.file_path) || s(i.path) || s(i.notebook_path) || null;
+    default:
+      return null;
+  }
 }
 
 /** one-line gist of a tool call — the command, the file, the pattern */

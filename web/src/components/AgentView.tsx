@@ -5,6 +5,7 @@ import { useBlockedContext } from '../hooks/useBlockedContext';
 import type { Agent } from '../types';
 import { BlockedCard } from './BlockedCard';
 import { Composer } from './Composer';
+import { FileViewer } from './FileViewer';
 import { ScreenMirror } from './ScreenMirror';
 import { Transcript } from './Transcript';
 
@@ -23,7 +24,15 @@ function isTuiChrome(line: string): boolean {
   return TUI_CHROME_RES.some((re) => re.test(line));
 }
 
-export function AgentView({ agent, onBack }: { agent: Agent | undefined; onBack: () => void }) {
+export function AgentView({
+  agent,
+  file,
+  onBack,
+}: {
+  agent: Agent | undefined;
+  file: string | null;
+  onBack: () => void;
+}) {
   const paneId = agent?.paneId ?? '';
   const status = agent?.status;
   const { items, error, loaded, send, interrupt, cooldown, working, restoredDraft, inject } =
@@ -32,6 +41,45 @@ export function AgentView({ agent, onBack }: { agent: Agent | undefined; onBack:
   const [screen, setScreen] = useState<string | null>(null);
   const [keysPinned, setKeysPinned] = useState(false);
   const [keysForced, setKeysForced] = useState(false); // 409 fallback
+
+  const openFile = useCallback(
+    (p: string) => {
+      location.hash = `#/agent/${encodeURIComponent(paneId)}/file/${encodeURIComponent(p)}`;
+    },
+    [paneId],
+  );
+
+  // per-pane stack of viewed files (resolved paths), newest first, persisted
+  // so it survives reloads; x-ing an entry only forgets it, never closes
+  const histKey = `herdr.fileHist.${paneId}`;
+  const [fileHist, setFileHist] = useState<string[]>(() => {
+    try {
+      const j = JSON.parse(localStorage.getItem(histKey) ?? '[]');
+      return Array.isArray(j) ? j.filter((x) => typeof x === 'string').slice(0, 30) : [];
+    } catch {
+      return [];
+    }
+  });
+  const mutateHist = useCallback(
+    (fn: (h: string[]) => string[]) => {
+      setFileHist((h) => {
+        const next = fn(h);
+        try {
+          localStorage.setItem(histKey, JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+    },
+    [histKey],
+  );
+  const onFileLoaded = useCallback(
+    (p: string) => mutateHist((h) => [p, ...h.filter((x) => x !== p)].slice(0, 30)),
+    [mutateHist],
+  );
+  const forgetFile = useCallback(
+    (p: string) => mutateHist((h) => h.filter((x) => x !== p)),
+    [mutateHist],
+  );
 
   const blocked = status === 'blocked';
   useEffect(() => {
@@ -187,8 +235,9 @@ export function AgentView({ agent, onBack }: { agent: Agent | undefined; onBack:
   const showKeys = keysPinned || dialog !== null || (blocked && (keysForced || ctx?.kind === 'unknown'));
 
   return (
-    <div className="view">
-      <header className="bar">
+    <div className="view-split">
+      <div className="view">
+        <header className="bar">
         <button className="ghost back" aria-label="back" onClick={onBack}>
           ←
         </button>
@@ -220,6 +269,7 @@ export function AgentView({ agent, onBack }: { agent: Agent | undefined; onBack:
         working={working}
         cancellableKey={cancellableKey}
         onInterrupt={interrupt}
+        onOpenFile={openFile}
       />
 
       {showBlockedCard && ctx && <BlockedCard ctx={ctx} onAnswer={onAnswer} />}
@@ -239,6 +289,21 @@ export function AgentView({ agent, onBack }: { agent: Agent | undefined; onBack:
         onToggleKeys={() => setKeysPinned((p) => !p)}
         onKeyTap={() => setPoke((p) => p + 1)}
       />
+      </div>
+
+      {file && (
+        <FileViewer
+          path={file}
+          cwd={agent?.cwd ?? null}
+          history={fileHist}
+          onClose={() => {
+            location.hash = `#/agent/${encodeURIComponent(paneId)}`;
+          }}
+          onNavigate={openFile}
+          onLoaded={onFileLoaded}
+          onRemoveHist={forgetFile}
+        />
+      )}
     </div>
   );
 }
