@@ -1,6 +1,8 @@
 /* herdr-web service worker: app-shell cache + Web Push + notification actions. */
-const CACHE = 'hw-v1';
-const SHELL = ['/', '/style.css', '/app.js', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png'];
+// Vite emits hashed asset names, so only the stable entries are precached;
+// everything else lands in the cache on first fetch (network-first below).
+const CACHE = 'hw-v2';
+const SHELL = ['/', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));

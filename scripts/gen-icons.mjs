@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
+const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'web', 'static');
 
 // ---------- tiny PNG encoder ----------
 

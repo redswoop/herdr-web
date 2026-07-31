@@ -6,7 +6,8 @@ roster of your agents with live status, readable transcripts, and — the whole
 point — **push notifications when an agent is blocked, with the agent's actual
 question and answer buttons on your lock screen**.
 
-Zero dependencies. One `node server.js`. No build step.
+The daemon is zero-dependency node; the UI is React + Vite, built once into
+static files the daemon serves. Runtime is still just `node server.js`.
 
 ## What it looks like
 
@@ -67,7 +68,8 @@ nothing to configure.
 
 ## Requirements
 
-- node ≥ 22 (uses `node:` imports, top-level await; no npm packages)
+- node ≥ 22 (the daemon uses `node:` imports and top-level await; npm only
+  needed to build the UI)
 - herdr ≥ 0.7.5 running with its socket at `~/.config/herdr/herdr.sock`
 - for push: any HTTPS front (service workers require a secure context) —
   `tailscale serve` is the two-second option
@@ -75,6 +77,7 @@ nothing to configure.
 ## Run it
 
 ```sh
+cd web && npm ci && npm run build && cd ..   # build the UI into public/ (once)
 node server.js                      # http://0.0.0.0:7683
 node server.js --port 7683 --host 127.0.0.1
 HERDR_WEB_TOKEN=long-random-string node server.js   # cookie auth
@@ -136,8 +139,13 @@ the port can drive your agents — treat it accordingly.
 ## Development
 
 ```sh
-node --test 'test/*.test.mjs'
+cd web && npm run dev     # Vite dev server with HMR, /api proxied to :7683
+node --test 'test/*.test.mjs'   # server-side tests (push stack, from repo root)
 ```
+
+The UI lives in `web/` (React + TypeScript); `npm run build` type-checks and
+emits `public/`, which is gitignored build output. The daemon reads `public/`
+from disk per-request, so a rebuild is live immediately — no daemon restart.
 
 The push stack is tested without a browser: a local HTTP server plays the push
 service, a generated P-256 keypair plays the browser, and the tests decrypt
