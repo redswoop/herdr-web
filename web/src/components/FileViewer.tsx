@@ -12,6 +12,7 @@ const fileUrl = (path: string, cwd: string | null, raw = false) =>
 export function FileViewer({
   path,
   cwd,
+  docked,
   history,
   onClose,
   onNavigate,
@@ -20,6 +21,8 @@ export function FileViewer({
 }: {
   path: string;
   cwd: string | null;
+  /** true → fills a split pane (desktop); false → full-screen overlay (phone) */
+  docked: boolean;
   /** resolved paths previously viewed in this pane, most recent first */
   history: string[];
   onClose: () => void;
@@ -63,7 +66,7 @@ export function FileViewer({
   const join = (dir: string, name: string) => `${dir === '/' ? '' : dir}/${name}`;
 
   return (
-    <div className="file-viewer">
+    <div className={`file-viewer ${docked ? 'docked' : ''}`}>
       <header className="bar file-bar">
         <button className="ghost file-close" aria-label="close file" onClick={onClose}>
           <span className="only-narrow">←</span>

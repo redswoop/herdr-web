@@ -44,12 +44,15 @@ button:disabled { cursor: default; }
 
 /* ---------- shell: sidebar + detail ---------- */
 .shell { display: flex; height: 100dvh; }
+.shell-split { flex: 1; min-width: 0; }
 .sidebar {
   display: flex; flex-direction: column;
   width: 320px; flex: none;
   background: var(--surface);
   border-right: 1px solid var(--hairline);
 }
+/* inside a split pane the handle is the divider and the pane sets the width */
+.split-cell > .sidebar { width: auto; border-right: 0; }
 .detail { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
 /* collapsed-sidebar rail (desktop only) */
@@ -598,24 +601,43 @@ textarea::placeholder { color: var(--sub); }
   border-top: 1px solid color-mix(in srgb, var(--blocked) 40%, transparent);
 }
 
+/* ---------- resizable split (components/ui/Split.tsx) ---------- */
+/* panels are flex containers so the single child fills them */
+.split-cell { display: flex; min-width: 0; min-height: 0; }
+.split-cell > * { flex: 1; min-width: 0; }
+.split-handle {
+  position: relative;
+  width: 6px;
+  outline: none;
+}
+.split-handle::after {
+  content: '';
+  position: absolute; top: 0; bottom: 0; left: 50%;
+  width: 1px; margin-left: -0.5px;
+  background: var(--hairline);
+  transition: width 0.12s, margin-left 0.12s, background 0.12s;
+}
+.split-handle:hover::after,
+.split-handle:active::after,
+.split-handle:focus-visible::after {
+  width: 3px; margin-left: -1.5px;
+  background: var(--accent);
+}
+
 /* ---------- file viewer ---------- */
-/* phone: full-screen overlay; desktop: right-hand activity panel */
+/* phone: full-screen overlay; desktop: docked in the split (AgentView) */
 .file-viewer {
   position: fixed; inset: 0; z-index: 30;
   display: flex; flex-direction: column;
   background: var(--bg);
   animation: rise 0.18s ease both;
 }
-@media (min-width: 721px) {
-  .file-viewer {
-    position: static;
-    z-index: auto;
-    flex: 0 0 clamp(340px, 44%, 680px);
-    min-width: 0;
-    height: 100%;
-    border-left: 1px solid var(--hairline);
-    animation: slide-in 0.18s ease both;
-  }
+.file-viewer.docked {
+  position: static;
+  z-index: auto;
+  min-width: 0;
+  height: 100%;
+  animation: slide-in 0.18s ease both;
 }
 @keyframes slide-in {
   from { transform: translateX(24px); opacity: 0; }

@@ -2,12 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { agentPath, post } from '../api';
 import { useAgentSession } from '../hooks/useAgentSession';
 import { useBlockedContext } from '../hooks/useBlockedContext';
+import { WIDE, useMediaQuery } from '../hooks/useMediaQuery';
 import type { Agent } from '../types';
 import { BlockedCard } from './BlockedCard';
 import { Composer } from './Composer';
 import { FileViewer } from './FileViewer';
 import { ScreenMirror } from './ScreenMirror';
 import { Transcript } from './Transcript';
+import { Split, SplitHandle, SplitPane } from './ui/Split';
 
 /** lines that are TUI furniture, not command output */
 const TUI_CHROME_RES = [
@@ -233,9 +235,9 @@ export function AgentView({
 
   const showBlockedCard = blocked && !keysForced && ctx != null && ctx.kind !== 'none' && ctx.kind !== 'unknown';
   const showKeys = keysPinned || dialog !== null || (blocked && (keysForced || ctx?.kind === 'unknown'));
+  const wide = useMediaQuery(WIDE);
 
-  return (
-    <div className="view-split">
+  const main = (
       <div className="view">
         <header className="bar">
         <button className="ghost back" aria-label="back" onClick={onBack}>
@@ -290,20 +292,38 @@ export function AgentView({
         onKeyTap={() => setPoke((p) => p + 1)}
       />
       </div>
+  );
 
-      {file && (
-        <FileViewer
-          path={file}
-          cwd={agent?.cwd ?? null}
-          history={fileHist}
-          onClose={() => {
-            location.hash = `#/agent/${encodeURIComponent(paneId)}`;
-          }}
-          onNavigate={openFile}
-          onLoaded={onFileLoaded}
-          onRemoveHist={forgetFile}
-        />
-      )}
+  const viewer = file && (
+    <FileViewer
+      path={file}
+      cwd={agent?.cwd ?? null}
+      docked={wide}
+      history={fileHist}
+      onClose={() => {
+        location.hash = `#/agent/${encodeURIComponent(paneId)}`;
+      }}
+      onNavigate={openFile}
+      onLoaded={onFileLoaded}
+      onRemoveHist={forgetFile}
+    />
+  );
+
+  // wide + file open → resizable split; otherwise the viewer (if any) is a
+  // fixed full-screen overlay and needs no layout slot
+  if (wide && viewer) {
+    return (
+      <Split id="file" className="view-split">
+        <SplitPane id="transcript" minSize="35%">{main}</SplitPane>
+        <SplitHandle />
+        <SplitPane id="viewer" defaultSize="44%" minSize={300} maxSize="70%">{viewer}</SplitPane>
+      </Split>
+    );
+  }
+  return (
+    <div className="view-split">
+      {main}
+      {viewer}
     </div>
   );
 }

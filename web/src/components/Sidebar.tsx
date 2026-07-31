@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { Agent, Roster, Tab, Workspace } from '../types';
+import { Chevrons } from './ui/Chevrons';
 
 export type GroupBy = 'workspace' | 'status' | 'project' | 'agent';
 
@@ -20,10 +21,20 @@ const STATUS_WORD: Record<string, string> = {
 };
 
 const GROUPBY_KEY = 'herdr.groupBy';
+const CLOSED_KEY = 'herdr.groupsClosed';
 
 function loadGroupBy(): GroupBy {
   const v = localStorage.getItem(GROUPBY_KEY);
   return v === 'status' || v === 'project' || v === 'agent' ? v : 'workspace';
+}
+
+function loadClosed(): Set<string> {
+  try {
+    const j = JSON.parse(localStorage.getItem(CLOSED_KEY) ?? '[]');
+    return new Set(Array.isArray(j) ? j.filter((x) => typeof x === 'string') : []);
+  } catch {
+    return new Set();
+  }
 }
 
 const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
@@ -139,7 +150,7 @@ export function Sidebar({
   onNewChat: () => void;
 }) {
   const [groupBy, setGroupBy] = useState<GroupBy>(loadGroupBy);
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [collapsed, setCollapsed] = useState<Set<string>>(loadClosed);
 
   const pick = (mode: GroupBy) => {
     setGroupBy(mode);
@@ -155,6 +166,10 @@ export function Sidebar({
     setCollapsed((prev) => {
       const next = new Set(prev);
       next.has(key) ? next.delete(key) : next.add(key);
+      try {
+        // cap so stale group keys can't accumulate forever
+        localStorage.setItem(CLOSED_KEY, JSON.stringify([...next].slice(-100)));
+      } catch {}
       return next;
     });
 
@@ -189,10 +204,7 @@ export function Sidebar({
         )}
         <span className={`dot ${connected ? 'ok' : ''}`} title="daemon connection" />
         <button className="ghost side-collapse" aria-label="hide session list" onClick={onCollapse}>
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
-            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M18 7l-5 5 5 5M11 7l-5 5 5 5" />
-          </svg>
+          <Chevrons dir="left" />
         </button>
       </header>
 

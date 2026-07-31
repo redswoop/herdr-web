@@ -143,6 +143,10 @@ cd web && npm run dev     # Vite dev server with HMR, /api proxied to :7683
 node --test 'test/*.test.mjs'   # server-side tests (push stack, from repo root)
 ```
 
+[ARCHITECTURE.md](ARCHITECTURE.md) is the map: layering, frontend conventions
+(including the UI-idiom / dependency policy), and the invariants that aren't
+obvious from the code. Read it before adding a widget or a dependency.
+
 The UI lives in `web/` (React + TypeScript); `npm run build` type-checks and
 emits `public/`, which is gitignored build output. The daemon reads `public/`
 from disk per-request, so a rebuild is live immediately — no daemon restart.
