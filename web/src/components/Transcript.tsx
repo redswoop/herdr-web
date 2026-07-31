@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { esc, md } from '../md';
 import type { Item, Mine, TEvent } from '../types';
 
@@ -19,7 +19,8 @@ type Step =
 type Node =
   | { type: 'item'; key: string; item: Item }
   | { type: 'group'; key: string; steps: Step[]; startAt: number; endAt: number }
-  | { type: 'meta'; key: string; dur: number | null; tok: number; ctx: number | null };
+  | { type: 'meta'; key: string; dur: number | null; tok: number; ctx: number | null }
+  | { type: 'command'; key: string; name: string; args: string; out: string; err: string };
 
 /**
  * Collapse each run of thought/tool_use/tool_result events into one activity
@@ -78,6 +79,24 @@ function buildNodes(items: Item[], working: boolean): Node[] {
     // ev is non-null from here (mine was handled above)
     const e = ev as TEvent;
     const key = (it as { key: number }).key;
+
+    // slash commands sit outside the turn: no sawWork, no stats
+    if (e.kind === 'command' || e.kind === 'command_out' || e.kind === 'command_err') {
+      flushGroup();
+      if (e.kind === 'command') {
+        nodes.push({ type: 'command', key: `c${key}`, name: e.name ?? '', args: e.text, out: '', err: '' });
+      } else {
+        let prev = nodes[nodes.length - 1];
+        if (prev?.type !== 'command') {
+          prev = { type: 'command', key: `c${key}`, name: '', args: '', out: '', err: '' };
+          nodes.push(prev);
+        }
+        const field = e.kind === 'command_out' ? 'out' : 'err';
+        prev[field] += (prev[field] ? '\n' : '') + e.text;
+      }
+      continue;
+    }
+
     if (turn) {
       if (it.at > EPOCH_MS && it.at > turn.endAt) turn.endAt = it.at;
       if (e.usage) {
@@ -121,12 +140,14 @@ function buildNodes(items: Item[], working: boolean): Node[] {
 export function Transcript({
   items,
   error,
+  loaded,
   working,
   cancellableKey,
   onInterrupt,
 }: {
   items: Item[];
   error: string | null;
+  loaded: boolean;
   working: boolean;
   cancellableKey: number | null; // mine bubble that gets tap-to-stop
   onInterrupt: () => void;
@@ -137,22 +158,29 @@ export function Transcript({
   useLayoutEffect(() => {
     const el = ref.current;
     if (el && follow.current) el.scrollTop = el.scrollHeight;
-  }, [items]);
+  }, [items, working]);
 
   const onScroll = () => {
     const el = ref.current;
     if (el) follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
   };
 
-  if (error && items.length === 0) {
+  if (items.length === 0) {
     return (
       <main className="scroll transcript" ref={ref}>
-        <div className="empty">{error}</div>
+        {working ? (
+          <WorkingPill />
+        ) : (
+          (error || loaded) && <div className="empty">{error ?? 'fresh session — say something'}</div>
+        )}
       </main>
     );
   }
 
   const nodes = buildNodes(items, working);
+  // a live activity group carries its own spinner; anything else at the tail
+  // (fresh prompt, assistant text mid-turn) gets the standalone working pill
+  const showPill = working && nodes[nodes.length - 1]?.type !== 'group';
   return (
     <main className="scroll transcript" ref={ref} onScroll={onScroll}>
       {nodes.map((n, i) => {
@@ -161,6 +189,9 @@ export function Transcript({
         }
         if (n.type === 'meta') {
           return <TurnMeta key={n.key} dur={n.dur} tok={n.tok} ctx={n.ctx} />;
+        }
+        if (n.type === 'command') {
+          return <CommandPill key={n.key} name={n.name} args={n.args} out={n.out} err={n.err} />;
         }
         const it = n.item;
         return it.type === 'mine' ? (
@@ -174,7 +205,47 @@ export function Transcript({
           <EventNode key={n.key} ev={it.ev} />
         );
       })}
+      {showPill && <WorkingPill />}
     </main>
+  );
+}
+
+/* ---------- working pill ---------- */
+
+const HERDING = [
+  'herding',
+  'mustering',
+  'rounding up',
+  'counting sheep',
+  'nudging strays',
+  'whistling the dog',
+  'minding the flock',
+  'opening the gate',
+];
+
+/** Instant feedback on submit: fills the spot where the live activity group
+ *  will appear once the first session-file records land, so the handoff reads
+ *  as the same pill picking up real progress. */
+function WorkingPill() {
+  const [i, setI] = useState(() => Math.floor(Math.random() * HERDING.length));
+  useEffect(() => {
+    const t = setInterval(() => setI((n) => (n + 1) % HERDING.length), 3000);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div className="activity working-pill">
+      <div className="act-head">
+        <span className="live-dot" />
+        <span className="act-count" key={i}>
+          {HERDING[i]}
+        </span>
+        <span className="ell">
+          <i />
+          <i />
+          <i />
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -301,6 +372,28 @@ function StepRow({ step }: { step: Step }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** A slash command run in the TUI (`/model`, `/compact`, …); stdout expands
+ *  on tap, errors render expanded — yellow bold, like claude itself. */
+function CommandPill({ name, args, out, err }: { name: string; args: string; out: string; err: string }) {
+  const [open, setOpen] = useState(false);
+  const label = [name || 'command output', args].filter(Boolean).join(' ');
+  return (
+    <div className={`command-pill ${open ? 'open' : ''}`}>
+      <button
+        className="cmd-head"
+        onClick={out ? () => setOpen((o) => !o) : undefined}
+        disabled={!out}
+      >
+        <span className="cmd-glyph">⌘</span>
+        <span className="cmd-name">{label}</span>
+        {out && <span className="chev">▸</span>}
+      </button>
+      {open && <pre className="cmd-out" dangerouslySetInnerHTML={{ __html: esc(clip(out)) }} />}
+      {err && <pre className="cmd-err" dangerouslySetInnerHTML={{ __html: esc(clip(err)) }} />}
     </div>
   );
 }

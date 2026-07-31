@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { Agent, Roster, Workspace } from '../types';
+import type { Agent, Roster, Tab, Workspace } from '../types';
 
 export type GroupBy = 'workspace' | 'status' | 'project' | 'agent';
 
@@ -28,15 +28,50 @@ function loadGroupBy(): GroupBy {
 
 const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
 
+interface TabSub {
+  key: string;
+  title: string;
+  focused?: boolean;
+  agents: Agent[];
+}
+
 interface Group {
   key: string;
   title: string;
   badge?: string; // small dim tag next to the title (worktree, ws number…)
   focused?: boolean;
   agents: Agent[];
+  /** workspace mode: agents split by herdr tab when a workspace has several */
+  subs?: TabSub[];
 }
 
-function buildGroups(agents: Agent[], workspaces: Workspace[], mode: GroupBy): Group[] {
+// Tabs herdr hasn't renamed carry their position number as the label.
+const tabTitle = (t: Tab | undefined, tabId: string) =>
+  !t ? tabId : /^\d+$/.test(t.label) ? `tab ${t.label}` : t.label;
+
+function splitByTab(agents: Agent[], tabs: Map<string, Tab>): TabSub[] | undefined {
+  const byTab = new Map<string, Agent[]>();
+  for (const a of agents) {
+    (byTab.get(a.tabId) ?? byTab.set(a.tabId, []).get(a.tabId)!).push(a);
+  }
+  if (byTab.size < 2) return undefined;
+  return [...byTab.entries()]
+    .map(([tabId, list]) => ({
+      key: tabId,
+      title: tabTitle(tabs.get(tabId), tabId),
+      focused: tabs.get(tabId)?.focused,
+      agents: list,
+      number: tabs.get(tabId)?.number ?? 999,
+    }))
+    .sort((a, b) => a.number - b.number);
+}
+
+function buildGroups(
+  agents: Agent[],
+  workspaces: Workspace[],
+  tabs: Tab[],
+  mode: GroupBy,
+): Group[] {
   const byStatus = (a: Agent, b: Agent) =>
     (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) ||
     chipName(a).localeCompare(chipName(b));
@@ -54,6 +89,7 @@ function buildGroups(agents: Agent[], workspaces: Workspace[], mode: GroupBy): G
 
   if (mode === 'workspace') {
     const known = new Map(workspaces.map((w) => [w.workspaceId, w]));
+    const tabMap = new Map(tabs.map((t) => [t.tabId, t]));
     return [...bucket.entries()]
       .map(([key, list]) => {
         const w = known.get(key);
@@ -63,6 +99,7 @@ function buildGroups(agents: Agent[], workspaces: Workspace[], mode: GroupBy): G
           badge: w?.worktree?.isLinked ? `⎇ ${w.worktree.repoName ?? 'worktree'}` : undefined,
           focused: w?.focused,
           agents: list,
+          subs: splitByTab(list, tabMap),
           number: w?.number ?? 999,
         };
       })
@@ -89,6 +126,7 @@ export function Sidebar({
   pushOn,
   onTogglePush,
   onCollapse,
+  onNewChat,
 }: {
   roster: Roster;
   connected: boolean;
@@ -98,6 +136,7 @@ export function Sidebar({
   pushOn: boolean;
   onTogglePush: () => void;
   onCollapse: () => void;
+  onNewChat: () => void;
 }) {
   const [groupBy, setGroupBy] = useState<GroupBy>(loadGroupBy);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -108,7 +147,7 @@ export function Sidebar({
   };
 
   const groups = useMemo(
-    () => buildGroups(roster.agents, roster.workspaces ?? [], groupBy),
+    () => buildGroups(roster.agents, roster.workspaces ?? [], roster.tabs ?? [], groupBy),
     [roster, groupBy],
   );
 
@@ -136,6 +175,9 @@ export function Sidebar({
     <nav className="sidebar">
       <header className="bar">
         <h1>🐑 herd</h1>
+        <button className="ghost new-chat" onClick={onNewChat} title="start a new chat">
+          ＋
+        </button>
         {pushSupported && (
           <button
             className={`ghost bell ${pushOn ? 'on' : ''}`}
@@ -196,14 +238,34 @@ export function Sidebar({
                   </span>
                 </button>
                 {!closed &&
-                  g.agents.map((a) => (
-                    <SessionChip
-                      key={a.paneId}
-                      agent={a}
-                      active={a.paneId === selected}
-                      showAgent={groupBy !== 'agent'}
-                      onSelect={onSelect}
-                    />
+                  (g.subs ? (
+                    g.subs.map((t) => (
+                      <div key={t.key} className="tab-sub">
+                        <div className="tab-head">
+                          <span className="tab-title">{t.title}</span>
+                          {t.focused && <span className="group-badge eye" title="active tab in the TUI">⌖</span>}
+                        </div>
+                        {t.agents.map((a) => (
+                          <SessionChip
+                            key={a.paneId}
+                            agent={a}
+                            active={a.paneId === selected}
+                            showAgent={groupBy !== 'agent'}
+                            onSelect={onSelect}
+                          />
+                        ))}
+                      </div>
+                    ))
+                  ) : (
+                    g.agents.map((a) => (
+                      <SessionChip
+                        key={a.paneId}
+                        agent={a}
+                        active={a.paneId === selected}
+                        showAgent={groupBy !== 'agent'}
+                        onSelect={onSelect}
+                      />
+                    ))
                   ))}
               </section>
             );
@@ -249,10 +311,12 @@ function SessionChip({
           {showAgent && a.cwd ? ' · ' : ''}
           {a.cwd ? basename(a.cwd) : ''}
         </span>
-        {(labels.length > 0 || !a.hasTranscript || a.launchPending) && (
+        {(labels.length > 0 || !a.hasTranscript) && (
           <span className="tags">
-            {a.launchPending && <span className="tag warn">starting…</span>}
-            {!a.hasTranscript && !a.launchPending && <span className="tag warn">no transcript</span>}
+            {/* launchPending can linger minutes after the agent is up — only
+                call it "starting" while herdr has no read on it yet */}
+            {a.launchPending && a.status === 'unknown' && <span className="tag warn">starting…</span>}
+            {!a.hasTranscript && a.status !== 'unknown' && <span className="tag">fresh</span>}
             {labels.map(([k, v]) => (
               <span key={k} className="tag" title={k}>
                 {v}

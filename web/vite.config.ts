@@ -8,6 +8,8 @@ export default defineConfig({
   publicDir: 'static',
   build: { outDir: '../public', emptyOutDir: true },
   server: {
+    // dev is reached by LAN/tailnet hostname, not localhost
+    allowedHosts: ['stormer', '.ts.net'],
     proxy: { '/api': 'http://localhost:7683' },
   },
 });

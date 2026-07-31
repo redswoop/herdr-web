@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { AgentView } from './components/AgentView';
+import { NewChatDialog } from './components/NewChatDialog';
 import { Sidebar } from './components/Sidebar';
+import { TokenGate } from './components/TokenGate';
 import { usePush } from './hooks/usePush';
 import { useRoster } from './hooks/useRoster';
 
@@ -10,12 +12,13 @@ function paneFromHash(): string | null {
 }
 
 export default function App() {
-  const { roster, connected } = useRoster();
+  const { roster, connected, authNeeded } = useRoster();
   const push = usePush();
   const [pane, setPane] = useState<string | null>(paneFromHash);
   const [sideHidden, setSideHidden] = useState(
     () => localStorage.getItem('herdr.sideHidden') === '1',
   );
+  const [newChatOpen, setNewChatOpen] = useState(false);
 
   const toggleSide = () => {
     setSideHidden((h) => {
@@ -39,6 +42,8 @@ export default function App() {
   const agent = pane ? roster.agents.find((a) => a.paneId === pane) : undefined;
   const blockedCount = roster.agents.filter((a) => a.status === 'blocked').length;
 
+  if (authNeeded) return <TokenGate />;
+
   return (
     <div className={`shell ${pane ? 'has-selection' : ''} ${sideHidden ? 'side-hidden' : ''}`}>
       <Sidebar
@@ -52,7 +57,18 @@ export default function App() {
         pushOn={push.subscribed}
         onTogglePush={push.toggle}
         onCollapse={toggleSide}
+        onNewChat={() => setNewChatOpen(true)}
       />
+      {newChatOpen && (
+        <NewChatDialog
+          roster={roster}
+          onClose={() => setNewChatOpen(false)}
+          onCreated={(paneId) => {
+            setNewChatOpen(false);
+            location.hash = `#/agent/${encodeURIComponent(paneId)}`;
+          }}
+        />
+      )}
       <div className="rail">
         <button className="ghost rail-toggle" aria-label="show session list" onClick={toggleSide}>
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"

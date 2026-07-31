@@ -1,20 +1,33 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { agentPath, post } from '../api';
 import { useAgentSession } from '../hooks/useAgentSession';
 import { useBlockedContext } from '../hooks/useBlockedContext';
 import type { Agent } from '../types';
 import { BlockedCard } from './BlockedCard';
 import { Composer } from './Composer';
+import { ScreenMirror } from './ScreenMirror';
 import { Transcript } from './Transcript';
+
+/** lines that are TUI furniture, not command output */
+const TUI_CHROME_RES = [
+  /^[─═╌▔]+$/, // rules
+  /^[╭╰╮╯│]/, // box borders
+  /^❯/, // input line / menu cursor
+  /^⏸|^⏵/, // status line
+  /\? for shortcuts/,
+  /esc to interrupt/,
+  /^[✻✳✶✢✽]\s/, // spinner
+  /^●\s+\S+ · \/effort$/, // effort chip
+];
+function isTuiChrome(line: string): boolean {
+  return TUI_CHROME_RES.some((re) => re.test(line));
+}
 
 export function AgentView({ agent, onBack }: { agent: Agent | undefined; onBack: () => void }) {
   const paneId = agent?.paneId ?? '';
   const status = agent?.status;
-  const { items, error, send, interrupt, cooldown, working, restoredDraft } = useAgentSession(
-    paneId,
-    status,
-    agent?.agent,
-  );
+  const { items, error, loaded, send, interrupt, cooldown, working, restoredDraft, inject } =
+    useAgentSession(paneId, status, agent?.agent);
   const { ctx, refresh } = useBlockedContext(paneId, status);
   const [screen, setScreen] = useState<string | null>(null);
   const [keysPinned, setKeysPinned] = useState(false);
@@ -27,6 +40,107 @@ export function AgentView({ agent, onBack }: { agent: Agent | undefined; onBack:
       setScreen(null);
     }
   }, [blocked]);
+
+  // Slash commands open local TUI dialogs (/model, /resume, …) that herdr
+  // deliberately doesn't report as blocked and the session file can't see
+  // until they finish. When WE sent the command, we know a dialog is (about
+  // to be) up: mirror the live screen after a short delay — the delay keeps
+  // instant commands from flashing it. The command's record landing in the
+  // session file is the completion signal that dismisses the mirror.
+  const [dialog, setDialog] = useState<{ sinceKey: number } | null>(null);
+  const [poke, setPoke] = useState(0); // bumped per strip-key tap → mirror refreshes now
+  const armRef = useRef<{ timer: number; sinceKey: number } | null>(null);
+  // what the screen looked like before the command ran + what was typed —
+  // for salvaging output of commands that never write a session-file record
+  const preDialogRef = useRef<{ cmd: string; lines: Set<string> } | null>(null);
+  const itemsRef = useRef(items);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
+  const closeDialog = useCallback(() => {
+    if (armRef.current) {
+      clearTimeout(armRef.current.timer);
+      armRef.current = null;
+    }
+    setDialog(null);
+  }, []);
+
+  const sendFromComposer = useCallback(
+    async (text: string) => {
+      const slash = text.trim().startsWith('/');
+      if (slash) {
+        // baseline the screen before the command runs, so dialog residue
+        // (e.g. an "Unknown command" error) can be diffed out later
+        try {
+          const r = await fetch(agentPath(paneId, 'screen'));
+          const { text: raw } = await r.json();
+          preDialogRef.current = {
+            cmd: text.trim(),
+            lines: new Set((raw ?? '').split('\n').map((l: string) => l.trim())),
+          };
+        } catch {
+          preDialogRef.current = { cmd: text.trim(), lines: new Set() };
+        }
+      }
+      await send(text);
+      if (!slash) return;
+      let sinceKey = -1;
+      for (const it of itemsRef.current) {
+        if (it.type === 'event' && it.key > sinceKey) sinceKey = it.key;
+      }
+      closeDialog();
+      const timer = window.setTimeout(() => {
+        armRef.current = null;
+        setDialog({ sinceKey });
+      }, 800);
+      armRef.current = { timer, sinceKey };
+    },
+    [send, closeDialog, paneId],
+  );
+
+  // The dialog closed without ever writing a session-file record (chrome came
+  // back first). Whatever it printed exists only on the TUI screen — diff
+  // against the pre-command baseline and inject it as a synthetic command
+  // pill so the output isn't lost (e.g. "Unknown command: /mode").
+  const onDialogGone = useCallback(
+    (finalScreen: string) => {
+      const base = preDialogRef.current;
+      preDialogRef.current = null;
+      closeDialog();
+      if (!base) return;
+      let residue = finalScreen
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l && !base.lines.has(l) && !isTuiChrome(l));
+      if (!residue.length) return;
+      // a scrolled screen can diff in old conversation lines — keep it short
+      if (residue.length > 12) residue = [...residue.slice(0, 12), '…'];
+      inject([
+        { kind: 'command', name: base.cmd, text: '' },
+        // claude renders these as yellow bold text, not tucked-away stdout —
+        // command_err renders expanded; drop the ● bullets, keep the words
+        { kind: 'command_err', text: residue.map((l) => l.replace(/^●\s*/, '')).join('\n') },
+      ]);
+    },
+    [closeDialog, inject],
+  );
+
+  // command finished (its record hit the session file) → dismiss the mirror;
+  // 'user' too — custom skill commands land as a plain prompt turn
+  useEffect(() => {
+    const since = armRef.current?.sinceKey ?? dialog?.sinceKey;
+    if (since == null) return;
+    const done = items.some(
+      (it) =>
+        it.type === 'event' &&
+        it.key > since &&
+        (it.ev.kind === 'command' || it.ev.kind === 'user'),
+    );
+    if (done) closeDialog();
+  }, [items, dialog, closeDialog]);
+
+  useEffect(() => closeDialog, [paneId, closeDialog]);
 
   // the latest locally-sent bubble gets tap-to-stop while the agent works
   const cancellableKey = useMemo(() => {
@@ -70,7 +184,7 @@ export function AgentView({ agent, onBack }: { agent: Agent | undefined; onBack:
   };
 
   const showBlockedCard = blocked && !keysForced && ctx != null && ctx.kind !== 'none' && ctx.kind !== 'unknown';
-  const showKeys = keysPinned || (blocked && (keysForced || ctx?.kind === 'unknown'));
+  const showKeys = keysPinned || dialog !== null || (blocked && (keysForced || ctx?.kind === 'unknown'));
 
   return (
     <div className="view">
@@ -102,6 +216,7 @@ export function AgentView({ agent, onBack }: { agent: Agent | undefined; onBack:
       <Transcript
         items={items}
         error={error}
+        loaded={loaded}
         working={working}
         cancellableKey={cancellableKey}
         onInterrupt={interrupt}
@@ -109,15 +224,20 @@ export function AgentView({ agent, onBack }: { agent: Agent | undefined; onBack:
 
       {showBlockedCard && ctx && <BlockedCard ctx={ctx} onAnswer={onAnswer} />}
 
+      {dialog && (
+        <ScreenMirror paneId={paneId} poke={poke} onClose={closeDialog} onGone={onDialogGone} />
+      )}
+
       <Composer
         paneId={paneId}
         working={working}
         cooldown={cooldown}
         restoredDraft={restoredDraft}
         showKeys={showKeys}
-        onSend={send}
+        onSend={sendFromComposer}
         onInterrupt={interrupt}
         onToggleKeys={() => setKeysPinned((p) => !p)}
+        onKeyTap={() => setPoke((p) => p + 1)}
       />
     </div>
   );

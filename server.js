@@ -2,6 +2,8 @@
 // Zero deps, node >= 22.  Usage: node server.js [--port 7683] [--host 0.0.0.0]
 import http from 'node:http';
 import fsp from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rpc, subscribe } from './lib/herdr.js';
@@ -50,7 +52,7 @@ const coordinator = new Coordinator(
 
 // ---------- roster ----------
 
-let roster = { agents: [], workspaces: [], herdrDown: false, updatedAt: 0 };
+let roster = { agents: [], workspaces: [], tabs: [], herdrDown: false, updatedAt: 0 };
 const rosterClients = new Set(); // SSE responses
 
 // Coalesce concurrent callers (interval + event debounce) — overlapping runs
@@ -63,19 +65,20 @@ function refreshRoster() {
 
 async function doRefreshRoster() {
   try {
-    const [res, wsRes] = await Promise.all([
-      rpc('agent.list'),
-      rpc('workspace.list').catch(() => null), // roster survives on agent.list alone
-    ]);
-    const agents = await Promise.all((res.agents ?? []).map(async (a) => {
-      const adapter = adapterFor(a.agent);
-      let session = null;
-      if (adapter && a.cwd) {
-        try { session = await adapter.find(a.cwd, { title: a.terminal_title_stripped ?? '' }); } catch {}
-      }
+    // One RPC for the whole tree: agents + workspaces + tabs (agent entries
+    // here are the same AgentInfo shape agent.list returns).
+    const snap = (await rpc('session.snapshot')).snapshot ?? {};
+    const agents = await Promise.all((snap.agents ?? []).filter((a) => a.agent).map(async (a) => {
+      const session = await findSessionFor({
+        paneId: a.pane_id,
+        agent: a.agent,
+        cwd: a.cwd,
+        title: a.terminal_title_stripped ?? '',
+      });
       return {
         paneId: a.pane_id,
         workspaceId: a.workspace_id,
+        tabId: a.tab_id,
         agent: a.agent,
         displayAgent: a.display_agent ?? null,
         label: a.name ?? null,
@@ -90,7 +93,7 @@ async function doRefreshRoster() {
         sessionId: session?.sessionId ?? null,
       };
     }));
-    const workspaces = (wsRes?.workspaces ?? []).map((w) => ({
+    const workspaces = (snap.workspaces ?? []).map((w) => ({
       workspaceId: w.workspace_id,
       number: w.number,
       label: w.label,
@@ -103,6 +106,15 @@ async function doRefreshRoster() {
           }
         : null,
     }));
+    const tabs = (snap.tabs ?? []).map((t) => ({
+      tabId: t.tab_id,
+      workspaceId: t.workspace_id,
+      number: t.number,
+      label: t.label,
+      focused: !!t.focused,
+      paneCount: t.pane_count,
+      status: t.agent_status,
+    }));
     // status-transition detection for push (herdr-down blips must not read as
     // "everything resolved", so removals are only derived from a good refresh)
     if (!roster.herdrDown) {
@@ -111,11 +123,14 @@ async function doRefreshRoster() {
         if (prev.get(a.paneId) !== a.status) coordinator.onTransition(a, a.status);
         prev.delete(a.paneId);
       }
-      for (const paneId of prev.keys()) coordinator.onRemove(paneId);
+      for (const paneId of prev.keys()) {
+        coordinator.onRemove(paneId);
+        startTimeCache.delete(paneId);
+      }
     }
-    roster = { agents, workspaces, herdrDown: false, updatedAt: Date.now(), build: BUILD, bootedAt: BOOTED_AT };
+    roster = { agents, workspaces, tabs, herdrDown: false, updatedAt: Date.now(), build: BUILD, bootedAt: BOOTED_AT };
   } catch (e) {
-    roster = { agents: [], workspaces: [], herdrDown: true, error: String(e.message ?? e), updatedAt: Date.now(), build: BUILD, bootedAt: BOOTED_AT };
+    roster = { agents: [], workspaces: [], tabs: [], herdrDown: true, error: String(e.message ?? e), updatedAt: Date.now(), build: BUILD, bootedAt: BOOTED_AT };
   }
   const payload = `event: roster\ndata: ${JSON.stringify(roster)}\n\n`;
   for (const res of rosterClients) res.write(payload);
@@ -130,7 +145,12 @@ function scheduleRefresh() { // debounce bursts of herdr events
 function watchHerdr() {
   subscribe(
     [{ type: 'pane.created' }, { type: 'pane.closed' }, { type: 'pane.updated' },
-     { type: 'pane.exited' }, { type: 'pane.agent_detected' }],
+     { type: 'pane.exited' }, { type: 'pane.agent_detected' },
+     { type: 'tab.created' }, { type: 'tab.closed' }, { type: 'tab.renamed' },
+     { type: 'tab.moved' }, { type: 'tab.focused' },
+     { type: 'workspace.created' }, { type: 'workspace.closed' },
+     { type: 'workspace.renamed' }, { type: 'workspace.moved' },
+     { type: 'workspace.focused' }],
     () => scheduleRefresh(),
     () => setTimeout(watchHerdr, 2000),
   );
@@ -141,13 +161,67 @@ refreshRoster();
 
 // ---------- transcript resolution ----------
 
-async function resolveAgent(paneId) {
+// When did this pane's agent process start? Linux: /proc/<pid>/stat field 22
+// (clock ticks since boot, USER_HZ=100) plus btime from /proc/stat. On
+// platforms without /proc (mac) this returns null and session correlation
+// falls back to title/newest-mtime.
+let btimeMs = undefined;
+async function bootTimeMs() {
+  if (btimeMs !== undefined) return btimeMs;
+  try {
+    const m = (await fsp.readFile('/proc/stat', 'utf8')).match(/^btime (\d+)$/m);
+    btimeMs = m ? Number(m[1]) * 1000 : null;
+  } catch {
+    btimeMs = null;
+  }
+  return btimeMs;
+}
+
+const startTimeCache = new Map(); // paneId -> {at, startedAt}
+async function agentStartTime(paneId, kind) {
+  const hit = startTimeCache.get(paneId);
+  if (hit && Date.now() - hit.at < 30_000) return hit.startedAt;
+  let startedAt = null;
+  try {
+    const btime = await bootTimeMs();
+    if (btime) {
+      const r = await rpc('pane.process_info', { pane_id: paneId });
+      const procs = r.process_info?.foreground_processes ?? [];
+      const pid = (procs.find((p) => p.name === kind) ?? procs[0])?.pid;
+      if (pid) {
+        const stat = await fsp.readFile(`/proc/${pid}/stat`, 'utf8');
+        // fields after the parenthesized comm; starttime is field 22 overall
+        const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+        const ticks = Number(fields[19]);
+        if (Number.isFinite(ticks)) startedAt = btime + (ticks / 100) * 1000;
+      }
+    }
+  } catch {}
+  startTimeCache.set(paneId, { at: Date.now(), startedAt });
+  return startedAt;
+}
+
+// Shared by the roster refresh and the API routes so every caller correlates
+// pane → session file the same way.
+async function findSessionFor({ paneId, agent, cwd, title }) {
+  const adapter = adapterFor(agent);
+  if (!adapter || !cwd) return null;
+  const hints = { title: title ?? '' };
+  if (agent === 'claude') hints.startedAfter = await agentStartTime(paneId, agent);
+  try {
+    return await adapter.find(cwd, hints);
+  } catch {
+    return null;
+  }
+}
+
+async function resolveAgent(paneId, { optional = false } = {}) {
   const a = roster.agents.find((x) => x.paneId === paneId);
   if (!a) throw httpErr(404, `no agent in pane ${paneId}`);
   const adapter = adapterFor(a.agent);
   if (!adapter) throw httpErr(422, `no adapter for agent "${a.agent}"`);
-  const session = a.cwd ? await adapter.find(a.cwd, { title: a.title }) : null;
-  if (!session) throw httpErr(404, `no session file found for ${a.agent} in ${a.cwd}`);
+  const session = await findSessionFor(a);
+  if (!session && !optional) throw httpErr(404, `no session file found for ${a.agent} in ${a.cwd}`);
   return { agent: a, adapter, session };
 }
 
@@ -269,11 +343,12 @@ function trimSalvage(text, promptText) {
 // the visible screen parsed for a numbered menu. Shared by the API route and
 // the push coordinator (the notification body carries the question).
 async function blockedContext(paneId) {
-  const { adapter, session } = await resolveAgent(paneId);
+  const { adapter, session } = await resolveAgent(paneId, { optional: true });
   // live status, not the roster cache — the cache can lag the event
   const live = await rpc('agent.get', { target: paneId });
   if (live.agent?.agent_status !== 'blocked') return { kind: 'none' };
-  const { events } = await readEvents(adapter, session.file, 0);
+  // no session file yet (fresh session) → straight to the screen parser
+  const { events } = session ? await readEvents(adapter, session.file, 0) : { events: [] };
   let ctx = classifyBlocked(events);
   if (ctx.kind === 'unknown') {
     const screen = await readScreen(paneId);
@@ -290,6 +365,126 @@ async function blockedContext(paneId) {
   return ctx;
 }
 
+
+// ---------- new chats ----------
+
+// Agent kinds come from herdr's detection manifests (all *supported* kinds);
+// "installed" = the canonical executable (named after the kind) is findable,
+// so the picker can dim what would fail to start. agent.start runs through
+// the pane's login shell, not this daemon — under systemd our PATH is
+// minimal — so also probe the usual install dirs.
+async function listKinds() {
+  const r = await rpc('server.agent_manifests');
+  const dirs = [...new Set([
+    ...(process.env.PATH ?? '').split(path.delimiter),
+    path.join(os.homedir(), '.local', 'bin'),
+    path.join(os.homedir(), 'bin'),
+    '/usr/local/bin',
+    '/opt/homebrew/bin',
+    '/home/linuxbrew/.linuxbrew/bin',
+  ])].filter(Boolean);
+  return Promise.all((r.manifests ?? []).map(async (m) => {
+    let installed = false;
+    for (const d of dirs) {
+      try {
+        await fsp.access(path.join(d, m.agent), fsConstants.X_OK);
+        installed = true;
+        break;
+      } catch {}
+    }
+    return { kind: m.agent, version: m.active_version ?? null, installed };
+  }));
+}
+
+// tab.create (or workspace.create) → agent.start. agent.start blocks until
+// herdr detects the agent as interactive-ready, so success here means the
+// chat is genuinely usable. On failure the pane we just made is closed again
+// so misfires don't litter the TUI with empty shells.
+async function createChat({ kind, name, cwd, workspaceId, label, args } = {}) {
+  if (!kind || typeof kind !== 'string') throw httpErr(400, 'kind required');
+  const dir = cwd ? cwd.replace(/^~(?=\/|$)/, os.homedir()) : null;
+  const opts = { cwd: dir, label: label || null, focus: false };
+  let ws = workspaceId || null;
+  let pane = null;
+  let tab = null;
+  if (!ws) {
+    const r = await rpc('workspace.create', opts);
+    ws = r.workspace?.workspace_id;
+    pane = r.root_pane ?? null;
+    tab = r.tab ?? null;
+  }
+  if (!pane) {
+    const r = await rpc('tab.create', { ...opts, workspace_id: ws });
+    pane = r.root_pane;
+    tab = r.tab ?? null;
+  }
+  const agentName = (name || '').trim() || `${kind}-${pane.pane_id.replace(/\W+/g, '')}`;
+  // A fresh pane's shell takes a beat to come up; herdr rejects agent.start
+  // with "not an available shell" until then, so retry that specific error.
+  const startedAt = Date.now();
+  for (;;) {
+    try {
+      await rpc(
+        'agent.start',
+        { name: agentName, kind, pane_id: pane.pane_id, args: args ?? [] },
+        { timeoutMs: 45_000 },
+      );
+      break;
+    } catch (e) {
+      const msg = String(e.message ?? e);
+      if (/not an available shell/i.test(msg) && Date.now() - startedAt < 10_000) {
+        await new Promise((r) => setTimeout(r, 500));
+        continue;
+      }
+      try { await rpc('pane.close', { pane_id: pane.pane_id }); } catch {}
+      throw httpErr(502, `couldn't start ${kind}: ${msg}`);
+    }
+  }
+  // The label param on tab/workspace.create is ignored and launch-time agent
+  // names can be dropped once detection settles — rename explicitly instead.
+  if ((name ?? '').trim()) {
+    const wanted = name.trim();
+    if (tab) await rpc('tab.rename', { tab_id: tab.tab_id, label: wanted }).catch(() => {});
+    await rpc('agent.rename', { target: pane.pane_id, name: wanted }).catch(() => {});
+  }
+  refreshRoster();
+  return { paneId: pane.pane_id, tabId: tab?.tab_id ?? null, workspaceId: ws };
+}
+
+// claude occasionally eats the Enter that agent.prompt types after the text,
+// leaving the prompt stranded on the TUI input line. Peek at the screen once,
+// shortly after, and nudge with an Enter ONLY when the composer line still
+// shows the start of our text — a blind Enter could answer a dialog instead.
+// (If the text cleared between the read and the nudge, Enter on claude's
+// empty composer is a no-op, so the race is safe.)
+async function verifyPromptLanded(paneId, text) {
+  await new Promise((r) => setTimeout(r, 800));
+  const head = text.trim().split('\n')[0].replace(/\s+/g, ' ').slice(0, 20).trim();
+  if (!head) return;
+  try {
+    const screen = await readScreen(paneId);
+    const stranded = screen.split('\n').some((l) => {
+      const m = l.match(/❯\s*(.*)$/);
+      return m && m[1].replace(/│\s*$/, '').replace(/\s+/g, ' ').trim().startsWith(head);
+    });
+    if (stranded) {
+      console.warn(`prompt stranded on input line of ${paneId} — nudging with Enter`);
+      await agentRpc('agent.send_keys', { target: paneId, keys: ['Enter'] });
+    }
+  } catch {}
+}
+
+// herdr transiently refuses agent-targeted input around launch-record expiry
+// ("not an active named agent" for a live pane) — one short retry heals it.
+async function agentRpc(method, params) {
+  try {
+    return await rpc(method, params);
+  } catch (e) {
+    if (!/not an active named agent/i.test(String(e.message ?? e))) throw e;
+    await new Promise((r) => setTimeout(r, 750));
+    return rpc(method, params);
+  }
+}
 
 // ---------- http ----------
 
@@ -366,6 +561,18 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'GET' && seg[1] === 'kinds' && !seg[2]) {
+      return sendJson(res, 200, { kinds: await listKinds() });
+    }
+    if (req.method === 'POST' && seg[1] === 'chats' && !seg[2]) {
+      const body = await readBody(req);
+      if (body.args !== undefined
+        && !(Array.isArray(body.args) && body.args.every((s) => typeof s === 'string'))) {
+        throw httpErr(400, 'args: string[]');
+      }
+      return sendJson(res, 200, await createChat(body));
+    }
+
     if (seg[1] === 'push') {
       if (req.method === 'GET' && seg[2] === 'pubkey') {
         return sendJson(res, 200, { key: pushStore.vapid.publicKey });
@@ -403,34 +610,45 @@ const server = http.createServer(async (req, res) => {
       const action = seg[3];
 
       if (req.method === 'GET' && action === 'transcript') {
-        const { adapter, session } = await resolveAgent(paneId);
+        const { adapter, session } = await resolveAgent(paneId, { optional: true });
+        if (!session) {
+          // fresh session: no jsonl until the first message — not an error
+          return sendJson(res, 200, { events: [], offset: 0, pending: true, sessionId: null });
+        }
         const { events, offset } = await readEvents(adapter, session.file, 0);
         return sendJson(res, 200, { events, offset, file: session.file, sessionId: session.sessionId });
       }
 
       if (req.method === 'GET' && action === 'stream') {
-        const { agent, adapter, session } = await resolveAgent(paneId);
+        const { agent, adapter, session } = await resolveAgent(paneId, { optional: true });
         let offset = Number(url.searchParams.get('offset') ?? 0);
         let lastStatus = agent.status;
         let ticks = 0;
+        let resetSent = false; // the client reloads on reset — say it once
         startSse(res);
         const tick = async () => {
+          if (resetSent) return;
           // A fresh agent's session file may not exist (or not win
           // correlation) until it has content — re-resolve periodically and
-          // tell the client to reload if the binding changed.
-          if (ticks++ % 5 === 4) {
-            const now = await resolveAgent(paneId).catch(() => null);
-            if (now && now.session.file !== session.file) {
+          // tell the client to reload if the binding changed. When we started
+          // with no session at all, check every tick so the first message
+          // brings the transcript up promptly.
+          if (!session || ticks++ % 5 === 4) {
+            const now = await resolveAgent(paneId, { optional: true }).catch(() => null);
+            if (now?.session && now.session.file !== session?.file) {
+              resetSent = true;
               res.write('event: reset\ndata: {}\n\n');
               return;
             }
           }
-          const r = await readEvents(adapter, session.file, offset);
-          if (r.events.length) {
-            offset = r.offset;
-            res.write(`event: events\ndata: ${JSON.stringify(r.events)}\n\n`);
-          } else {
-            offset = r.offset;
+          if (session) {
+            const r = await readEvents(adapter, session.file, offset);
+            if (r.events.length) {
+              offset = r.offset;
+              res.write(`event: events\ndata: ${JSON.stringify(r.events)}\n\n`);
+            } else {
+              offset = r.offset;
+            }
           }
           const cur = roster.agents.find((x) => x.paneId === paneId);
           if (cur && cur.status !== lastStatus) {
@@ -438,7 +656,14 @@ const server = http.createServer(async (req, res) => {
             res.write(`event: status\ndata: ${JSON.stringify({ status: cur.status })}\n\n`);
           }
         };
-        const timer = setInterval(() => tick().catch(() => {}), 700);
+        // don't let a slow read overlap the next tick — two concurrent reads
+        // from the same offset would emit every event twice
+        let running = false;
+        const timer = setInterval(() => {
+          if (running) return;
+          running = true;
+          tick().catch(() => {}).finally(() => { running = false; });
+        }, 700);
         res.on('close', () => clearInterval(timer));
         return;
       }
@@ -462,14 +687,15 @@ const server = http.createServer(async (req, res) => {
             return sendJson(res, 409, { error: 'screen changed', screen });
           }
         }
-        await rpc('agent.send_keys', { target: paneId, keys });
+        await agentRpc('agent.send_keys', { target: paneId, keys });
         return sendJson(res, 200, { ok: true });
       }
 
       if (req.method === 'POST' && action === 'prompt') {
         const { text } = await readBody(req);
         if (!text?.trim()) throw httpErr(400, 'empty prompt');
-        await rpc('agent.prompt', { target: paneId, text });
+        await agentRpc('agent.prompt', { target: paneId, text });
+        verifyPromptLanded(paneId, text); // fire-and-forget — don't hold the response
         return sendJson(res, 200, { ok: true });
       }
 
@@ -486,7 +712,7 @@ const server = http.createServer(async (req, res) => {
           });
           salvage = trimSalvage(r.read?.text ?? '', prompt);
         } catch {}
-        await rpc('agent.send_keys', { target: paneId, keys: ['Escape'] });
+        await agentRpc('agent.send_keys', { target: paneId, keys: ['Escape'] });
         // Esc-time on this machine's clock — the same clock that stamps the
         // session file, so the client can sort the cut marker among events
         return sendJson(res, 200, { ok: true, salvage, at: Date.now() });
@@ -495,7 +721,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'POST' && action === 'keys') {
         const { keys } = await readBody(req);
         if (!Array.isArray(keys) || !keys.length) throw httpErr(400, 'keys: string[]');
-        await rpc('agent.send_keys', { target: paneId, keys });
+        await agentRpc('agent.send_keys', { target: paneId, keys });
         return sendJson(res, 200, { ok: true });
       }
     }
@@ -525,4 +751,9 @@ async function serveStatic(pathname, res) {
 
 server.listen(PORT, HOST, () => {
   console.log(`herdr-web listening on http://${HOST}:${PORT}${TOKEN ? ' (token auth on)' : ''}`);
+  if (!TOKEN) {
+    console.warn(
+      'WARNING: HERDR_WEB_TOKEN unset — anyone who can reach this port can drive your agents and start new ones (including with --dangerously-skip-permissions).',
+    );
+  }
 });

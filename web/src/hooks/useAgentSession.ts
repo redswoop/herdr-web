@@ -25,6 +25,7 @@ export function useAgentSession(
     itemsRef.current = items;
   }, [items]);
   const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false); // first transcript fetch landed
   const [cooldown, setCooldown] = useState(false); // brief lockout after an interrupt
   const keyRef = useRef(0);
   const [gen, setGen] = useState(0); // bumped on server 'reset' → full reload
@@ -72,6 +73,10 @@ export function useAgentSession(
 
   const applyEvents = useCallback(
     (evs: TEvent[]) => {
+      // a command record means the TUI ran a slash command, not a turn — drop
+      // the optimistic busy flag so the working pill doesn't linger through
+      // its decay window (skills that do real work re-arm via roster status)
+      if (evs.some((e) => e.kind === 'command')) setSubmitted(false);
       setItems((prev) => {
         const next = [...prev];
         for (const ev of evs) {
@@ -96,6 +101,20 @@ export function useAgentSession(
               continue;
             }
           }
+          if (ev.kind === 'command') {
+            // a slash command typed in the web composer: drop the bubble,
+            // the command pill takes its place
+            const full = [ev.name, ev.text].filter(Boolean).join(' ');
+            const i = next.findIndex(
+              (it) =>
+                it.type === 'mine' &&
+                it.mine.text === full &&
+                !it.mine.reconciled &&
+                it.mine.state !== 'stopping' &&
+                it.mine.state !== 'stopped',
+            );
+            if (i !== -1) next.splice(i, 1);
+          }
           insertSorted(next, { type: 'event', ev, key: keyRef.current++, at });
         }
         return next;
@@ -110,6 +129,7 @@ export function useAgentSession(
     let retry: ReturnType<typeof setTimeout> | null = null;
     setItems([]);
     setError(null);
+    setLoaded(false);
     setSubmitted(false);
     setRestoredDraft(null);
     inflightRef.current = null; // an in-flight POST belongs to the previous pane
@@ -127,6 +147,7 @@ export function useAgentSession(
         const { events, offset } = (await r.json()) as { events: TEvent[]; offset: number };
         if (!alive) return;
         setError(null);
+        setLoaded(true);
         applyEvents(events);
         es = new EventSource(`${agentPath(paneId, 'stream')}?offset=${offset}`);
         es.addEventListener('events', (e) => {
@@ -136,6 +157,15 @@ export function useAgentSession(
           // server re-resolved to a different session file — start over
           if (alive) setGen((g) => g + 1);
         });
+        es.onerror = () => {
+          // never let the browser auto-reconnect: it reuses the ORIGINAL
+          // ?offset=, replaying everything since this stream opened as
+          // duplicates. Tear down and reload the transcript cleanly instead.
+          if (alive) {
+            es?.close();
+            setGen((g) => g + 1);
+          }
+        };
       } catch (e) {
         if (!alive) return;
         // fresh sessions take a moment to grow a transcript file — retry
@@ -285,5 +315,8 @@ export function useAgentSession(
 
   const working = status === 'working' || submitted;
 
-  return { items, error, send, interrupt, cooldown, working, restoredDraft };
+  // inject: synthesize events client-side (e.g. screen residue of a slash
+  // command that wrote no session-file record) — same path as streamed
+  // events, so mine-bubble reconciliation and sorting apply
+  return { items, error, loaded, send, interrupt, cooldown, working, restoredDraft, inject: applyEvents };
 }

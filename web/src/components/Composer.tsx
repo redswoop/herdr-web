@@ -6,6 +6,8 @@ const KEYS = [
   ['esc', 'Escape'],
   ['↑', 'Up'],
   ['↓', 'Down'],
+  ['←', 'Left'],
+  ['→', 'Right'],
   ['⏎', 'Enter'],
   ['y', 'y'],
   ['n', 'n'],
@@ -21,6 +23,7 @@ export function Composer({
   onSend,
   onInterrupt,
   onToggleKeys,
+  onKeyTap,
 }: {
   paneId: string;
   working: boolean;
@@ -30,6 +33,8 @@ export function Composer({
   onSend: (text: string) => Promise<void>;
   onInterrupt: () => void;
   onToggleKeys: () => void;
+  /** a strip key landed on the TUI — lets the screen mirror refresh at once */
+  onKeyTap?: () => void;
 }) {
   const [text, setText] = useState('');
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -64,6 +69,10 @@ export function Composer({
     if (!t) return;
     setText('');
     requestAnimationFrame(grow);
+    // a slash command means a TUI dialog is coming — on touch devices, drop
+    // the phone keyboard so the key strip and screen mirror aren't buried
+    // behind it (desktop keeps focus for the next keystroke)
+    if (t.startsWith('/') && matchMedia('(pointer: coarse)').matches) taRef.current?.blur();
     try {
       await onSend(t);
     } catch (e) {
@@ -75,6 +84,7 @@ export function Composer({
   const sendKeys = async (key: string) => {
     const r = await post(agentPath(paneId, 'keys'), { keys: [key] });
     if (!r.ok) alert(await errorOf(r));
+    else onKeyTap?.();
   };
 
   return (

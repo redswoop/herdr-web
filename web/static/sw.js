@@ -24,6 +24,12 @@ self.addEventListener('fetch', (e) => {
     try {
       const res = await fetch(e.request);
       if (res.ok) (await caches.open(CACHE)).put(e.request, res.clone());
+      // token auth rejected us: boot the cached app anyway so it can show
+      // its unlock screen instead of raw 401 JSON (API calls stay gated)
+      if (res.status === 401) {
+        const hit = await caches.match(e.request, { ignoreSearch: true });
+        if (hit) return hit;
+      }
       return res;
     } catch {
       return (await caches.match(e.request, { ignoreSearch: true }))

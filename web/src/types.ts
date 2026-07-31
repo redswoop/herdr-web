@@ -3,6 +3,7 @@ export type AgentStatus = 'blocked' | 'working' | 'idle' | 'done' | 'unknown';
 export interface Agent {
   paneId: string;
   workspaceId: string;
+  tabId: string;
   agent: string;
   /** herdr's pretty name for the agent binary (e.g. "Claude Code") */
   displayAgent: string | null;
@@ -30,9 +31,38 @@ export interface Workspace {
   worktree: { repoName: string | null; isLinked: boolean; checkoutPath: string | null } | null;
 }
 
+export interface Tab {
+  tabId: string;
+  workspaceId: string;
+  number: number;
+  /** herdr's display label — the tab's position number unless renamed */
+  label: string;
+  focused: boolean;
+  paneCount: number;
+  status: AgentStatus;
+}
+
+export interface AgentKind {
+  kind: string;
+  version: string | null;
+  /** the kind's executable is on the daemon's PATH */
+  installed: boolean;
+}
+
+export interface NewChatRequest {
+  kind: string;
+  name?: string;
+  cwd?: string;
+  /** omit to create a fresh workspace */
+  workspaceId?: string;
+  label?: string;
+  args?: string[];
+}
+
 export interface Roster {
   agents: Agent[];
   workspaces?: Workspace[];
+  tabs?: Tab[];
   herdrDown?: boolean;
   error?: string;
   updatedAt: number;
@@ -47,6 +77,9 @@ export type EventKind =
   | 'tool_use'
   | 'tool_result'
   | 'note'
+  | 'command' // slash command run in the TUI (name = /command, text = args)
+  | 'command_out' // its stdout; merged into the preceding command pill
+  | 'command_err' // client-only: error text salvaged off the screen; rendered expanded
   | 'salvage' // client-only: screen capture taken at interrupt time
   | 'interrupted'; // client-only: divider marking where the stream was cut
 
