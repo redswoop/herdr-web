@@ -81,8 +81,73 @@ session: roster w/ status chips, semantic transcript (user bubbles, collapsed
 thinking/tool blocks), prompt submit via `agent.prompt`, send-keys row,
 blocked banner + screen peek, SSE live tail, status transitions. Run:
 `node server.js --port 7683` (optional `HERDR_WEB_TOKEN` for cookie auth).
-M0+M1 effectively done; next up: M2 polish (Web Push on blocked, PWA
-manifest), systemd unit, Mac deployment.
+M0+M1 done. M2 push/PWA/systemd built (see below); next up: install the unit
+on stormer, pair the phone, then M2 polish round 2 (triage buckets, Sent ✓,
+snooze) and Mac deployment.
+
+**M2 push stack built (2026-07-30 late):** Web Push + PWA, still zero-dep.
+- `lib/webpush.js` — hand-rolled VAPID (RFC 8292) + aes128gcm (RFC 8291/8188)
+  on node:crypto; validated byte-for-byte against RFC 8291 Appendix A vectors
+  (`node --test 'test/*.test.mjs'`). VAPID keys auto-minted on first run into
+  `~/.local/state/herdr-web/vapid.json` — zero config.
+- `lib/notify.js` — coordinator, design lifted from collie (see survey below):
+  debounce (default 20 s, `--notify-delay`; blocked-then-handled-at-desk never
+  buzzes), coalesce (whole herd = ONE notification slot, re-rendered per
+  change), retract (`type:"clear"` push closes the lock-screen notification
+  when you resolve at the PC). Emits serialized — unserialized, a fast clear
+  can overtake a slow enriched summary (caught by the round-trip test).
+  Collapse topic + 6 h TTL so an offline phone gets one current summary on
+  reconnect, not a replay. Subscriptions pruned on 404/410.
+- **Our edge over collie:** enrichment. At fire time the coordinator calls
+  blocked-context, so the notification body carries the agent's actual
+  question, and simple choices (permission prompts, 2-option asks) get
+  answer ACTION BUTTONS — Allow/deny from the lock screen, `expect`-verified
+  server-side (409 → falls back to opening the app). Collie's ARCHITECTURE.md
+  names this exact thing as their known gap.
+- `public/sw.js` — push render (suppressed when a tab is visible),
+  clear-by-tag, action → POST /answer, tap → deep-link `#/agent/<pane>`;
+  network-first shell cache. `manifest.webmanifest` + generated icons
+  (`scripts/gen-icons.mjs`, zero-dep PNG encoder) → installable PWA. Bell
+  toggle in the roster header subscribes/unsubscribes.
+- `systemd/herdr-web.service` — user unit, `After=herdr.service`.
+- Round-trip tested without a browser: local HTTP server plays push service,
+  generated P-256 pair plays the browser, test decrypts real payloads
+  (`test/notify.test.mjs`).
+- iOS note: web push requires the PWA installed to home screen (16.4+);
+  Android Chrome caps notification actions at 2 (we send at most 2).
+- Not yet: snooze/DND, "Ready·unseen" triage bucket, Sent ✓ trust loop,
+  destructive-input confirm — all collie ideas worth stealing next (below).
+
+## Collie survey — verified findings (2026-07-30, read the source)
+
+Cloned + read AltanS/collie end to end. Far more serious than its stars:
+Bun bridge + React PWA, tests everywhere, excellent ARCHITECTURE.md.
+- **Steal (done):** the notification coordinator lifecycle (debounce/coalesce/
+  retract), collapse topic + TTL on every send, prune-on-410, atomic 0600
+  state writes, suppress-push-when-tab-visible, deep-link on tap.
+- **Steal (next):** triage buckets — Needs you / **Ready·unseen** / Working /
+  Recent, where unseen = `lastActiveAt > lastSeenAt`, no stored flag (opening
+  the pane clears it for free); "Sent ✓" trust loop (explicit sent state +
+  visible blocked→working flip — prevents double-taps); destructive-input
+  confirm (pattern-match rm/sudo/force-push before send, 38 lines); snooze
+  with persistence (snoozing also retracts).
+- **Validated our architecture independently:** they read transcripts from
+  per-agent session files too (claude/codex/pi adapters) because agent TUIs
+  run on the alternate screen — `pane.read` physically cannot scroll back;
+  systemd user service over plugin pane; events poke a poll, poll stays
+  source of truth (our roster already works this way).
+- **Their confessed gap = our moat:** prompt parsing is client-side over the
+  visible pane, so their notification can't carry the question. Our
+  blocked-context is server-side (session file first, screen parse second) —
+  our push says *what* the agent is asking and can answer from the
+  notification.
+- **Security note worth keeping:** they bind loopback-only behind
+  `tailscale serve`. We bind 0.0.0.0 on a ufw'd LAN — fine for now, but note
+  any local uid can hit the port (and read HERDR_WEB_TOKEN from our env
+  anyway). If that ever matters: loopback bind + reverse proxy, or nftables
+  `meta skuid`.
+- Voice input needs zero build — the phone keyboard's mic button dictates
+  into a plain textarea. Don't build anything.
 
 Blocked-card flow added + tested live (spawned a real claude in a herdr tab,
 drove AskUserQuestion and a Bash permission prompt end-to-end via the API):

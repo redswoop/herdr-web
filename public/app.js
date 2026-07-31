@@ -67,6 +67,7 @@ function connectRoster() {
   rosterStream.addEventListener('roster', (e) => {
     roster = JSON.parse(e.data);
     $('conn-dot').classList.toggle('ok', !roster.herdrDown);
+    $('build').textContent = roster.build ?? '';
     renderRoster();
     if (current) syncAgentHeader();
   });
@@ -335,14 +336,83 @@ $('show-screen').onclick = async () => {
 };
 
 $('back').onclick = closeAgent;
+$('build').onclick = () => {
+  const secure = window.isSecureContext;
+  alert([
+    `server build: ${roster.build ?? '?'}`,
+    `booted: ${roster.bootedAt ?? '?'}`,
+    `secure context: ${secure} ${secure ? '' : '(push/PWA need HTTPS)'}`,
+    `service worker: ${'serviceWorker' in navigator}`,
+    `push API: ${'PushManager' in window}`,
+  ].join('\n'));
+};
 $('kbd-toggle').onclick = () => {
   kbdPinned = !kbdPinned;
   $('keysrow').hidden = !kbdPinned && agentOf(current)?.status !== 'blocked';
   if (kbdPinned) $('keysrow').hidden = false;
 };
 
+// ---------- push ----------
+let swReg = null;
+
+function b64uToBytes(s) {
+  const raw = atob(s.replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+async function syncBell() {
+  const bell = $('bell');
+  if (!swReg?.pushManager) return; // no SW / no push support — bell stays hidden
+  bell.hidden = false;
+  const sub = await swReg.pushManager.getSubscription();
+  bell.textContent = sub ? '🔔' : '🔕';
+  bell.classList.toggle('on', !!sub);
+}
+
+async function initPush() {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    swReg = await navigator.serviceWorker.register('/sw.js');
+    await syncBell();
+  } catch { /* http origin or private mode — feature stays off */ }
+}
+
+$('bell').onclick = async () => {
+  if (!swReg) return;
+  const existing = await swReg.pushManager.getSubscription();
+  if (existing) {
+    await fetch('/api/push/unsubscribe', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ endpoint: existing.endpoint }),
+    });
+    await existing.unsubscribe();
+    return syncBell();
+  }
+  if (Notification.permission === 'denied') {
+    alert('Notifications are blocked for this site — enable them in browser settings.');
+    return;
+  }
+  try {
+    const { key } = await (await fetch('/api/push/pubkey')).json();
+    const sub = await swReg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: b64uToBytes(key),
+    });
+    await fetch('/api/push/subscribe', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ subscription: sub.toJSON() }),
+    });
+  } catch (e) {
+    alert(`push setup failed: ${e.message ?? e}`);
+  }
+  syncBell();
+};
+
 // ---------- boot ----------
 connectRoster();
+initPush();
 addEventListener('hashchange', () => {
   const m = location.hash.match(/^#\/agent\/(.+)$/);
   if (!m && current) closeAgent();

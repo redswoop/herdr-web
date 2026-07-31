@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rpc, subscribe } from './lib/herdr.js';
 import { adapterFor, readEvents } from './lib/adapters.js';
+import { PushStore, Coordinator } from './lib/notify.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -17,6 +18,28 @@ const argOf = (name, dflt) => {
 const PORT = Number(argOf('--port', process.env.PORT ?? 7683));
 const HOST = argOf('--host', '0.0.0.0');
 const TOKEN = process.env.HERDR_WEB_TOKEN ?? null;
+
+// Build stamp: hash of the code THIS process loaded (public/ is read from disk
+// per-request, so only server-side files count). Shown in the UI header.
+import { createHash } from 'node:crypto';
+const BUILD = await (async () => {
+  const h = createHash('sha1');
+  const files = ['server.js', ...(await fsp.readdir(path.join(ROOT, 'lib'))).sort().map((f) => `lib/${f}`)];
+  for (const f of files) h.update(await fsp.readFile(path.join(ROOT, f)));
+  return h.digest('hex').slice(0, 7);
+})();
+const BOOTED_AT = new Date().toISOString();
+
+// ---------- push ----------
+// (before the roster section: refreshRoster feeds the coordinator and runs at
+// startup. blockedContext is declared below — function declarations hoist.)
+
+const pushStore = await new PushStore().init();
+const coordinator = new Coordinator(
+  pushStore,
+  (paneId) => blockedContext(paneId),
+  Number(argOf('--notify-delay', 20_000)),
+);
 
 // ---------- roster ----------
 
@@ -44,9 +67,19 @@ async function refreshRoster() {
         sessionId: session?.sessionId ?? null,
       };
     }));
-    roster = { agents, herdrDown: false, updatedAt: Date.now() };
+    // status-transition detection for push (herdr-down blips must not read as
+    // "everything resolved", so removals are only derived from a good refresh)
+    if (!roster.herdrDown) {
+      const prev = new Map(roster.agents.map((a) => [a.paneId, a.status]));
+      for (const a of agents) {
+        if (prev.get(a.paneId) !== a.status) coordinator.onTransition(a, a.status);
+        prev.delete(a.paneId);
+      }
+      for (const paneId of prev.keys()) coordinator.onRemove(paneId);
+    }
+    roster = { agents, herdrDown: false, updatedAt: Date.now(), build: BUILD, bootedAt: BOOTED_AT };
   } catch (e) {
-    roster = { agents: [], herdrDown: true, error: String(e.message ?? e), updatedAt: Date.now() };
+    roster = { agents: [], herdrDown: true, error: String(e.message ?? e), updatedAt: Date.now(), build: BUILD, bootedAt: BOOTED_AT };
   }
   const payload = `event: roster\ndata: ${JSON.stringify(roster)}\n\n`;
   for (const res of rosterClients) res.write(payload);
@@ -157,6 +190,24 @@ function parseMenuScreen(text) {
   return { kind: 'menu', header, question, detail: detail.join('\n'), options: opts };
 }
 
+// What is the agent blocked ON? Session file first (pending tool_use), then
+// the visible screen parsed for a numbered menu. Shared by the API route and
+// the push coordinator (the notification body carries the question).
+async function blockedContext(paneId) {
+  const { adapter, session } = await resolveAgent(paneId);
+  // live status, not the roster cache — the cache can lag the event
+  const live = await rpc('agent.get', { target: paneId });
+  if (live.agent?.agent_status !== 'blocked') return { kind: 'none' };
+  const { events } = await readEvents(adapter, session.file, 0);
+  let ctx = classifyBlocked(events);
+  if (ctx.kind === 'unknown') {
+    const screen = await readScreen(paneId);
+    ctx = parseMenuScreen(screen) ?? { kind: 'unknown' };
+  }
+  return ctx;
+}
+
+
 // ---------- http ----------
 
 function httpErr(status, message) {
@@ -232,6 +283,38 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (seg[1] === 'push') {
+      if (req.method === 'GET' && seg[2] === 'pubkey') {
+        return sendJson(res, 200, { key: pushStore.vapid.publicKey });
+      }
+      if (req.method === 'POST' && seg[2] === 'subscribe') {
+        const { subscription } = await readBody(req);
+        if (!subscription?.endpoint || !subscription?.keys?.p256dh) {
+          throw httpErr(400, 'subscription required');
+        }
+        await pushStore.add(subscription);
+        return sendJson(res, 200, { ok: true, devices: pushStore.subs.size });
+      }
+      if (req.method === 'POST' && seg[2] === 'unsubscribe') {
+        const { endpoint } = await readBody(req);
+        if (!endpoint) throw httpErr(400, 'endpoint required');
+        await pushStore.remove(endpoint);
+        return sendJson(res, 200, { ok: true, devices: pushStore.subs.size });
+      }
+      if (req.method === 'POST' && seg[2] === 'test') {
+        const when = new Date().toLocaleTimeString();
+        const results = await pushStore.broadcast({
+          type: 'test',
+          force: true,
+          title: 'herdr-web test',
+          body: `push ok 🐑 ${when}`,
+          tag: 'test',
+          renotify: true,
+        }, { topic: `test-${Date.now()}`, ttl: 300 });
+        return sendJson(res, 200, { ok: true, devices: pushStore.subs.size, results });
+      }
+    }
+
     if (seg[1] === 'agent' && seg[2]) {
       const paneId = decodeURIComponent(seg[2]);
       const action = seg[3];
@@ -281,20 +364,8 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { text: await readScreen(paneId) });
       }
 
-      // What is the agent blocked ON? Try the session file first (pending
-      // tool_use), then parse the visible screen for a numbered menu.
       if (req.method === 'GET' && action === 'blocked-context') {
-        const { adapter, session } = await resolveAgent(paneId);
-        // live status, not the roster cache — the cache can lag the event
-        const live = await rpc('agent.get', { target: paneId });
-        if (live.agent?.agent_status !== 'blocked') return sendJson(res, 200, { kind: 'none' });
-        const { events } = await readEvents(adapter, session.file, 0);
-        let ctx = classifyBlocked(events);
-        if (ctx.kind === 'unknown') {
-          const screen = await readScreen(paneId);
-          ctx = parseMenuScreen(screen) ?? { kind: 'unknown' };
-        }
-        return sendJson(res, 200, ctx);
+        return sendJson(res, 200, await blockedContext(paneId));
       }
 
       // Answer a menu with keystrokes, but only after verifying the screen

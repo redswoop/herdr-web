@@ -6,12 +6,16 @@
 <meta name="theme-color" content="#101014">
 <title>herdr</title>
 <link rel="stylesheet" href="/style.css">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐑</text></svg>">
 </head>
 <body>
 <div id="roster-view">
   <header class="bar">
     <h1>🐑 herd</h1>
+    <span id="build" class="sub" title="server build · tap for details"></span>
+    <button id="bell" class="ghost" hidden title="notify when an agent blocks">🔕</button>
     <span id="conn-dot" class="dot" title="daemon connection"></span>
   </header>
   <main id="roster"></main>

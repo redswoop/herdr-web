@@ -67,6 +67,8 @@ button {
   background: var(--panel-2); color: var(--text);
 }
 button.ghost { background: none; color: var(--accent); font-size: 20px; padding: 4px 10px; }
+#bell { filter: grayscale(1); opacity: .55; }
+#bell.on { filter: none; opacity: 1; }
 #blocked-banner {
   flex: none; display: flex; align-items: center; gap: 8px;
   background: color-mix(in srgb, var(--blocked) 18%, var(--bg));
