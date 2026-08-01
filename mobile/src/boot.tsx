@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { hydrateKv, initNativePlatform } from './platform.native';
-import { loadSettings } from './settings-store';
+import { adoptUrlSettings, loadSettings } from './settings-store';
 import { colors } from './theme';
 
 interface BootCtx {
@@ -23,6 +23,7 @@ export function BootProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     (async () => {
       await hydrateKv();
+      await adoptUrlSettings(); // ?server=&token= wins over stored settings
       const s = await loadSettings();
       initNativePlatform({ baseUrl: s.baseUrl, token: s.token || null });
       setReady(true);

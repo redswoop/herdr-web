@@ -28,6 +28,32 @@ const store =
         del: (k: string) => SecureStore.deleteItemAsync(k),
       };
 
+/**
+ * Web only: seed settings from `?server=…&token=…` so the RNW audition is a
+ * single clickable link instead of a hand-typed settings screen. Consumed
+ * once — the params are stripped from the URL so a reload/share doesn't carry
+ * the token around. No-op on native (deep links are a P3 concern).
+ */
+export async function adoptUrlSettings(): Promise<void> {
+  if (Platform.OS !== 'web') return;
+  const loc = globalThis.location;
+  if (!loc?.search) return;
+  const q = new URLSearchParams(loc.search);
+  const token = q.get('token');
+  const server = q.get('server');
+  if (!token && !server) return;
+
+  const cur = await loadSettings();
+  await saveSettings({
+    baseUrl: server ?? cur.baseUrl,
+    token: token ?? cur.token,
+  });
+  q.delete('token');
+  q.delete('server');
+  const rest = q.toString();
+  globalThis.history?.replaceState(null, '', `${loc.pathname}${rest ? `?${rest}` : ''}${loc.hash}`);
+}
+
 export async function loadSettings(): Promise<ServerSettings> {
   const [baseUrl, token] = await Promise.all([store.get(URL_KEY), store.get(TOKEN_KEY)]);
   return {
