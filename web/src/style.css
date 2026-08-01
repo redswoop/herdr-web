@@ -339,6 +339,42 @@ button:disabled { cursor: default; }
 .msg a[data-file], .file-md a[data-file] { text-decoration-style: dotted; }
 .msg code a[data-file], .file-md code a[data-file] { color: inherit; }
 
+/* GFM tables (md.ts → .md-table wrap for phone horizontal scroll) */
+.md-table {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 10px 0;
+  max-width: 100%;
+}
+.md-table table {
+  border-collapse: collapse;
+  width: max-content;
+  min-width: min(100%, 280px);
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+.md-table th, .md-table td {
+  border: 1px solid var(--hairline);
+  padding: 6px 11px;
+  vertical-align: top;
+}
+.md-table th {
+  background: var(--surface-2);
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+.md-table td { color: var(--text); }
+.md-table tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+}
+.msg.user .md-table th {
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface-2));
+}
+.msg.user .md-table th, .msg.user .md-table td {
+  border-color: color-mix(in srgb, var(--accent) 20%, var(--hairline));
+}
+
 .sent-status {
   font-size: 11px; color: var(--sub); margin-top: 5px; text-align: right;
   transition: color 0.2s;

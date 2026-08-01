@@ -1,4 +1,5 @@
-/* Tiny escape-first markdown: fenced code, inline code, bold, headers, links. */
+/* Tiny escape-first markdown: fenced code, inline code, bold, headers, links,
+ * GFM tables. */
 export function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 }
@@ -54,6 +55,101 @@ export function pathish(s: string): string | null {
   return p;
 }
 
+/** Split a GFM table row into cells. Leading/trailing pipes optional. */
+function splitCells(line: string): string[] {
+  let s = line.trim();
+  if (s.startsWith('|')) s = s.slice(1);
+  if (s.endsWith('|')) s = s.slice(0, -1);
+  return s.split('|').map((c) => c.trim());
+}
+
+/** Separator row: each cell is :--- / --- / ---: / :---: (3+ dashes). */
+function isTableSep(line: string): boolean {
+  if (!line.includes('|') && !/-{3,}/.test(line)) return false;
+  const cells = splitCells(line);
+  return cells.length > 0 && cells.every((c) => /^:?-{3,}:?$/.test(c));
+}
+
+/** Any pipe-bearing non-blank line is a candidate row; the separator gate
+ *  keeps prose with a lone `|` from becoming a table. */
+function isTableRow(line: string): boolean {
+  return line.includes('|') && line.trim().length > 0;
+}
+
+type Align = 'left' | 'center' | 'right' | '';
+
+function parseAligns(sepLine: string): Align[] {
+  return splitCells(sepLine).map((c) => {
+    const left = c.startsWith(':');
+    const right = c.endsWith(':');
+    if (left && right) return 'center';
+    if (right) return 'right';
+    if (left) return 'left';
+    return '';
+  });
+}
+
+function cellTag(tag: 'th' | 'td', content: string, align: Align): string {
+  const a = align ? ` style="text-align:${align}"` : '';
+  return `<${tag}${a}>${content}</${tag}>`;
+}
+
+/** Lift GFM tables out of a post-inline text block; remaining lines become
+ *  <br>-joined runs. Must run after inline markup (cells keep bold/code/links)
+ *  and before the global newline→br pass. */
+function blockify(t: string): string {
+  const lines = t.split('\n');
+  const chunks: string[] = [];
+  let buf: string[] = [];
+  const flush = () => {
+    if (buf.length) {
+      chunks.push(buf.join('<br>'));
+      buf = [];
+    }
+  };
+
+  let i = 0;
+  while (i < lines.length) {
+    if (i + 1 < lines.length && isTableRow(lines[i]) && isTableSep(lines[i + 1])) {
+      const header = splitCells(lines[i]);
+      const aligns = parseAligns(lines[i + 1]);
+      const cols = header.length;
+      i += 2;
+      const body: string[][] = [];
+      while (i < lines.length && isTableRow(lines[i]) && !isTableSep(lines[i])) {
+        body.push(splitCells(lines[i]));
+        i += 1;
+      }
+      const pad = (cells: string[]) => {
+        const row = cells.slice(0, cols);
+        while (row.length < cols) row.push('');
+        return row;
+      };
+      const thead = `<thead><tr>${pad(header)
+        .map((c, j) => cellTag('th', c, aligns[j] ?? ''))
+        .join('')}</tr></thead>`;
+      const tbody =
+        body.length === 0
+          ? ''
+          : `<tbody>${body
+              .map(
+                (row) =>
+                  `<tr>${pad(row)
+                    .map((c, j) => cellTag('td', c, aligns[j] ?? ''))
+                    .join('')}</tr>`,
+              )
+              .join('')}</tbody>`;
+      flush();
+      chunks.push(`<div class="md-table"><table>${thead}${tbody}</table></div>`);
+      continue;
+    }
+    buf.push(lines[i]);
+    i += 1;
+  }
+  flush();
+  return chunks.join('');
+}
+
 export function md(src: string): string {
   const out: string[] = [];
   const parts = src.split(/```(\w*)\n?/);
@@ -73,7 +169,7 @@ export function md(src: string): string {
     });
     t = t.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
     t = t.replace(/^#{1,3} (.*)$/gm, '<strong>$1</strong>');
-    t = t.replace(/\n/g, '<br>');
+    t = blockify(t);
     out.push(t);
   }
   return out.join('');
