@@ -14,6 +14,10 @@ const TAIL_CHROME_RES = [
   /esc to interrupt/,
   /\? for shortcuts/i,
   /shift\+tab/i,
+  // grok footers: "Ctrl+.:shortcuts", "Enter:send", "Esc:unselect …"
+  /Ctrl\+\.\s*:?\s*shortcuts/i,
+  /Enter:send/,
+  /Esc:unselect/,
 ];
 
 /** Peel trailing chrome. `│…│` rows are ambiguous — the composer box AND
@@ -77,7 +81,8 @@ export function LiveTail({
         const { text: raw, mode } = (await r.json()) as { text: string; mode?: ModeState };
         if (!alive) return;
         if (mode) onMode?.(mode);
-        const lines = (raw ?? '').split('\n');
+        // grok paints a █ scrollbar column on the right edge — pure noise here
+        const lines = (raw ?? '').split('\n').map((l: string) => l.replace(/\s*█\s*$/, ''));
         const end = stripChrome(lines);
         setText(lines.slice(0, end).join('\n').replace(/\n{3,}/g, '\n\n').trimEnd());
       } catch {}

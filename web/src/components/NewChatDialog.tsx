@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { errorOf, post } from '../api';
 import { rememberKind, lastKind, type SpawnTarget } from '../spawn';
+import { ago, basename, shortPath } from '../util';
 import type { AgentKind, NewChatRequest, Project, Roster, SessionEntry, WorktreeEntry } from '../types';
 
 /** Where the new session starts. The launcher is place-first: pick the
@@ -10,7 +11,7 @@ type Dest =
   | { type: 'project'; path: string } // fresh workspace in a known dir
   | { type: 'worktree-open'; repoCwd: string; path: string } // open existing checkout
   | { type: 'worktree-new'; repoCwd: string } // create checkout (branch below)
-  | { type: 'resume'; dir: string; sessionId: string; title: string | null } // past claude session
+  | { type: 'resume'; dir: string; sessionId: string; title: string | null; kind: string } // past session
   | { type: 'path' }; // custom dir
 
 const destKey = (d: Dest) =>
@@ -20,16 +21,6 @@ const destKey = (d: Dest) =>
   : d.type === 'worktree-new' ? `wtnew:${d.repoCwd}`
   : d.type === 'resume' ? `resume:${d.sessionId}`
   : 'path';
-
-const ago = (ms: number) => {
-  const s = Math.max(0, (Date.now() - ms) / 1000);
-  if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m ago`;
-  if (s < 86_400) return `${Math.round(s / 3600)}h ago`;
-  return `${Math.round(s / 86_400)}d ago`;
-};
-
-const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
-const shortPath = (p: string) => p.replace(/^\/home\/[^/]+/, '~');
 
 /** Mirror of the server's agent-name cleanup (herdr wants ^[a-z][a-z0-9_-]{0,31}$).
  *  Typed text is kept verbatim for the tab label; this is what the agent runs as. */
@@ -42,8 +33,10 @@ const cleanAgentName = (raw: string) =>
     .replace(/-+$/, '')
     .slice(0, 32);
 
-/** Spawn-time permission mode (claude only). yolo keeps the legacy flag —
- *  --permission-mode bypassPermissions needs a settings opt-in, the flag doesn't. */
+/** Spawn-time permission mode — claude and grok share the --permission-mode
+ *  vocabulary. yolo differs per kind: claude keeps the legacy flag
+ *  (--permission-mode bypassPermissions needs a settings opt-in, the flag
+ *  doesn't) and grok spells it --always-approve. */
 type SpawnMode = 'default' | 'acceptEdits' | 'plan' | 'auto' | 'yolo';
 const SPAWN_MODES: Record<SpawnMode, { label: string; args: string[]; hint: string }> = {
   default: { label: 'manual', args: [], hint: 'approve every tool use' },
@@ -57,9 +50,11 @@ const SPAWN_MODES: Record<SpawnMode, { label: string; args: string[]; hint: stri
   yolo: {
     label: 'yolo',
     args: ['--dangerously-skip-permissions'],
-    hint: 'no permission checks at all (--dangerously-skip-permissions)',
+    hint: 'no permission checks at all',
   },
 };
+const spawnModeArgs = (kind: string, m: SpawnMode) =>
+  m === 'yolo' && kind === 'grok' ? ['--always-approve'] : SPAWN_MODES[m].args;
 
 /** Modal form for starting a fresh agent chat: destination + kind. */
 export function NewChatDialog({
@@ -80,8 +75,10 @@ export function NewChatDialog({
   const [projects, setProjects] = useState<Project[] | null>(null);
   // repo path -> its checkouts (fetched when a repo project is opened)
   const [worktrees, setWorktrees] = useState<Record<string, WorktreeEntry[] | null>>({});
-  // project key -> resumable claude sessions across the project's dirs
-  const [sessions, setSessions] = useState<Record<string, (SessionEntry & { dir: string })[] | null>>({});
+  // project key -> resumable sessions (claude + grok) across the project's dirs
+  const [sessions, setSessions] = useState<
+    Record<string, (SessionEntry & { dir: string; kind: string })[] | null>
+  >({});
   const [openProject, setOpenProject] = useState<string | null>(null);
   const [dest, setDest] = useState<Dest>(() => {
     const w = target?.workspaceId
@@ -148,15 +145,18 @@ export function NewChatDialog({
         )
         .catch(() => setWorktrees((w) => ({ ...w, [p.path]: [] })));
     }
-    // resumable sessions live per-dir; a project can span several
+    // resumable sessions live per-dir and per-kind; a project can span several
     if (next && sessions[p.key] === undefined) {
       setSessions((s) => ({ ...s, [p.key]: null }));
       Promise.all(
-        p.dirs.map((d) =>
-          fetch(`/api/sessions?cwd=${encodeURIComponent(d)}`)
-            .then((r) => (r.ok ? r.json() : Promise.reject()))
-            .then((j: { sessions: SessionEntry[] }) => j.sessions.map((s) => ({ ...s, dir: d })))
-            .catch(() => [] as (SessionEntry & { dir: string })[]),
+        p.dirs.flatMap((d) =>
+          ['claude', 'grok'].map((k) =>
+            fetch(`/api/sessions?cwd=${encodeURIComponent(d)}&kind=${k}`)
+              .then((r) => (r.ok ? r.json() : Promise.reject()))
+              .then((j: { sessions: SessionEntry[] }) =>
+                j.sessions.map((s) => ({ ...s, dir: d, kind: k })))
+              .catch(() => [] as (SessionEntry & { dir: string; kind: string })[]),
+          ),
         ),
       ).then((lists) => {
         const merged = lists.flat().sort((a, b) => b.mtime - a.mtime).slice(0, 8);
@@ -173,16 +173,16 @@ export function NewChatDialog({
     return [...dirs].sort();
   }, [roster, projects]);
 
-  // resume rows are claude sessions by definition — the kind picker is moot
+  // a resume row already knows its agent kind — the kind picker is moot
   const isResume = dest.type === 'resume';
-  const effKind = isResume ? 'claude' : kind;
+  const effKind = dest.type === 'resume' ? dest.kind : kind;
 
   const submit = async () => {
     if (!effKind || busy) return;
     setBusy(true);
     setError(null);
     const args = [
-      ...(effKind === 'claude' ? SPAWN_MODES[spawnMode].args : []),
+      ...(effKind === 'claude' || effKind === 'grok' ? spawnModeArgs(effKind, spawnMode) : []),
       ...(argsText.trim() ? argsText.trim().split(/\s+/) : []),
     ];
     // an untitled resume inherits the session's title so the tab reads right
@@ -246,8 +246,8 @@ export function NewChatDialog({
     </button>
   );
 
-  // Past claude sessions under an open project. A session already bound to a
-  // live pane can't be resumed twice — its row jumps to that pane instead.
+  // Past sessions (claude + grok) under an open project. A session already
+  // bound to a live pane can't be resumed twice — its row jumps there instead.
   const sessionRows = (p: Project) => {
     const list = sessions[p.key];
     if (list === null) return <div className="dest-note sub">loading sessions…</div>;
@@ -269,9 +269,12 @@ export function NewChatDialog({
             </button>
           ) : (
             row(
-              { type: 'resume', dir: s.dir, sessionId: s.sessionId, title: s.title },
+              { type: 'resume', dir: s.dir, sessionId: s.sessionId, title: s.title, kind: s.kind },
               <>↻ {label}</>,
-              <span className="dest-badge">{ago(s.mtime)}</span>,
+              <>
+                <span className="dest-badge">{s.kind}</span>
+                <span className="dest-badge">{ago(s.mtime)}</span>
+              </>,
             )
           );
         })}
@@ -415,7 +418,7 @@ export function NewChatDialog({
               </option>
             ))}
           </select>
-          {isResume && <span className="field-hint sub">resuming a claude session</span>}
+          {isResume && <span className="field-hint sub">resuming a {effKind} session</span>}
         </label>
 
         <label className="field">
@@ -434,7 +437,7 @@ export function NewChatDialog({
           )}
         </label>
 
-        {effKind === 'claude' && (
+        {(effKind === 'claude' || effKind === 'grok') && (
           <label className="field">
             <span>permission mode</span>
             <div className="seg-row">

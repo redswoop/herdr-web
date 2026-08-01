@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { esc, md } from '../md';
 import type { Item, Mine, TEvent } from '../types';
 
@@ -104,8 +104,11 @@ function buildNodes(items: Item[], working: boolean): Node[] {
         turn.out.set(id, Math.max(turn.out.get(id) ?? 0, e.usage.out));
         turn.ctx = e.usage.ctx;
       }
-      if (e.kind !== 'interrupted') turn.sawWork = true;
+      if (e.kind !== 'interrupted' && e.kind !== 'usage') turn.sawWork = true;
     }
+
+    // pure accounting (grok's per-turn token totals) — nothing to render
+    if (e.kind === 'usage') continue;
 
     if (e.kind === 'thought' || e.kind === 'tool_use' || e.kind === 'tool_result') {
       if (e.kind === 'tool_result' && e.id && group) {
@@ -177,6 +180,10 @@ export function Transcript({
     if (el) follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
   };
 
+  // the SSE tick and the working pill's 3s cycle re-render this constantly —
+  // don't re-derive the node list (and re-parse markdown) unless items moved
+  const nodes = useMemo(() => buildNodes(items, working), [items, working]);
+
   if (items.length === 0) {
     return (
       <main className="scroll transcript" ref={ref}>
@@ -189,7 +196,6 @@ export function Transcript({
     );
   }
 
-  const nodes = buildNodes(items, working);
   // a live activity group carries its own spinner; anything else at the tail
   // (fresh prompt, assistant text mid-turn) gets the standalone working pill
   const showPill = working && nodes[nodes.length - 1]?.type !== 'group';
@@ -268,7 +274,7 @@ function WorkingPill() {
   );
 }
 
-function EventNode({ ev }: { ev: TEvent }) {
+const EventNode = memo(function EventNode({ ev }: { ev: TEvent }) {
   if (ev.kind === 'interrupted') {
     return <div className="interrupt-divider">⏹ interrupted</div>;
   }
@@ -286,7 +292,7 @@ function EventNode({ ev }: { ev: TEvent }) {
       </div>
     </details>
   );
-}
+});
 
 /* ---------- activity group ---------- */
 
@@ -460,11 +466,13 @@ function firstLine(text: string): string {
   return nl === -1 ? l : l.slice(0, nl);
 }
 
-function shortPath(p: string): string {
+/** last two path segments — enough to recognize a file in a step row */
+function lastSegs(p: string): string {
   return p.split('/').filter(Boolean).slice(-2).join('/');
 }
 
-/** the file a tool call touched, when it's unambiguous — powers tap-to-view */
+/** the file a tool call touched, when it's unambiguous — powers tap-to-view.
+ *  Covers claude tool names (CamelCase) and grok's (snake_case). */
 function stepFile(name: string, input: unknown): string | null {
   const i = (input ?? {}) as Record<string, unknown>;
   const s = (v: unknown) => (typeof v === 'string' ? v : '');
@@ -473,7 +481,10 @@ function stepFile(name: string, input: unknown): string | null {
     case 'Write':
     case 'Edit':
     case 'NotebookEdit':
-      return s(i.file_path) || s(i.path) || s(i.notebook_path) || null;
+    case 'read_file':
+    case 'write':
+    case 'search_replace':
+      return s(i.file_path) || s(i.path) || s(i.notebook_path) || s(i.target_file) || null;
     default:
       return null;
   }
@@ -485,28 +496,44 @@ function stepSummary(name: string, input: unknown, args: string): string {
   const s = (v: unknown) => (typeof v === 'string' ? v : '');
   switch (name) {
     case 'Bash':
+    case 'run_terminal_command':
       return firstLine(s(i.command)) || s(i.description);
     case 'Read':
     case 'Write':
     case 'Edit':
     case 'NotebookEdit':
-      return shortPath(s(i.file_path) || s(i.path) || s(i.notebook_path));
+    case 'read_file':
+    case 'write':
+    case 'search_replace':
+      return lastSegs(s(i.file_path) || s(i.path) || s(i.notebook_path) || s(i.target_file));
     case 'Grep':
-    case 'Glob': {
-      const where = shortPath(s(i.path));
+    case 'Glob':
+    case 'grep': {
+      const where = lastSegs(s(i.path) || s(i.glob));
       return [s(i.pattern), where].filter(Boolean).join(' in ');
     }
+    case 'list_dir':
+      return lastSegs(s(i.target_directory));
     case 'Agent':
     case 'Task':
+    case 'spawn_subagent':
       return s(i.description) || firstLine(s(i.prompt)).slice(0, 100);
     case 'WebFetch':
+    case 'web_fetch':
       return s(i.url);
     case 'WebSearch':
       return s(i.query);
     case 'Skill':
       return [s(i.skill), s(i.args)].filter(Boolean).join(' ');
     case 'TodoWrite':
+    case 'todo_write':
       return 'update todo list';
+    case 'AskUserQuestion':
+    case 'ask_user_question': {
+      const qs = i.questions;
+      const q = Array.isArray(qs) ? (qs[0] as { question?: string })?.question : '';
+      return s(q) || 'ask a question';
+    }
     default: {
       const first = Object.values(i).find((v) => typeof v === 'string' && v.trim());
       return first ? firstLine(first as string) : firstLine(args);

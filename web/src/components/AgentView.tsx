@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { agentPath, post } from '../api';
+import { agentPath, errorOf, post } from '../api';
 import { useAgentMode } from '../hooks/useAgentMode';
 import { useAgentSession } from '../hooks/useAgentSession';
 import { useBlockedContext } from '../hooks/useBlockedContext';
@@ -48,15 +48,20 @@ const MODE_DESC: Record<PermissionMode, string> = {
 const MODE_ORDER: PermissionMode[] = ['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions'];
 
 export function AgentView({
+  paneId,
   agent,
   file,
   onBack,
 }: {
+  /** the route's pane id — the stable identity. `agent` is roster metadata
+   *  that momentarily vanishes when herdr blips (herdrDown returns an empty
+   *  roster); driving paneId off it would tear down the session hooks and
+   *  wipe composer drafts on every daemon restart. */
+  paneId: string;
   agent: Agent | undefined;
   file: string | null;
   onBack: () => void;
 }) {
-  const paneId = agent?.paneId ?? '';
   const status = agent?.status;
   const { items, error, loaded, send, interrupt, cooldown, working, restoredDraft, inject } =
     useAgentSession(paneId, status, agent?.agent);
@@ -176,9 +181,12 @@ export function AgentView({
   const resumeById = useCallback(
     async (id: string) => {
       const cwd = agent?.cwd ?? '';
+      const kind = agent?.agent ?? 'claude';
       let title: string | null = null;
       try {
-        const r = await fetch(`/api/sessions?cwd=${encodeURIComponent(cwd)}`);
+        const r = await fetch(
+          `/api/sessions?cwd=${encodeURIComponent(cwd)}&kind=${encodeURIComponent(kind)}`,
+        );
         const { sessions } = (await r.json()) as { sessions: SessionEntry[] };
         const hit =
           sessions.find((s) => s.sessionId === id) ??
@@ -187,7 +195,7 @@ export function AgentView({
         if (hit) ({ sessionId: id, title } = hit);
       } catch {}
       const r = await post('/api/chats', {
-        kind: 'claude',
+        kind,
         cwd,
         resume: id,
         name: title ?? undefined,
@@ -197,7 +205,7 @@ export function AgentView({
       if (!r.ok) return alert(j.error ?? r.statusText);
       go(j.paneId as string);
     },
-    [agent?.cwd, go],
+    [agent?.cwd, agent?.agent, go],
   );
 
   // Slash commands open local TUI dialogs (/model, /resume, …) that herdr
@@ -229,12 +237,13 @@ export function AgentView({
     async (text: string) => {
       // Local overrides: commands with a first-class web UI never reach the
       // TUI — the generic path below would only mirror the raw dialog.
-      // /rewind opens the RewindCard; /resume [id] resumes into a NEW pane
-      // (this one can't swap sessions under itself), or jumps if already live.
-      if (agent?.agent === 'claude') {
-        const ov = /^\/(rewind|resume)(?:\s+(\S+))?$/.exec(text.trim());
-        if (ov?.[1] === 'rewind') return openRewind();
-        if (ov && agent.cwd) return ov[2] ? resumeById(ov[2]) : setResumeOpen(true);
+      // /rewind opens the RewindCard (claude's panel); /resume [id] resumes
+      // into a NEW pane (this one can't swap sessions under itself), or jumps
+      // if already live — both claude and grok take --resume.
+      const ov = /^\/(rewind|resume)(?:\s+(\S+))?$/.exec(text.trim());
+      if (ov?.[1] === 'rewind' && agent?.agent === 'claude') return openRewind();
+      if (ov?.[1] === 'resume' && agent?.cwd && (agent.agent === 'claude' || agent.agent === 'grok')) {
+        return ov[2] ? resumeById(ov[2]) : setResumeOpen(true);
       }
       const slash = text.trim().startsWith('/');
       if (slash) {
@@ -334,7 +343,7 @@ export function AgentView({
       return false;
     }
     if (!r.ok) {
-      alert((await r.json()).error ?? r.statusText);
+      alert(await errorOf(r));
       return false;
     }
     setTimeout(refresh, 600); // menu may advance to the next question
@@ -346,9 +355,14 @@ export function AgentView({
       setScreen(null);
       return;
     }
-    const r = await fetch(agentPath(paneId, 'screen'));
-    const { text } = await r.json();
-    setScreen((text ?? '').replace(/\n{3,}/g, '\n\n').trimEnd());
+    try {
+      const r = await fetch(agentPath(paneId, 'screen'));
+      if (!r.ok) throw new Error(await errorOf(r));
+      const { text } = await r.json();
+      setScreen((text ?? '').replace(/\n{3,}/g, '\n\n').trimEnd());
+    } catch (e) {
+      alert(String((e as Error).message ?? e));
+    }
   };
 
   const showBlockedCard = blocked && !keysForced && ctx != null && ctx.kind !== 'none' && ctx.kind !== 'unknown';
@@ -445,6 +459,7 @@ export function AgentView({
       {resumeOpen && agent?.cwd && (
         <ResumeCard
           cwd={agent.cwd}
+          kind={agent.agent}
           selfPaneId={paneId}
           onGo={(p) => {
             setResumeOpen(false);

@@ -29,6 +29,7 @@ export function useAgentSession(
   const [cooldown, setCooldown] = useState(false); // brief lockout after an interrupt
   const keyRef = useRef(0);
   const [gen, setGen] = useState(0); // bumped on server 'reset' → full reload
+  const prevPaneRef = useRef<string | null>(null); // pane switch vs same-pane reconnect
 
   // optimistic busy flag: armed on submit, cleared when the roster confirms
   // 'working' (handoff) or after a decay window if it never does
@@ -77,13 +78,24 @@ export function useAgentSession(
       // the optimistic busy flag so the working pill doesn't linger through
       // its decay window (skills that do real work re-arm via roster status)
       if (evs.some((e) => e.kind === 'command')) setSubmitted(false);
+      // sort keys + item keys are claimed OUTSIDE the updater: React may run
+      // an updater more than once, and nextAt()/keyRef++ inside would drift
+      const stamped = evs.map((ev) => {
+        const ts = ev.ts ? Date.parse(ev.ts) : NaN;
+        return {
+          ev,
+          at: Number.isNaN(ts) ? nextAt() : claimAt(ts),
+          key: keyRef.current++,
+        };
+      });
       setItems((prev) => {
         const next = [...prev];
-        for (const ev of evs) {
-          const ts = ev.ts ? Date.parse(ev.ts) : NaN;
-          const at = Number.isNaN(ts) ? nextAt() : claimAt(ts);
+        for (const { ev, at, key } of stamped) {
           if (ev.kind === 'user') {
-            const i = next.findIndex(
+            // reconcile into the NEWEST matching bubble — a re-send of text
+            // whose stopped predecessor was never persisted must not have its
+            // echo swallowed by the old ⏹ bubble
+            const i = next.findLastIndex(
               (it) =>
                 it.type === 'mine' &&
                 it.mine.text === ev.text.trim() &&
@@ -115,7 +127,7 @@ export function useAgentSession(
             );
             if (i !== -1) next.splice(i, 1);
           }
-          insertSorted(next, { type: 'event', ev, key: keyRef.current++, at });
+          insertSorted(next, { type: 'event', ev, key, at });
         }
         return next;
       });
@@ -134,17 +146,40 @@ export function useAgentSession(
       lastMsg = Date.now();
     };
     const stale = () => Date.now() - lastMsg > 30_000;
-    setItems([]);
+    // A gen bump is a RECONNECT of the same pane (SSE error, zombie watchdog,
+    // server reset) — routine on mobile. Local-only state must survive it:
+    // optimistic bubbles + client-synthesized events (salvage, ⏹ divider,
+    // command_err) exist nowhere else, and a pending TUI-clear/interrupt must
+    // not be forgotten mid-flight. A pane SWITCH resets everything.
+    const paneSwitch = prevPaneRef.current !== paneId;
+    prevPaneRef.current = paneId;
+    const LOCAL_KINDS = new Set(['salvage', 'interrupted', 'command_err']);
+    setItems((prev) => {
+      if (paneSwitch) return [];
+      const kept: Item[] = [];
+      for (const it of prev) {
+        if (it.type === 'event' && LOCAL_KINDS.has(it.ev.kind)) kept.push(it);
+        // confirmed bubbles drop — the full reload re-delivers their session
+        // event as a plain user bubble. Unconfirmed ones stay, re-armed so
+        // the reload can reconcile into them again (⏹ markers survive).
+        else if (it.type === 'mine' && it.mine.state !== 'confirmed') {
+          kept.push({ ...it, mine: { ...it.mine, reconciled: false } });
+        }
+      }
+      return kept;
+    });
     setError(null);
     setLoaded(false);
-    setSubmitted(false);
-    setRestoredDraft(null);
-    inflightRef.current = null; // an in-flight POST belongs to the previous pane
-    tuiClearRef.current = null;
-    maxAtRef.current = 0;
-    if (decayRef.current) {
-      clearTimeout(decayRef.current);
-      decayRef.current = null;
+    if (paneSwitch) {
+      setSubmitted(false);
+      setRestoredDraft(null);
+      inflightRef.current = null; // an in-flight POST belongs to the previous pane
+      tuiClearRef.current = null;
+      maxAtRef.current = 0;
+      if (decayRef.current) {
+        clearTimeout(decayRef.current);
+        decayRef.current = null;
+      }
     }
 
     const load = async () => {
@@ -171,10 +206,13 @@ export function useAgentSession(
         es.onerror = () => {
           // never let the browser auto-reconnect: it reuses the ORIGINAL
           // ?offset=, replaying everything since this stream opened as
-          // duplicates. Tear down and reload the transcript cleanly instead.
+          // duplicates. Tear down and reload the transcript cleanly instead —
+          // after a beat, so a proxy that hard-rejects the stream (tailscale
+          // 502 during a daemon restart) can't spin this into a hot loop.
           if (alive) {
             es?.close();
-            setGen((g) => g + 1);
+            es = null;
+            retry = setTimeout(() => setGen((g) => g + 1), 2500);
           }
         };
       } catch (e) {
@@ -258,7 +296,7 @@ export function useAgentSession(
         inflightRef.current = null;
       }
     },
-    [paneId, setMineState],
+    [paneId, nextAt],
   );
 
   /**

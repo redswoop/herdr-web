@@ -1,18 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { SpawnTarget } from '../spawn';
 import type { Agent, Project, Roster, Workspace } from '../types';
-
-const STATUS_ORDER: Record<string, number> = { blocked: 0, working: 1, idle: 2, unknown: 3, done: 4 };
-const STATUS_WORD: Record<string, string> = {
-  blocked: 'needs you',
-  working: 'working…',
-  idle: 'idle',
-  done: 'done',
-  unknown: '?',
-};
-
-const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
-const shortPath = (p: string) => p.replace(/^\/home\/[^/]+/, '~');
+import { STATUS_ORDER, STATUS_WORD, basename, shortPath } from '../util';
 
 interface Card {
   key: string;

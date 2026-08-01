@@ -68,17 +68,18 @@ export interface NewChatRequest {
   args?: string[];
   /** create (branch) or open (path) a worktree-bound workspace and start there */
   worktree?: { repoCwd: string; branch?: string; base?: string; path?: string };
-  /** claude session uuid to resume (server appends --resume and pins the
-   *  pane's transcript binding to that file) */
+  /** session uuid to resume — claude and grok both take --resume; the server
+   *  pins the pane's transcript binding to that session */
   resume?: string;
 }
 
-/** GET /api/sessions?cwd= — resumable claude sessions for one directory */
+/** GET /api/sessions?cwd=&kind= — resumable sessions for one directory
+ *  (kind defaults to claude; grok lists ~/.grok summary.json inventories) */
 export interface SessionEntry {
   sessionId: string;
   mtime: number;
   size: number;
-  /** claude's ai-title, when the session earned one */
+  /** claude's ai-title / grok's generated title, when the session earned one */
   title: string | null;
   /** first real user message, truncated — the fallback label */
   firstPrompt: string | null;
@@ -125,6 +126,7 @@ export type EventKind =
   | 'tool_use'
   | 'tool_result'
   | 'note'
+  | 'usage' // zero-render: per-turn token accounting (grok ships it once per turn)
   | 'command' // slash command run in the TUI (name = /command, text = args)
   | 'command_out' // its stdout; merged into the preceding command pill
   | 'command_err' // client-only: error text salvaged off the screen; rendered expanded
@@ -140,7 +142,8 @@ export interface TEvent {
   input?: unknown;
   /** API message id — usage repeats per content-block line, dedupe on this */
   msgId?: string;
-  /** claude only: output tokens + context size for the API call */
+  /** output tokens + context size: claude ships it inline on message events,
+   *  grok as a standalone 'usage' event at turn end */
   usage?: { out: number; ctx: number };
 }
 

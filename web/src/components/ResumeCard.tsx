@@ -1,25 +1,22 @@
 import { useEffect, useState } from 'react';
 import { post } from '../api';
 import type { SessionEntry } from '../types';
+import { ago } from '../util';
 
-const ago = (ms: number) => {
-  const s = Math.max(0, (Date.now() - ms) / 1000);
-  if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m ago`;
-  if (s < 86_400) return `${Math.round(s / 3600)}h ago`;
-  return `${Math.round(s / 86_400)}d ago`;
-};
-
-/** Local override for /resume typed in the composer: past claude sessions for
- *  this pane's cwd, resumed into a NEW pane (a live session can't swap its own
- *  transcript out from under itself). Rows already bound to a live pane jump
- *  there instead of resuming twice. */
+/** Local override for /resume typed in the composer: past sessions (claude or
+ *  grok) for this pane's cwd, resumed into a NEW pane (a live session can't
+ *  swap its own transcript out from under itself). Rows already bound to a
+ *  live pane jump there instead of resuming twice. */
 export function ResumeCard({
   cwd,
+  kind,
   selfPaneId,
   onGo,
   onClose,
 }: {
   cwd: string;
+  /** agent kind whose sessions to list and resume */
+  kind: string;
   selfPaneId: string;
   onGo: (paneId: string) => void;
   onClose: () => void;
@@ -30,7 +27,7 @@ export function ResumeCard({
 
   useEffect(() => {
     let dead = false;
-    fetch(`/api/sessions?cwd=${encodeURIComponent(cwd)}`)
+    fetch(`/api/sessions?cwd=${encodeURIComponent(cwd)}&kind=${encodeURIComponent(kind)}`)
       .then((r) => (r.ok ? r.json() : r.json().then((j) => Promise.reject(new Error(j.error)))))
       .then((j: { sessions: SessionEntry[] }) => {
         if (!dead) setSessions(j.sessions);
@@ -41,13 +38,13 @@ export function ResumeCard({
     return () => {
       dead = true;
     };
-  }, [cwd]);
+  }, [cwd, kind]);
 
   const resume = async (s: SessionEntry) => {
     setBusy(s.sessionId);
     try {
       const r = await post('/api/chats', {
-        kind: 'claude',
+        kind,
         cwd,
         resume: s.sessionId,
         // inherit the session's title so the tab reads right
