@@ -598,7 +598,11 @@ function startSse(res) {
     'x-accel-buffering': 'no',
   });
   res.write('retry: 2000\n\n');
-  const ping = setInterval(() => res.write(': ping\n\n'), 25_000);
+  // a REAL ping event, not an SSE comment: comments never reach EventSource
+  // listeners, and proxies (vite dev, tailscale serve) can hold the client
+  // side of a dead stream open forever — clients watchdog on this heartbeat
+  // (10s keeps their zombie-detection window ~30s worst case)
+  const ping = setInterval(() => res.write('event: ping\ndata: {}\n\n'), 10_000);
   res.on('close', () => clearInterval(ping));
 }
 

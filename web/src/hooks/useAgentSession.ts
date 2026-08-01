@@ -127,6 +127,13 @@ export function useAgentSession(
     let alive = true;
     let es: EventSource | null = null;
     let retry: ReturnType<typeof setTimeout> | null = null;
+    // freshness clock for the zombie watchdog (see useRoster for the why);
+    // the server pings every 10s, so three missed beats means zombie
+    let lastMsg = Date.now();
+    const bump = () => {
+      lastMsg = Date.now();
+    };
+    const stale = () => Date.now() - lastMsg > 30_000;
     setItems([]);
     setError(null);
     setLoaded(false);
@@ -149,8 +156,12 @@ export function useAgentSession(
         setError(null);
         setLoaded(true);
         applyEvents(events);
+        bump();
         es = new EventSource(`${agentPath(paneId, 'stream')}?offset=${offset}`);
+        es.onopen = bump;
+        es.addEventListener('ping', bump);
         es.addEventListener('events', (e) => {
+          bump();
           if (alive) applyEvents(JSON.parse((e as MessageEvent).data));
         });
         es.addEventListener('reset', () => {
@@ -173,12 +184,30 @@ export function useAgentSession(
         retry = setTimeout(load, 2500);
       }
     };
+
+    // phones kill background SSE, sometimes without firing onerror — a stream
+    // found CLOSED (or silently stale) on foreground/online gets the same
+    // clean-reload treatment. (es === null means a fetch/retry is in flight;
+    // its timer resumes fine.)
+    const wake = () => {
+      if (document.visibilityState !== 'visible' || !alive) return;
+      if (es && (es.readyState === EventSource.CLOSED || stale())) setGen((g) => g + 1);
+    };
+    document.addEventListener('visibilitychange', wake);
+    addEventListener('online', wake);
+    // zombie watchdog: an OPEN stream with no events AND no pings is dead
+    const dog = setInterval(() => {
+      if (alive && es && stale()) setGen((g) => g + 1);
+    }, 10_000);
     load();
 
     return () => {
       alive = false;
       es?.close();
       if (retry) clearTimeout(retry);
+      clearInterval(dog);
+      document.removeEventListener('visibilitychange', wake);
+      removeEventListener('online', wake);
     };
   }, [paneId, gen, applyEvents]);
 
