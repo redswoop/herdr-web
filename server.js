@@ -75,6 +75,7 @@ async function doRefreshRoster() {
         cwd: a.cwd,
         title: a.terminal_title_stripped ?? '',
       });
+      const repoRoot = await gitRootOf(a.cwd);
       return {
         paneId: a.pane_id,
         workspaceId: a.workspace_id,
@@ -85,6 +86,7 @@ async function doRefreshRoster() {
         title: a.terminal_title_stripped ?? a.terminal_title ?? '',
         status: a.agent_status,
         cwd: a.cwd,
+        repoRoot,
         focused: !!a.focused,
         launchPending: !!a.launch_pending,
         stateLabels: a.state_labels ?? {},
@@ -98,9 +100,11 @@ async function doRefreshRoster() {
       number: w.number,
       label: w.label,
       focused: !!w.focused,
+      status: w.agent_status ?? 'unknown',
       worktree: w.worktree
         ? {
             repoName: w.worktree.repo_name ?? null,
+            repoRoot: w.worktree.repo_root ?? null,
             isLinked: !!w.worktree.is_linked_worktree,
             checkoutPath: w.worktree.checkout_path ?? null,
           }
@@ -366,6 +370,126 @@ async function blockedContext(paneId) {
 }
 
 
+// ---------- projects ----------
+// "Project" = a git repo (identified by its main checkout root) or, for
+// non-repo panes, a bare directory. Sources: live roster cwds, workspace
+// checkouts, and the dirs encoded in ~/.claude/projects — a free index of
+// everywhere claude has ever run.
+
+const gitRootCache = new Map(); // dir -> {at, root}
+async function gitRootOf(dir) {
+  if (!dir) return null;
+  const hit = gitRootCache.get(dir);
+  if (hit && Date.now() - hit.at < 60_000) return hit.root;
+  let root = null;
+  let cur = path.resolve(dir);
+  for (;;) {
+    try {
+      await fsp.access(path.join(cur, '.git'));
+      root = cur;
+      break;
+    } catch {}
+    const up = path.dirname(cur);
+    if (up === cur) break;
+    cur = up;
+  }
+  gitRootCache.set(dir, { at: Date.now(), root });
+  return root;
+}
+
+// ~/.claude/projects encodes /home/armen/src/herdr-web as
+// -home-armen-src-herdr-web: every / AND every literal - become '-'. Decode by
+// DFS over "next dash is a separator or part of the name", pruning on
+// directory existence. Shorter components are tried first, so nesting wins
+// over dashed names when both exist.
+const decodeCache = new Map(); // encoded -> path|null
+async function decodeClaudeProjectDir(encoded) {
+  if (decodeCache.has(encoded)) return decodeCache.get(encoded);
+  const parts = encoded.replace(/^-/, '').split('-');
+  let found = null;
+  async function walk(base, i) {
+    if (found) return;
+    if (i === parts.length) {
+      found = base;
+      return;
+    }
+    let comp = '';
+    for (let j = i; j < parts.length && !found; j += 1) {
+      comp = comp ? `${comp}-${parts[j]}` : parts[j];
+      const cand = path.join(base, comp);
+      try {
+        if ((await fsp.stat(cand)).isDirectory()) await walk(cand, j + 1);
+      } catch {}
+    }
+  }
+  if (encoded.startsWith('-')) await walk('/', 0);
+  decodeCache.set(encoded, found);
+  return found;
+}
+
+async function listProjects() {
+  // dir -> {live, lastActive}
+  const seen = new Map();
+  const note = (dir, { live = 0, lastActive = 0 } = {}) => {
+    if (!dir) return;
+    const cur = seen.get(dir) ?? { live: 0, lastActive: 0 };
+    cur.live += live;
+    cur.lastActive = Math.max(cur.lastActive, lastActive);
+    seen.set(dir, cur);
+  };
+  for (const a of roster.agents) note(a.cwd, { live: 1, lastActive: roster.updatedAt });
+  for (const w of roster.workspaces ?? []) note(w.worktree?.checkoutPath);
+  try {
+    const base = path.join(os.homedir(), '.claude', 'projects');
+    for (const ent of await fsp.readdir(base, { withFileTypes: true })) {
+      if (!ent.isDirectory()) continue;
+      const dir = await decodeClaudeProjectDir(ent.name);
+      if (!dir) continue;
+      const st = await fsp.stat(path.join(base, ent.name)).catch(() => null);
+      note(dir, { lastActive: st?.mtimeMs ?? 0 });
+    }
+  } catch {}
+  // collapse to repo identity where the dir is inside a repo
+  const projects = new Map(); // key -> project
+  for (const [dir, info] of seen) {
+    const root = await gitRootOf(dir);
+    const key = root ?? dir;
+    const p = projects.get(key) ?? {
+      key,
+      path: key,
+      name: path.basename(key),
+      repo: !!root,
+      live: 0,
+      lastActive: 0,
+      dirs: [],
+    };
+    p.live += info.live;
+    p.lastActive = Math.max(p.lastActive, info.lastActive);
+    if (!p.dirs.includes(dir)) p.dirs.push(dir);
+    projects.set(key, p);
+  }
+  return [...projects.values()].sort(
+    (a, b) => b.live - a.live || b.lastActive - a.lastActive || a.name.localeCompare(b.name),
+  );
+}
+
+// worktree.list is repo-anchored: it wants a cwd inside the repo.
+async function listWorktrees(cwd) {
+  const r = await rpc('worktree.list', { cwd });
+  return {
+    repoKey: r.source?.repo_key ?? null,
+    repoName: r.source?.repo_name ?? null,
+    repoRoot: r.source?.repo_root ?? null,
+    worktrees: (r.worktrees ?? []).map((t) => ({
+      path: t.path,
+      branch: t.branch ?? null,
+      label: t.label,
+      openWorkspaceId: t.open_workspace_id ?? null,
+      isLinked: !!t.is_linked_worktree,
+    })),
+  };
+}
+
 // ---------- new chats ----------
 
 // Agent kinds come from herdr's detection manifests (all *supported* kinds);
@@ -396,17 +520,66 @@ async function listKinds() {
   }));
 }
 
-// tab.create (or workspace.create) → agent.start. agent.start blocks until
-// herdr detects the agent as interactive-ready, so success here means the
-// chat is genuinely usable. On failure the pane we just made is closed again
-// so misfires don't litter the TUI with empty shells.
-async function createChat({ kind, name, cwd, workspaceId, label, args } = {}) {
+// herdr agent names must match ^[a-z][a-z0-9_-]{0,31}$ — fold whatever the
+// user typed into that ("My cool chat" → "my-cool-chat"). Returns '' when
+// nothing survives; callers fall back to a generated name. The pretty
+// original still goes on the tab label, which herdr doesn't constrain.
+function cleanAgentName(raw) {
+  return (raw ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^[^a-z]+/, '')
+    .replace(/-{2,}/g, '-')
+    .replace(/-+$/, '')
+    .slice(0, 32);
+}
+
+// tab.create (or workspace.create / worktree.create / worktree.open) →
+// agent.start → wait until the agent is promptable. agent.start only means
+// herdr *detected* the process (often still launch_pending); prompts are
+// refused with "not an active named agent" until interactive_ready flips
+// true a few seconds later. We hold the create response until then so the
+// first message from the web UI doesn't race that window. On failure the
+// pane we just made is closed again so misfires don't litter the TUI with
+// empty shells.
+//
+// worktree: { repoCwd, branch?, base?, path? } — create (or open, when `path`
+// names an existing checkout) a worktree-bound workspace and start there.
+async function createChat({ kind, name, cwd, workspaceId, label, args, worktree } = {}) {
   if (!kind || typeof kind !== 'string') throw httpErr(400, 'kind required');
-  const dir = cwd ? cwd.replace(/^~(?=\/|$)/, os.homedir()) : null;
+  const untilde = (s) => (s ? s.replace(/^~(?=\/|$)/, os.homedir()) : null);
+  const dir = untilde(cwd);
   const opts = { cwd: dir, label: label || null, focus: false };
   let ws = workspaceId || null;
   let pane = null;
   let tab = null;
+  if (!ws && worktree) {
+    if (!worktree.repoCwd) throw httpErr(400, 'worktree.repoCwd required');
+    const params = { cwd: untilde(worktree.repoCwd), focus: false };
+    let r;
+    if (worktree.path) {
+      r = await rpc('worktree.open', { ...params, path: untilde(worktree.path) });
+      if (r.already_open) {
+        // don't agent.start into the workspace's existing shell — add a tab,
+        // cwd'd into the checkout
+        ws = r.workspace?.workspace_id;
+        opts.cwd = r.worktree?.path ?? untilde(worktree.path);
+      }
+    } else {
+      if (!worktree.branch) throw httpErr(400, 'worktree.branch required');
+      r = await rpc('worktree.create', {
+        ...params,
+        branch: worktree.branch,
+        base: worktree.base ?? null,
+      });
+    }
+    if (!ws) {
+      ws = r.workspace?.workspace_id;
+      pane = r.root_pane ?? null;
+      tab = r.tab ?? null;
+      opts.cwd = null; // the worktree checkout is the pane's cwd already
+    }
+  }
   if (!ws) {
     const r = await rpc('workspace.create', opts);
     ws = r.workspace?.workspace_id;
@@ -418,7 +591,10 @@ async function createChat({ kind, name, cwd, workspaceId, label, args } = {}) {
     pane = r.root_pane;
     tab = r.tab ?? null;
   }
-  const agentName = (name || '').trim() || `${kind}-${pane.pane_id.replace(/\W+/g, '')}`;
+  // pane ids can carry uppercase (w1:pC) — lowercase the generated fallback
+  // or it fails herdr's name rule
+  const agentName =
+    cleanAgentName(name) || `${kind}-${pane.pane_id.replace(/\W+/g, '').toLowerCase()}`;
   // A fresh pane's shell takes a beat to come up; herdr rejects agent.start
   // with "not an available shell" until then, so retry that specific error.
   const startedAt = Date.now();
@@ -440,49 +616,110 @@ async function createChat({ kind, name, cwd, workspaceId, label, args } = {}) {
       throw httpErr(502, `couldn't start ${kind}: ${msg}`);
     }
   }
+  try {
+    await waitAgentPromptable(pane.pane_id);
+  } catch (e) {
+    try { await rpc('pane.close', { pane_id: pane.pane_id }); } catch {}
+    throw httpErr(502, `couldn't start ${kind}: ${e.message ?? e}`);
+  }
   // The label param on tab/workspace.create is ignored and launch-time agent
   // names can be dropped once detection settles — rename explicitly instead.
+  // Tab gets the user's text verbatim; the agent gets the cleaned form.
   if ((name ?? '').trim()) {
-    const wanted = name.trim();
-    if (tab) await rpc('tab.rename', { tab_id: tab.tab_id, label: wanted }).catch(() => {});
-    await rpc('agent.rename', { target: pane.pane_id, name: wanted }).catch(() => {});
+    if (tab) await rpc('tab.rename', { tab_id: tab.tab_id, label: name.trim() }).catch(() => {});
+    if (cleanAgentName(name)) {
+      await rpc('agent.rename', { target: pane.pane_id, name: cleanAgentName(name) }).catch(() => {});
+    }
   }
   refreshRoster();
   return { paneId: pane.pane_id, tabId: tab?.tab_id ?? null, workspaceId: ws };
 }
 
-// claude occasionally eats the Enter that agent.prompt types after the text,
-// leaving the prompt stranded on the TUI input line. Peek at the screen once,
-// shortly after, and nudge with an Enter ONLY when the composer line still
-// shows the start of our text — a blind Enter could answer a dialog instead.
-// (If the text cleared between the read and the nudge, Enter on claude's
-// empty composer is a no-op, so the race is safe.)
-async function verifyPromptLanded(paneId, text) {
-  await new Promise((r) => setTimeout(r, 800));
+// agent.start returns with launch_pending still set; agent.prompt fails with
+// "not an active named agent" until interactive_ready becomes true (~3s).
+// Poll agent.get for that bit so createChat doesn't hand back a pane the
+// client can't talk to yet.
+async function waitAgentPromptable(paneId, { timeoutMs = 15_000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  while (Date.now() < deadline) {
+    try {
+      const r = await rpc('agent.get', { target: paneId });
+      const a = r.agent ?? r;
+      if (a?.interactive_ready) return a;
+      last = a;
+    } catch (e) {
+      last = e;
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  const detail = last?.message ?? (last ? `status=${last.agent_status} launch_pending=${last.launch_pending}` : '');
+  throw new Error(`agent never became promptable${detail ? ` (${detail})` : ''}`);
+}
+
+// agent.prompt acking does not mean the text arrived. Two known failures:
+// claude occasionally eats the trailing Enter (text stranded on the
+// composer), and grok drops the whole burst when the prompt races the TUI's
+// input loop right after launch — interactive_ready is already true but the
+// launch splash still owns the screen and the keys go nowhere. Peek at the
+// screen shortly after and heal both: nudge Enter when stranded, retype when
+// vanished. Screen grammar this relies on: grok's composer is boxed
+// (`│ ❯ …`), its sent-message echo is a bare `❯ …`; claude's composer is a
+// bare `❯ …` and its echo uses `>`. Retype ONLY while the pane still looks
+// untouched (empty composer + agent not busy) so a slow-rendering send or a
+// user typing in the TUI can never be double-sent.
+async function verifyPromptLanded(paneId, text, attempt = 1) {
+  await new Promise((r) => setTimeout(r, 800 * attempt));
   const head = text.trim().split('\n')[0].replace(/\s+/g, ' ').slice(0, 20).trim();
   if (!head) return;
   try {
     const screen = await readScreen(paneId);
-    const stranded = screen.split('\n').some((l) => {
-      const m = l.match(/❯\s*(.*)$/);
-      return m && m[1].replace(/│\s*$/, '').replace(/\s+/g, ' ').trim().startsWith(head);
+    const lines = screen.split('\n');
+    const textOf = (l) => l.replace(/^.*❯/, '').replace(/│\s*$/, '').replace(/\s+/g, ' ').trim();
+    const boxed = (l) => /│\s*❯/.test(l);
+    // stranded on a composer → the Enter got eaten; nudge. (If the text
+    // cleared between read and nudge, Enter on an empty composer is a no-op.)
+    const kind = roster.agents.find((x) => x.paneId === paneId)?.agent;
+    const stranded = lines.some((l) => {
+      if (!l.includes('❯') || !textOf(l).startsWith(head)) return false;
+      return kind === 'grok' ? boxed(l) : true; // grok's bare ❯ is a sent echo
     });
     if (stranded) {
       console.warn(`prompt stranded on input line of ${paneId} — nudging with Enter`);
       await agentRpc('agent.send_keys', { target: paneId, keys: ['Enter'] });
+      return;
     }
+    // any other trace of the text on screen (sent echo, streaming turn) or a
+    // busy agent means it landed — done.
+    const norm = (s) => s.replace(/\s+/g, ' ');
+    if (lines.some((l) => norm(l).includes(head))) return;
+    const a = (await rpc('agent.get', { target: paneId }).catch(() => ({}))).agent ?? {};
+    if (a.agent_status && !['idle', 'done', 'unknown'].includes(a.agent_status)) return;
+    // composer holds other text (user typing in the TUI?) — hands off
+    if (lines.some((l) => l.includes('❯') && textOf(l) && (kind !== 'grok' || boxed(l)))) return;
+    if (attempt >= 3) {
+      console.warn(`prompt to ${paneId} never landed — gave up after ${attempt} attempts`);
+      return;
+    }
+    console.warn(`prompt to ${paneId} vanished — retyping (attempt ${attempt + 1})`);
+    await agentRpc('agent.prompt', { target: paneId, text });
+    await verifyPromptLanded(paneId, text, attempt + 1);
   } catch {}
 }
 
-// herdr transiently refuses agent-targeted input around launch-record expiry
-// ("not an active named agent" for a live pane) — one short retry heals it.
+// herdr transiently refuses agent-targeted input while launch_pending (and
+// around later launch-record expiry) with "not an active named agent" for a
+// live pane. Retry across the ~3s window rather than failing the first tap.
 async function agentRpc(method, params) {
-  try {
-    return await rpc(method, params);
-  } catch (e) {
-    if (!/not an active named agent/i.test(String(e.message ?? e))) throw e;
-    await new Promise((r) => setTimeout(r, 750));
-    return rpc(method, params);
+  const deadline = Date.now() + 5_000;
+  for (;;) {
+    try {
+      return await rpc(method, params);
+    } catch (e) {
+      if (!/not an active named agent/i.test(String(e.message ?? e))) throw e;
+      if (Date.now() >= deadline) throw e;
+      await new Promise((r) => setTimeout(r, 300));
+    }
   }
 }
 
@@ -674,6 +911,18 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && seg[1] === 'kinds' && !seg[2]) {
       return sendJson(res, 200, { kinds: await listKinds() });
+    }
+    if (req.method === 'GET' && seg[1] === 'projects' && !seg[2]) {
+      return sendJson(res, 200, { projects: await listProjects() });
+    }
+    if (req.method === 'GET' && seg[1] === 'worktrees' && !seg[2]) {
+      const cwd = url.searchParams.get('cwd');
+      if (!cwd) throw httpErr(400, 'cwd required');
+      try {
+        return sendJson(res, 200, await listWorktrees(cwd.replace(/^~(?=\/|$)/, os.homedir())));
+      } catch (e) {
+        throw httpErr(422, String(e.message ?? e));
+      }
     }
     if (req.method === 'POST' && seg[1] === 'chats' && !seg[2]) {
       const body = await readBody(req);

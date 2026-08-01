@@ -12,6 +12,8 @@ export interface Agent {
   title: string;
   status: AgentStatus;
   cwd: string | null;
+  /** root of the git repo containing cwd (server-side .git walk), if any */
+  repoRoot: string | null;
   /** this pane currently has focus in the TUI */
   focused: boolean;
   /** agent.start issued but the process hasn't come up yet */
@@ -28,7 +30,14 @@ export interface Workspace {
   number: number;
   label: string;
   focused: boolean;
-  worktree: { repoName: string | null; isLinked: boolean; checkoutPath: string | null } | null;
+  /** herdr's rollup over the workspace's panes */
+  status: AgentStatus;
+  worktree: {
+    repoName: string | null;
+    repoRoot: string | null;
+    isLinked: boolean;
+    checkoutPath: string | null;
+  } | null;
 }
 
 export interface Tab {
@@ -57,6 +66,29 @@ export interface NewChatRequest {
   workspaceId?: string;
   label?: string;
   args?: string[];
+  /** create (branch) or open (path) a worktree-bound workspace and start there */
+  worktree?: { repoCwd: string; branch?: string; base?: string; path?: string };
+}
+
+/** GET /api/projects — everywhere agents run or have run, repo-collapsed */
+export interface Project {
+  key: string;
+  path: string;
+  name: string;
+  repo: boolean;
+  /** live agent count right now */
+  live: number;
+  lastActive: number;
+  dirs: string[];
+}
+
+/** GET /api/worktrees?cwd= — a repo's checkouts (herdr worktree.list) */
+export interface WorktreeEntry {
+  path: string;
+  branch: string | null;
+  label: string;
+  openWorkspaceId: string | null;
+  isLinked: boolean;
 }
 
 export interface Roster {
