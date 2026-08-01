@@ -63,11 +63,14 @@ function splitCells(line: string): string[] {
   return s.split('|').map((c) => c.trim());
 }
 
-/** Separator row: each cell is :--- / --- / ---: / :---: (3+ dashes). */
+/** Separator row: each cell is dashes with optional alignment colons. GFM
+ *  needs only one dash, but a colon-less cell must have 3+ so a prose line
+ *  like `a | - | b` can't gate a table. */
 function isTableSep(line: string): boolean {
   if (!line.includes('|') && !/-{3,}/.test(line)) return false;
   const cells = splitCells(line);
-  return cells.length > 0 && cells.every((c) => /^:?-{3,}:?$/.test(c));
+  return cells.length > 0
+    && cells.every((c) => /^:?-+:?$/.test(c) && (c.length >= 3 || c.includes(':')));
 }
 
 /** Any pipe-bearing non-blank line is a candidate row; the separator gate
@@ -153,13 +156,16 @@ function blockify(t: string): string {
 export function md(src: string): string {
   const out: string[] = [];
   const parts = src.split(/```(\w*)\n?/);
-  // parts alternate: text, lang, code, text, lang, code, ...
+  // Split with one capture group emits TWO slots per fence (separator is
+  // consumed, capture is kept), and a code block has two fences — so the
+  // layout has period FOUR: [text, openLang, code, closeLang, text, …].
+  // (An unclosed trailing fence still lands its code at i%4===2.)
   for (let i = 0; i < parts.length; i += 1) {
-    if (i % 3 === 2) {
+    if (i % 4 === 2) {
       out.push(`<pre><code>${esc(parts[i])}</code></pre>`);
       continue;
     }
-    if (i % 3 === 1) continue; // language tag
+    if (i % 4 === 1 || i % 4 === 3) continue; // fence language tags
     let t = linkify(esc(parts[i]));
     t = t.replace(/`([^`\n]+)`/g, '<code>$1</code>');
     // backticked file paths become viewer links (skip spans already anchored)
