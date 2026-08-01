@@ -4,8 +4,9 @@ import { useAgentMode } from '../hooks/useAgentMode';
 import { useAgentSession } from '../hooks/useAgentSession';
 import { useBlockedContext } from '../hooks/useBlockedContext';
 import { WIDE, useMediaQuery } from '../hooks/useMediaQuery';
-import type { Agent, AnswerBody, ModeState, PermissionMode, RestoredDraft, RewindState } from '../types';
+import type { Agent, AnswerBody, ModeState, PermissionMode, RestoredDraft, RewindState, SessionEntry } from '../types';
 import { BlockedCard } from './BlockedCard';
+import { ResumeCard } from './ResumeCard';
 import { RewindCard } from './RewindCard';
 import { Composer } from './Composer';
 import { FileViewer } from './FileViewer';
@@ -74,6 +75,8 @@ export function AgentView({
   // a conversation-restore hands back the rewound message as a composer draft
   const [rewindDraft, setRewindDraft] = useState<RestoredDraft | null>(null);
   const rewindNonce = useRef(0);
+  // /resume typed in the composer — local override, opens the session card
+  const [resumeOpen, setResumeOpen] = useState(false);
   const [keysPinned, setKeysPinned] = useState(false);
   const [keysForced, setKeysForced] = useState(false); // 409 fallback
 
@@ -124,7 +127,11 @@ export function AgentView({
     }
   }, [blocked]);
 
-  useEffect(() => setRewind(null), [paneId]); // panel is per-pane TUI state
+  // panel/card state is per-pane
+  useEffect(() => {
+    setRewind(null);
+    setResumeOpen(false);
+  }, [paneId]);
 
   // an interrupt-restored draft outranks a stale rewind draft
   useEffect(() => {
@@ -159,6 +166,40 @@ export function AgentView({
     }
   }, [rewindOp]);
 
+  const go = useCallback((p: string) => {
+    location.hash = `#/agent/${encodeURIComponent(p)}`;
+  }, []);
+
+  // /resume <id> typed with an argument: jump if that session is already live
+  // in a pane, otherwise spawn a resumed pane. Prefix match spares typing a
+  // full uuid; an id the list doesn't know is still tried verbatim.
+  const resumeById = useCallback(
+    async (id: string) => {
+      const cwd = agent?.cwd ?? '';
+      let title: string | null = null;
+      try {
+        const r = await fetch(`/api/sessions?cwd=${encodeURIComponent(cwd)}`);
+        const { sessions } = (await r.json()) as { sessions: SessionEntry[] };
+        const hit =
+          sessions.find((s) => s.sessionId === id) ??
+          sessions.find((s) => s.sessionId.startsWith(id));
+        if (hit?.livePaneId) return go(hit.livePaneId);
+        if (hit) ({ sessionId: id, title } = hit);
+      } catch {}
+      const r = await post('/api/chats', {
+        kind: 'claude',
+        cwd,
+        resume: id,
+        name: title ?? undefined,
+        label: title ?? undefined,
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) return alert(j.error ?? r.statusText);
+      go(j.paneId as string);
+    },
+    [agent?.cwd, go],
+  );
+
   // Slash commands open local TUI dialogs (/model, /resume, …) that herdr
   // deliberately doesn't report as blocked and the session file can't see
   // until they finish. When WE sent the command, we know a dialog is (about
@@ -186,6 +227,15 @@ export function AgentView({
 
   const sendFromComposer = useCallback(
     async (text: string) => {
+      // Local overrides: commands with a first-class web UI never reach the
+      // TUI — the generic path below would only mirror the raw dialog.
+      // /rewind opens the RewindCard; /resume [id] resumes into a NEW pane
+      // (this one can't swap sessions under itself), or jumps if already live.
+      if (agent?.agent === 'claude') {
+        const ov = /^\/(rewind|resume)(?:\s+(\S+))?$/.exec(text.trim());
+        if (ov?.[1] === 'rewind') return openRewind();
+        if (ov && agent.cwd) return ov[2] ? resumeById(ov[2]) : setResumeOpen(true);
+      }
       const slash = text.trim().startsWith('/');
       if (slash) {
         // baseline the screen before the command runs, so dialog residue
@@ -214,7 +264,7 @@ export function AgentView({
       }, 800);
       armRef.current = { timer, sinceKey };
     },
-    [send, closeDialog, paneId],
+    [send, closeDialog, paneId, agent?.agent, agent?.cwd, openRewind, resumeById],
   );
 
   // The dialog closed without ever writing a session-file record (chrome came
@@ -390,6 +440,18 @@ export function AgentView({
 
       {rewind && (rewind.step === 'list' || rewind.step === 'confirm') && (
         <RewindCard state={rewind} onOp={rewindOp} onClose={() => rewindOp({ op: 'cancel' })} />
+      )}
+
+      {resumeOpen && agent?.cwd && (
+        <ResumeCard
+          cwd={agent.cwd}
+          selfPaneId={paneId}
+          onGo={(p) => {
+            setResumeOpen(false);
+            go(p);
+          }}
+          onClose={() => setResumeOpen(false)}
+        />
       )}
 
       {/* session files only get content when a block completes — while the

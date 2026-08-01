@@ -24,6 +24,11 @@ static files the daemon serves. Runtime is still just `node server.js`.
   rendered as tappable buttons. Answers are verified server-side: keys are only
   sent if the screen still shows what you think you're answering (409
   otherwise, and the UI falls back to a raw key pad: esc/↑/↓/⏎/y/n/^C).
+- **Local slash overrides** — `/rewind` and `/resume` typed into the composer
+  never reach the TUI: `/rewind` opens the checkpoint card, `/resume` lists the
+  cwd's past sessions to resume into a new pane (`/resume <id-prefix>` skips
+  the list; an already-live session jumps to its pane instead). Other slash
+  commands still mirror the TUI dialog for driving with the key strip.
 - **Push** — when an agent blocks, your phone gets one notification carrying
   the actual question, with answer action buttons for simple choices. Resolve
   it at your desk instead and the notification retracts itself. The whole herd
