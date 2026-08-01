@@ -211,6 +211,29 @@ export interface AnswerBody {
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'auto' | 'bypassPermissions';
 export type ModeState = PermissionMode | 'unknown';
 
+/** GET/POST /api/agent/:id/rewind — claude's /rewind panel, screen-parsed.
+ *  step 'list' is the checkpoint picker, 'confirm' the restore-type menu. */
+export interface RewindCheckpoint {
+  index: number;
+  /** the user message this checkpoint precedes; "(current)" marks the tail */
+  message: string;
+  /** file-change summary lines shown under the message */
+  detail: string;
+  selected: boolean;
+  current: boolean;
+}
+export type RewindState =
+  | { step: 'closed' }
+  | { step: 'empty' } // panel open but "Nothing to rewind to yet."
+  | { step: 'list'; checkpoints: RewindCheckpoint[] }
+  | {
+      step: 'confirm';
+      message: string;
+      effects: string[];
+      warning: string | null;
+      options: MenuOption[];
+    };
+
 export type BlockedCtx =
   | { kind: 'none' }
   | { kind: 'unknown' }

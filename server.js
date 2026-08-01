@@ -270,7 +270,9 @@ function classifyBlocked(events) {
 // and anything else shaped like "❯ 1. Label" with indented descriptions).
 function parseMenuScreen(text) {
   const lines = text.split('\n');
-  const optRe = /^\s*(❯)?\s*(\d+)\.\s+(.+)$/;
+  // menus taller than the panel carry ↑/↓ scroll markers on the edge rows
+  // (seen on /rewind's confirm step) — an option hiding behind one still counts
+  const optRe = /^\s*(?:[↑↓]\s+)?(❯)?\s*(\d+)\.\s+(.+)$/;
   const opts = [];
   let firstIdx = -1;
   for (let i = 0; i < lines.length; i += 1) {
@@ -365,6 +367,154 @@ async function answerByNav(paneId, { option, feedback }) {
   }
   await send(['Enter']);
   return true;
+}
+
+// ---------- rewind ----------
+// Claude's /rewind panel, verified live against v2.1.2xx. Step 1 is an
+// UNNUMBERED cursor list: blank-line-separated entries of [message line,
+// change-summary lines…], ❯ on the selected row, "(current)" as the bottom
+// entry. Step 2 ("Confirm you want to restore…") is a normal numbered ❯ menu
+// under a │-quoted message and "The code/conversation will…" effect lines.
+function parseRewindScreen(text) {
+  const lines = text.split('\n');
+  let h = -1;
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    if (lines[i].trim() === 'Rewind') { h = i; break; }
+  }
+  if (h === -1) return null;
+  const body = lines.slice(h + 1);
+  // fresh/just-forked sessions: the panel opens but offers nothing
+  if (body.some((l) => /Nothing to rewind/.test(l))) return { step: 'empty' };
+  if (body.some((l) => /Confirm you want to restore/.test(l))) {
+    const menu = parseMenuScreen(text);
+    if (!menu) return null;
+    return {
+      step: 'confirm',
+      message: body.filter((l) => /^\s*│/.test(l))
+        .map((l) => l.replace(/^\s*│\s?/, '').trimEnd()).join('\n').trim(),
+      effects: body.filter((l) => /^\s*The \S+ will/.test(l)).map((l) => l.trim()),
+      warning: body.find((l) => /^\s*⚠/.test(l))?.trim() ?? null,
+      options: menu.options,
+    };
+  }
+  const items = [];
+  let cur = null;
+  const flush = () => { if (cur) { items.push(cur); cur = null; } };
+  for (const l of body) {
+    if (/Enter to continue/.test(l)) break;
+    const t = l.trim();
+    if (!t) { flush(); continue; }
+    if (/^Restore the code/.test(t)) continue;
+    const selected = /^\s*❯/.test(l);
+    const s = t.replace(/^❯\s*/, '');
+    if (!cur || selected) {
+      flush();
+      cur = { message: s, detail: [], selected, current: s === '(current)' };
+    } else {
+      cur.detail.push(s);
+    }
+  }
+  flush();
+  if (!items.length || !items.some((i) => i.selected)) return null;
+  return {
+    step: 'list',
+    checkpoints: items.map((i, idx) => ({
+      index: idx,
+      message: i.message,
+      detail: i.detail.join('\n'),
+      selected: i.selected,
+      current: i.current,
+    })),
+  };
+}
+
+// Text sitting on claude's composer — the LAST bare-❯ line of the screen.
+// Used to refuse opening rewind over a stranded TUI draft, and to salvage
+// the message a conversation-restore prefills there.
+function composerText(screen) {
+  const lines = screen.split('\n');
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    if (/^\s*❯/.test(lines[i])) return lines[i].replace(/^\s*❯/, '').trim();
+  }
+  return null;
+}
+
+async function rewindOp(paneId, { op, index, option }) {
+  const read = async () => parseRewindScreen(await readScreen(paneId));
+  const settle = (ms = 400) => new Promise((r) => setTimeout(r, ms));
+  if (op === 'open') {
+    let state = await read(); // maybe already open (e.g. opened in the TUI)
+    if (!state) {
+      const live = await rpc('agent.get', { target: paneId });
+      const st = live.agent?.agent_status;
+      if (st === 'working' || st === 'blocked') {
+        throw httpErr(409, `agent is ${st} — rewind needs an idle session`);
+      }
+      // /rewind must land on an empty composer or it concatenates with the draft
+      if (composerText(await readScreen(paneId))) {
+        throw httpErr(409, 'text is sitting on the TUI composer — clear it first');
+      }
+      await agentRpc('agent.prompt', { target: paneId, text: '/rewind' });
+      for (let i = 0; i < 12 && !state; i += 1) {
+        await settle();
+        state = await read();
+      }
+    }
+    if (!state) throw httpErr(502, 'rewind panel never appeared');
+    if (state.step === 'empty') {
+      // don't leave the useless panel stranded on the TUI
+      await agentRpc('agent.send_keys', { target: paneId, keys: ['Escape'] });
+      throw httpErr(409, 'nothing to rewind to yet');
+    }
+    return state;
+  }
+  if (op === 'select') {
+    if (!Number.isInteger(index)) throw httpErr(400, 'index: integer');
+    let state = await read();
+    if (state?.step !== 'list') throw httpErr(409, 'no rewind list on screen');
+    const target = state.checkpoints[index];
+    if (!target) throw httpErr(409, 'no such checkpoint');
+    const from = state.checkpoints.findIndex((c) => c.selected);
+    if (index !== from) {
+      const keys = Array.from({ length: Math.abs(index - from) }, () => (index > from ? 'Down' : 'Up'));
+      await agentRpc('agent.send_keys', { target: paneId, keys });
+      await settle();
+      state = await read();
+      // verify by message text, not index — a scrolling list shifts the window
+      const sel = state?.step === 'list' ? state.checkpoints.find((c) => c.selected) : null;
+      if (!sel || sel.message !== target.message) throw httpErr(409, 'screen changed');
+    }
+    await agentRpc('agent.send_keys', { target: paneId, keys: ['Enter'] });
+    for (let i = 0; i < 8; i += 1) {
+      await settle();
+      const next = await read();
+      if (next?.step === 'confirm') return next;
+    }
+    throw httpErr(502, 'confirm step never appeared');
+  }
+  if (op === 'confirm') {
+    if (!Number.isInteger(option)) throw httpErr(400, 'option: integer');
+    const state = await read();
+    if (state?.step !== 'confirm') throw httpErr(409, 'no rewind confirm on screen');
+    if (!(await answerByNav(paneId, { option }))) throw httpErr(409, 'screen changed');
+    // A conversation-restore prefills the TUI composer with the rewound
+    // message; stranded there it would concatenate with the next web prompt.
+    // Capture it, clear it, hand it back as a draft for the web composer.
+    await settle(900);
+    const draft = composerText(await readScreen(paneId));
+    if (draft) {
+      await agentRpc('agent.send_keys', {
+        target: paneId,
+        keys: Array.from({ length: 300 }, () => 'Backspace'),
+      });
+    }
+    return { ok: true, draft: draft || null };
+  }
+  if (op === 'cancel') {
+    if (await read()) await agentRpc('agent.send_keys', { target: paneId, keys: ['Escape'] });
+    return { step: 'closed' };
+  }
+  throw httpErr(400, 'op: open|select|confirm|cancel');
 }
 
 // ---------- permission mode ----------
@@ -1258,6 +1408,23 @@ const server = http.createServer(async (req, res) => {
             if (e.status === 409) {
               return sendJson(res, 409, { error: String(e.message ?? e), mode: e.mode ?? null });
             }
+            throw e;
+          }
+        }
+      }
+
+      if (action === 'rewind') {
+        const a = roster.agents.find((x) => x.paneId === paneId);
+        if (a && a.agent !== 'claude') throw httpErr(422, `no rewind for "${a.agent}"`);
+        if (req.method === 'GET') {
+          return sendJson(res, 200, parseRewindScreen(await readScreen(paneId)) ?? { step: 'closed' });
+        }
+        if (req.method === 'POST') {
+          const { op, index, option } = await readBody(req);
+          try {
+            return sendJson(res, 200, await rewindOp(paneId, { op, index, option }));
+          } catch (e) {
+            if (e.status === 409) return sendJson(res, 409, { error: String(e.message ?? e) });
             throw e;
           }
         }

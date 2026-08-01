@@ -4,8 +4,9 @@ import { useAgentMode } from '../hooks/useAgentMode';
 import { useAgentSession } from '../hooks/useAgentSession';
 import { useBlockedContext } from '../hooks/useBlockedContext';
 import { WIDE, useMediaQuery } from '../hooks/useMediaQuery';
-import type { Agent, AnswerBody, ModeState, PermissionMode } from '../types';
+import type { Agent, AnswerBody, ModeState, PermissionMode, RestoredDraft, RewindState } from '../types';
 import { BlockedCard } from './BlockedCard';
+import { RewindCard } from './RewindCard';
 import { Composer } from './Composer';
 import { FileViewer } from './FileViewer';
 import { LiveTail } from './LiveTail';
@@ -67,6 +68,12 @@ export function AgentView({
   } = useAgentMode(paneId, agent?.agent, status);
   const [modeOpen, setModeOpen] = useState(false);
   const [screen, setScreen] = useState<string | null>(null);
+  // /rewind panel state, screen-parsed server-side; null = card closed
+  const [rewind, setRewind] = useState<RewindState | null>(null);
+  const [rewindBusy, setRewindBusy] = useState(false);
+  // a conversation-restore hands back the rewound message as a composer draft
+  const [rewindDraft, setRewindDraft] = useState<RestoredDraft | null>(null);
+  const rewindNonce = useRef(0);
   const [keysPinned, setKeysPinned] = useState(false);
   const [keysForced, setKeysForced] = useState(false); // 409 fallback
 
@@ -116,6 +123,41 @@ export function AgentView({
       setScreen(null);
     }
   }, [blocked]);
+
+  useEffect(() => setRewind(null), [paneId]); // panel is per-pane TUI state
+
+  // an interrupt-restored draft outranks a stale rewind draft
+  useEffect(() => {
+    if (restoredDraft) setRewindDraft(null);
+  }, [restoredDraft]);
+
+  const rewindOp = useCallback(
+    async (body: { op: string; index?: number; option?: number }) => {
+      const r = await post(agentPath(paneId, 'rewind'), body);
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        alert(j.error ?? r.statusText);
+        setRewind(null);
+        return;
+      }
+      if (j.step === 'list' || j.step === 'confirm') {
+        setRewind(j as RewindState);
+      } else {
+        if (j.draft) setRewindDraft({ text: j.draft, n: rewindNonce.current++ });
+        setRewind(null);
+      }
+    },
+    [paneId],
+  );
+
+  const openRewind = useCallback(async () => {
+    setRewindBusy(true);
+    try {
+      await rewindOp({ op: 'open' });
+    } finally {
+      setRewindBusy(false);
+    }
+  }, [rewindOp]);
 
   // Slash commands open local TUI dialogs (/model, /resume, …) that herdr
   // deliberately doesn't report as blocked and the session file can't see
@@ -277,6 +319,17 @@ export function AgentView({
             {agent ? [agent.displayAgent ?? agent.agent, agent.cwd].filter(Boolean).join(' · ') : ''}
           </div>
         </div>
+        {agent?.agent === 'claude' && (
+          <button
+            className="chip"
+            title="rewind to a checkpoint"
+            aria-label="rewind"
+            disabled={rewindBusy || working || blocked}
+            onClick={openRewind}
+          >
+            {rewindBusy ? '…' : '⏪'}
+          </button>
+        )}
         {agent?.agent === 'claude' && mode !== 'unknown' && (
           <button
             className={`chip mode-chip mode-${mode} ${modeBusy ? 'busy' : ''}`}
@@ -335,6 +388,10 @@ export function AgentView({
 
       {showBlockedCard && ctx && <BlockedCard ctx={ctx} onAnswer={onAnswer} />}
 
+      {rewind && (rewind.step === 'list' || rewind.step === 'confirm') && (
+        <RewindCard state={rewind} onOp={rewindOp} onClose={() => rewindOp({ op: 'cancel' })} />
+      )}
+
       {/* session files only get content when a block completes — while the
           agent works, the live screen is the only real-time view */}
       {working && !dialog && !blocked && <LiveTail paneId={paneId} onMode={acceptMode} />}
@@ -347,7 +404,7 @@ export function AgentView({
         paneId={paneId}
         working={working}
         cooldown={cooldown}
-        restoredDraft={restoredDraft}
+        restoredDraft={rewindDraft ?? restoredDraft}
         showKeys={showKeys}
         onSend={sendFromComposer}
         onInterrupt={interrupt}

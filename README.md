@@ -129,6 +129,7 @@ All under `/api`, JSON in/out. `:pane` is a herdr pane id like `w1:p2`.
 | `POST /api/agent/:pane/prompt` | `{text}` → `agent.prompt` |
 | `POST /api/agent/:pane/answer` | `{keys, expect}` → send keys only if `expect` is still on screen (409 if not) |
 | `POST /api/agent/:pane/keys` | `{keys}` → raw `agent.send_keys` |
+| `GET`/`POST /api/agent/:pane/rewind` | drive claude's /rewind panel: POST `{op: open\|select\|confirm\|cancel, index?, option?}`; confirm returns the rewound message as `draft` after clearing it off the TUI composer |
 | `GET /api/kinds` | startable agent kinds from herdr's manifests + installed probe |
 | `GET /api/projects` | places to start a session: live cwds + workspace checkouts + dirs decoded from `~/.claude/projects`, collapsed by git repo |
 | `GET /api/worktrees?cwd=` | a repo's checkouts (herdr `worktree.list`) with open-workspace links |
