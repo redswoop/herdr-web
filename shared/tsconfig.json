@@ -1,7 +1,10 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022"],
+    // ES2023 for Array.findLastIndex (transcript reconcile). Still NO DOM —
+    // that omission is the seam the compiler enforces. Hermes (RN 0.86) and
+    // every target browser ship findLast/findLastIndex.
+    "lib": ["ES2023"],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",

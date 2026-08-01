@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { agentPath, post } from '../api';
+import { agentPath, errorOf, post } from '../api';
+import { useAgentMode } from '../hooks/useAgentMode';
 import { useAgentSession } from '../hooks/useAgentSession';
 import { useBlockedContext } from '../hooks/useBlockedContext';
 import { WIDE, useMediaQuery } from '../hooks/useMediaQuery';
-import type { Agent } from '../types';
+import type { Agent, AnswerBody, ModeState, PermissionMode, RestoredDraft, RewindState, SessionEntry } from '../types';
 import { BlockedCard } from './BlockedCard';
+import { ResumeCard } from './ResumeCard';
+import { RewindCard } from './RewindCard';
 import { Composer } from './Composer';
 import { FileViewer } from './FileViewer';
 import { LiveTail } from './LiveTail';
@@ -27,21 +30,58 @@ function isTuiChrome(line: string): boolean {
   return TUI_CHROME_RES.some((re) => re.test(line));
 }
 
+const MODE_LABEL: Record<ModeState, string> = {
+  default: 'manual',
+  acceptEdits: 'edits',
+  plan: 'plan',
+  auto: 'auto',
+  bypassPermissions: 'bypass',
+  unknown: '—',
+};
+const MODE_DESC: Record<PermissionMode, string> = {
+  default: 'approve every tool use',
+  acceptEdits: 'file edits auto-approved',
+  plan: 'read-only until you approve a plan',
+  auto: 'runs tools without asking',
+  bypassPermissions: 'no permission checks at all',
+};
+const MODE_ORDER: PermissionMode[] = ['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions'];
+
 export function AgentView({
+  paneId,
   agent,
   file,
   onBack,
 }: {
+  /** the route's pane id — the stable identity. `agent` is roster metadata
+   *  that momentarily vanishes when herdr blips (herdrDown returns an empty
+   *  roster); driving paneId off it would tear down the session hooks and
+   *  wipe composer drafts on every daemon restart. */
+  paneId: string;
   agent: Agent | undefined;
   file: string | null;
   onBack: () => void;
 }) {
-  const paneId = agent?.paneId ?? '';
   const status = agent?.status;
   const { items, error, loaded, send, interrupt, cooldown, working, restoredDraft, inject } =
     useAgentSession(paneId, status, agent?.agent);
   const { ctx, refresh } = useBlockedContext(paneId, status);
+  const {
+    mode,
+    busy: modeBusy,
+    setMode,
+    accept: acceptMode,
+  } = useAgentMode(paneId, agent?.agent, status);
+  const [modeOpen, setModeOpen] = useState(false);
   const [screen, setScreen] = useState<string | null>(null);
+  // /rewind panel state, screen-parsed server-side; null = card closed
+  const [rewind, setRewind] = useState<RewindState | null>(null);
+  const [rewindBusy, setRewindBusy] = useState(false);
+  // a conversation-restore hands back the rewound message as a composer draft
+  const [rewindDraft, setRewindDraft] = useState<RestoredDraft | null>(null);
+  const rewindNonce = useRef(0);
+  // /resume typed in the composer — local override, opens the session card
+  const [resumeOpen, setResumeOpen] = useState(false);
   const [keysPinned, setKeysPinned] = useState(false);
   const [keysForced, setKeysForced] = useState(false); // 409 fallback
 
@@ -92,6 +132,95 @@ export function AgentView({
     }
   }, [blocked]);
 
+  // panel/card state is per-pane
+  useEffect(() => {
+    setRewind(null);
+    setResumeOpen(false);
+  }, [paneId]);
+
+  // an interrupt-restored draft outranks a stale rewind draft
+  useEffect(() => {
+    if (restoredDraft) setRewindDraft(null);
+  }, [restoredDraft]);
+
+  const rewindOp = useCallback(
+    async function op(body: { op: string; index?: number; option?: number }, retried = false): Promise<void> {
+      const r = await post(agentPath(paneId, 'rewind'), body);
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        // a draft is stranded on the TUI composer — offer to clear it (one
+        // C-c clears a non-empty claude input line) and try again
+        if (
+          !retried &&
+          body.op === 'open' &&
+          r.status === 409 &&
+          /composer/.test(j.error ?? '') &&
+          confirm(`${j.error}\n\nClear the TUI input line and open rewind?`)
+        ) {
+          await post(agentPath(paneId, 'keys'), { keys: ['C-c'] }).catch(() => null);
+          await new Promise((res) => setTimeout(res, 500));
+          return op(body, true);
+        }
+        alert(j.error ?? r.statusText);
+        setRewind(null);
+        return;
+      }
+      if (j.step === 'list' || j.step === 'confirm') {
+        setRewind(j as RewindState);
+      } else {
+        if (j.draft) setRewindDraft({ text: j.draft, n: rewindNonce.current++ });
+        setRewind(null);
+      }
+    },
+    [paneId],
+  );
+
+  const openRewind = useCallback(async () => {
+    setRewindBusy(true);
+    try {
+      await rewindOp({ op: 'open' });
+    } finally {
+      setRewindBusy(false);
+    }
+  }, [rewindOp]);
+
+  const go = useCallback((p: string) => {
+    location.hash = `#/agent/${encodeURIComponent(p)}`;
+  }, []);
+
+  // /resume <id> typed with an argument: jump if that session is already live
+  // in a pane, otherwise spawn a resumed pane. Prefix match spares typing a
+  // full uuid; an id the list doesn't know is still tried verbatim.
+  const resumeById = useCallback(
+    async (id: string) => {
+      const cwd = agent?.cwd ?? '';
+      const kind = agent?.agent ?? 'claude';
+      let title: string | null = null;
+      try {
+        const r = await fetch(
+          `/api/sessions?cwd=${encodeURIComponent(cwd)}&kind=${encodeURIComponent(kind)}`,
+        );
+        const { sessions } = (await r.json()) as { sessions: SessionEntry[] };
+        const hit =
+          sessions.find((s) => s.sessionId === id) ??
+          sessions.find((s) => s.sessionId.startsWith(id));
+        if (hit?.livePaneId) return go(hit.livePaneId);
+        if (hit) ({ sessionId: id, title } = hit);
+      } catch {}
+      const r = await post('/api/chats', {
+        kind,
+        cwd,
+        resume: id,
+        name: title ?? undefined,
+        label: title ?? undefined,
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) return alert(j.error ?? r.statusText);
+      go(j.paneId as string);
+    },
+    [agent?.cwd, agent?.agent, go],
+  );
+
   // Slash commands open local TUI dialogs (/model, /resume, …) that herdr
   // deliberately doesn't report as blocked and the session file can't see
   // until they finish. When WE sent the command, we know a dialog is (about
@@ -119,6 +248,16 @@ export function AgentView({
 
   const sendFromComposer = useCallback(
     async (text: string) => {
+      // Local overrides: commands with a first-class web UI never reach the
+      // TUI — the generic path below would only mirror the raw dialog.
+      // /rewind opens the RewindCard (claude's panel); /resume [id] resumes
+      // into a NEW pane (this one can't swap sessions under itself), or jumps
+      // if already live — both claude and grok take --resume.
+      const ov = /^\/(rewind|resume)(?:\s+(\S+))?$/.exec(text.trim());
+      if (ov?.[1] === 'rewind' && agent?.agent === 'claude') return openRewind();
+      if (ov?.[1] === 'resume' && agent?.cwd && (agent.agent === 'claude' || agent.agent === 'grok')) {
+        return ov[2] ? resumeById(ov[2]) : setResumeOpen(true);
+      }
       const slash = text.trim().startsWith('/');
       if (slash) {
         // baseline the screen before the command runs, so dialog residue
@@ -147,7 +286,7 @@ export function AgentView({
       }, 800);
       armRef.current = { timer, sinceKey };
     },
-    [send, closeDialog, paneId],
+    [send, closeDialog, paneId, agent?.agent, agent?.cwd, openRewind, resumeById],
   );
 
   // The dialog closed without ever writing a session-file record (chrome came
@@ -208,8 +347,8 @@ export function AgentView({
     return null;
   }, [items, working]);
 
-  const onAnswer = async (keys: string[], expect: string | null) => {
-    const r = await post(agentPath(paneId, 'answer'), { keys, expect });
+  const onAnswer = async (body: AnswerBody) => {
+    const r = await post(agentPath(paneId, 'answer'), body);
     if (r.status === 409) {
       // screen no longer shows what we thought — fall back to raw controls
       setKeysForced(true);
@@ -217,7 +356,7 @@ export function AgentView({
       return false;
     }
     if (!r.ok) {
-      alert((await r.json()).error ?? r.statusText);
+      alert(await errorOf(r));
       return false;
     }
     setTimeout(refresh, 600); // menu may advance to the next question
@@ -229,9 +368,14 @@ export function AgentView({
       setScreen(null);
       return;
     }
-    const r = await fetch(agentPath(paneId, 'screen'));
-    const { text } = await r.json();
-    setScreen((text ?? '').replace(/\n{3,}/g, '\n\n').trimEnd());
+    try {
+      const r = await fetch(agentPath(paneId, 'screen'));
+      if (!r.ok) throw new Error(await errorOf(r));
+      const { text } = await r.json();
+      setScreen((text ?? '').replace(/\n{3,}/g, '\n\n').trimEnd());
+    } catch (e) {
+      alert(String((e as Error).message ?? e));
+    }
   };
 
   const showBlockedCard = blocked && !keysForced && ctx != null && ctx.kind !== 'none' && ctx.kind !== 'unknown';
@@ -252,7 +396,51 @@ export function AgentView({
             {agent ? [agent.displayAgent ?? agent.agent, agent.cwd].filter(Boolean).join(' · ') : ''}
           </div>
         </div>
+        {agent?.agent === 'claude' && (
+          <button
+            className="chip"
+            title="rewind to a checkpoint"
+            aria-label="rewind"
+            disabled={rewindBusy || working || blocked}
+            onClick={openRewind}
+          >
+            {rewindBusy ? '…' : '⏪'}
+          </button>
+        )}
+        {agent?.agent === 'claude' && mode !== 'unknown' && (
+          <button
+            className={`chip mode-chip mode-${mode} ${modeBusy ? 'busy' : ''}`}
+            disabled={modeBusy}
+            onClick={() => setModeOpen((o) => !o)}
+          >
+            {MODE_LABEL[mode]}
+          </button>
+        )}
         <span className={`chip ${status ?? ''}`}>{status ?? '—'}</span>
+        {modeOpen && (
+          <>
+            <div className="pop-backdrop" onClick={() => setModeOpen(false)} />
+            <div className="mode-pop">
+              {MODE_ORDER.map((m) => (
+                <button
+                  key={m}
+                  className={`mode-row ${m === mode ? 'current' : ''}`}
+                  disabled={modeBusy}
+                  onClick={async () => {
+                    setModeOpen(false);
+                    if (m !== mode) await setMode(m);
+                  }}
+                >
+                  <span className="mode-name">
+                    {m === mode ? '❯ ' : ''}
+                    {MODE_LABEL[m]}
+                  </span>
+                  <span className="mode-desc">{MODE_DESC[m]}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </header>
 
       {blocked && (
@@ -277,9 +465,26 @@ export function AgentView({
 
       {showBlockedCard && ctx && <BlockedCard ctx={ctx} onAnswer={onAnswer} />}
 
+      {rewind && (rewind.step === 'list' || rewind.step === 'confirm') && (
+        <RewindCard state={rewind} onOp={rewindOp} onClose={() => rewindOp({ op: 'cancel' })} />
+      )}
+
+      {resumeOpen && agent?.cwd && (
+        <ResumeCard
+          cwd={agent.cwd}
+          kind={agent.agent}
+          selfPaneId={paneId}
+          onGo={(p) => {
+            setResumeOpen(false);
+            go(p);
+          }}
+          onClose={() => setResumeOpen(false)}
+        />
+      )}
+
       {/* session files only get content when a block completes — while the
           agent works, the live screen is the only real-time view */}
-      {working && !dialog && !blocked && <LiveTail paneId={paneId} />}
+      {working && !dialog && !blocked && <LiveTail paneId={paneId} onMode={acceptMode} />}
 
       {dialog && (
         <ScreenMirror paneId={paneId} poke={poke} onClose={closeDialog} onGone={onDialogGone} />
@@ -289,7 +494,7 @@ export function AgentView({
         paneId={paneId}
         working={working}
         cooldown={cooldown}
-        restoredDraft={restoredDraft}
+        restoredDraft={rewindDraft ?? restoredDraft}
         showKeys={showKeys}
         onSend={sendFromComposer}
         onInterrupt={interrupt}

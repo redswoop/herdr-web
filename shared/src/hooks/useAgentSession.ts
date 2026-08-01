@@ -7,6 +7,7 @@ import {
   findLastCancellableMine,
   insertSorted,
   setMineState as setMineStateIn,
+  stampEvents,
 } from '../session-reducer';
 import type { AgentStatus, Item, Mine, MineState, RestoredDraft, TEvent } from '../types';
 
@@ -29,6 +30,7 @@ export function useAgentSession(
   const [cooldown, setCooldown] = useState(false);
   const keyRef = useRef(0);
   const [gen, setGen] = useState(0);
+  const prevPaneRef = useRef<string | null>(null); // pane switch vs same-pane reconnect
 
   const [submitted, setSubmitted] = useState(false);
   const inflightRef = useRef<Promise<boolean> | null>(null);
@@ -54,14 +56,12 @@ export function useAgentSession(
 
   const apply = useCallback(
     (evs: TEvent[]) => {
-      setItems((prev) => {
-        const { items: next, hadCommand } = applyEvents(prev, evs, nextKey, clockRef.current);
-        if (hadCommand) setSubmitted(false);
-        return next;
-      });
-      // hadCommand side-effect is also set inside setItems which is wrong for
-      // React 18 batching — re-check:
+      // a slash command reaching the session file means the TUI accepted it —
+      // drop the optimistic busy flag so the working pill doesn't linger
+      // through its decay window (skills that do real work re-arm via roster)
       if (evs.some((e) => e.kind === 'command')) setSubmitted(false);
+      const stamped = stampEvents(evs, nextKey, clockRef.current);
+      setItems((prev) => applyEvents(prev, stamped));
     },
     [nextKey],
   );
@@ -76,17 +76,40 @@ export function useAgentSession(
       lastMsg = Date.now();
     };
     const stale = () => Date.now() - lastMsg > 30_000;
-    setItems([]);
+    // A gen bump is a RECONNECT of the same pane (SSE error, zombie watchdog,
+    // server reset) — routine on mobile. Local-only state must survive it:
+    // optimistic bubbles + client-synthesized events (salvage, ⏹ divider,
+    // command_err) exist nowhere else, and a pending TUI-clear/interrupt must
+    // not be forgotten mid-flight. A pane SWITCH resets everything.
+    const paneSwitch = prevPaneRef.current !== paneId;
+    prevPaneRef.current = paneId;
+    const LOCAL_KINDS = new Set(['salvage', 'interrupted', 'command_err']);
+    setItems((prev) => {
+      if (paneSwitch) return [];
+      const kept: Item[] = [];
+      for (const it of prev) {
+        if (it.type === 'event' && LOCAL_KINDS.has(it.ev.kind)) kept.push(it);
+        // confirmed bubbles drop — the full reload re-delivers their session
+        // event as a plain user bubble. Unconfirmed ones stay, re-armed so
+        // the reload can reconcile into them again (⏹ markers survive).
+        else if (it.type === 'mine' && it.mine.state !== 'confirmed') {
+          kept.push({ ...it, mine: { ...it.mine, reconciled: false } });
+        }
+      }
+      return kept;
+    });
     setError(null);
     setLoaded(false);
-    setSubmitted(false);
-    setRestoredDraft(null);
-    inflightRef.current = null;
-    tuiClearRef.current = null;
-    clockRef.current = createAtClock();
-    if (decayRef.current) {
-      clearTimeout(decayRef.current);
-      decayRef.current = null;
+    if (paneSwitch) {
+      setSubmitted(false);
+      setRestoredDraft(null);
+      inflightRef.current = null; // an in-flight POST belongs to the previous pane
+      tuiClearRef.current = null;
+      clockRef.current = createAtClock();
+      if (decayRef.current) {
+        clearTimeout(decayRef.current);
+        decayRef.current = null;
+      }
     }
 
     const load = async () => {
@@ -110,9 +133,15 @@ export function useAgentSession(
           if (alive) setGen((g) => g + 1);
         });
         es.onerror = () => {
+          // never let the transport auto-reconnect: it reuses the ORIGINAL
+          // ?offset=, replaying everything since this stream opened as
+          // duplicates. Tear down and reload the transcript cleanly instead —
+          // after a beat, so a proxy that hard-rejects the stream (tailscale
+          // 502 during a daemon restart) can't spin this into a hot loop.
           if (alive) {
             es?.close();
-            setGen((g) => g + 1);
+            es = null;
+            retry = setTimeout(() => setGen((g) => g + 1), 2500);
           }
         };
       } catch (e) {

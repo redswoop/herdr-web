@@ -26,23 +26,37 @@ export function createAtClock(initial = 0): AtClock & { maxAt: () => number } {
   };
 }
 
+export interface StampedEvent {
+  ev: TEvent;
+  at: number;
+  key: number;
+}
+
 /**
- * Merge session-file events into the item list, reconciling optimistic
- * mine-bubbles and dropping bubbles that become command pills.
+ * Claim a sort key and an item key per event. Runs OUTSIDE the setItems
+ * updater on purpose: React may invoke an updater more than once, and a clock
+ * tick or keyRef++ in there would drift.
  */
-export function applyEvents(
-  prev: Item[],
-  evs: TEvent[],
-  nextKey: () => number,
-  clock: AtClock,
-): { items: Item[]; hadCommand: boolean } {
-  const hadCommand = evs.some((e) => e.kind === 'command');
-  const next = [...prev];
-  for (const ev of evs) {
+export function stampEvents(evs: TEvent[], nextKey: () => number, clock: AtClock): StampedEvent[] {
+  return evs.map((ev) => {
     const ts = ev.ts ? Date.parse(ev.ts) : NaN;
-    const at = Number.isNaN(ts) ? clock.nextAt() : clock.claimAt(ts);
+    return { ev, at: Number.isNaN(ts) ? clock.nextAt() : clock.claimAt(ts), key: nextKey() };
+  });
+}
+
+/**
+ * Merge stamped session-file events into the item list, reconciling optimistic
+ * mine-bubbles and dropping bubbles that become command pills. Pure — safe to
+ * re-run on the same input.
+ */
+export function applyEvents(prev: Item[], stamped: StampedEvent[]): Item[] {
+  const next = [...prev];
+  for (const { ev, at, key } of stamped) {
     if (ev.kind === 'user') {
-      const i = next.findIndex(
+      // reconcile into the NEWEST matching bubble — a re-send of text whose
+      // stopped predecessor was never persisted must not have its echo
+      // swallowed by the old ⏹ bubble
+      const i = next.findLastIndex(
         (it) =>
           it.type === 'mine' &&
           it.mine.text === ev.text.trim() &&
@@ -71,9 +85,9 @@ export function applyEvents(
       );
       if (i !== -1) next.splice(i, 1);
     }
-    insertSorted(next, { type: 'event', ev, key: nextKey(), at });
+    insertSorted(next, { type: 'event', ev, key, at });
   }
-  return { items: next, hadCommand };
+  return next;
 }
 
 export function setMineState(items: Item[], key: number, state: MineState): Item[] {

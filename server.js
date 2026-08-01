@@ -7,7 +7,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rpc, subscribe } from './lib/herdr.js';
-import { adapterFor, readEvents } from './lib/adapters.js';
+import { adapterFor, readEvents, listSessions, classifyBlocked } from './lib/adapters.js';
+import {
+  parseMenuScreen, parseMenuFor, isGrokProjectPicker, parseRewindScreen,
+  composerText, typedComposerText, parseMode, MODES, trimSalvage,
+} from './lib/screen.js';
 import { PushStore, Coordinator } from './lib/notify.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -129,7 +133,8 @@ async function doRefreshRoster() {
       }
       for (const paneId of prev.keys()) {
         coordinator.onRemove(paneId);
-        startTimeCache.delete(paneId);
+        paneProcCache.delete(paneId);
+        pinnedSessions.delete(paneId);
       }
     }
     roster = { agents, workspaces, tabs, herdrDown: false, updatedAt: Date.now(), build: BUILD, bootedAt: BOOTED_AT };
@@ -181,37 +186,43 @@ async function bootTimeMs() {
   return btimeMs;
 }
 
-const startTimeCache = new Map(); // paneId -> {at, startedAt}
-async function agentStartTime(paneId, kind) {
-  const hit = startTimeCache.get(paneId);
-  if (hit && Date.now() - hit.at < 30_000) return hit.startedAt;
-  let startedAt = null;
+// The pane's agent process: pid (grok correlates sessions by it — exact match
+// against active_sessions.json) and start time (claude's created-since filter).
+const paneProcCache = new Map(); // paneId -> {at, pid, startedAt}
+async function paneProcess(paneId, kind) {
+  const hit = paneProcCache.get(paneId);
+  if (hit && Date.now() - hit.at < 30_000) return hit;
+  const info = { at: Date.now(), pid: null, startedAt: null };
   try {
+    const r = await rpc('pane.process_info', { pane_id: paneId });
+    const procs = r.process_info?.foreground_processes ?? [];
+    info.pid = (procs.find((p) => p.name === kind) ?? procs[0])?.pid ?? null;
     const btime = await bootTimeMs();
-    if (btime) {
-      const r = await rpc('pane.process_info', { pane_id: paneId });
-      const procs = r.process_info?.foreground_processes ?? [];
-      const pid = (procs.find((p) => p.name === kind) ?? procs[0])?.pid;
-      if (pid) {
-        const stat = await fsp.readFile(`/proc/${pid}/stat`, 'utf8');
-        // fields after the parenthesized comm; starttime is field 22 overall
-        const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-        const ticks = Number(fields[19]);
-        if (Number.isFinite(ticks)) startedAt = btime + (ticks / 100) * 1000;
-      }
+    if (info.pid && btime) {
+      const stat = await fsp.readFile(`/proc/${info.pid}/stat`, 'utf8');
+      // fields after the parenthesized comm; starttime is field 22 overall
+      const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+      const ticks = Number(fields[19]);
+      if (Number.isFinite(ticks)) info.startedAt = btime + (ticks / 100) * 1000;
     }
   } catch {}
-  startTimeCache.set(paneId, { at: Date.now(), startedAt });
-  return startedAt;
+  paneProcCache.set(paneId, info);
+  return info;
 }
+
+// Panes spawned with an explicit --resume know their session id up front —
+// no need to guess the binding from titles/mtimes. paneId -> sessionId,
+// cleared when the pane leaves the roster.
+const pinnedSessions = new Map();
 
 // Shared by the roster refresh and the API routes so every caller correlates
 // pane → session file the same way.
 async function findSessionFor({ paneId, agent, cwd, title }) {
   const adapter = adapterFor(agent);
   if (!adapter || !cwd) return null;
-  const hints = { title: title ?? '' };
-  if (agent === 'claude') hints.startedAfter = await agentStartTime(paneId, agent);
+  const hints = { title: title ?? '', sessionId: pinnedSessions.get(paneId) };
+  if (agent === 'claude') hints.startedAfter = (await paneProcess(paneId, agent)).startedAt;
+  if (agent === 'grok') hints.pid = (await paneProcess(paneId, agent)).pid;
   try {
     return await adapter.find(cwd, hints);
   } catch {
@@ -234,120 +245,222 @@ async function readScreen(paneId) {
   return r.read?.text ?? '';
 }
 
-// Walk the transcript backwards looking for a tool_use with no result.
-function classifyBlocked(events) {
-  const resultIds = new Set();
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const e = events[i];
-    if (e.kind === 'tool_result') {
-      if (e.id) resultIds.add(e.id);
-      continue;
-    }
-    if (e.kind === 'tool_use') {
-      if (e.id && resultIds.has(e.id)) return { kind: 'unknown' }; // last tool finished
-      // claude: AskUserQuestion; grok: ask_user_question — same input shape
-      const bare = (e.name ?? '').toLowerCase().replace(/[^a-z]/g, '');
-      if (bare === 'askuserquestion' && Array.isArray(e.input?.questions)) {
-        return { kind: 'ask', questions: e.input.questions };
-      }
-      return { kind: 'permission', tool: e.name ?? 'tool', detail: e.text ?? '' };
-    }
-    if (e.kind === 'assistant' || e.kind === 'user') return { kind: 'unknown' };
-  }
-  return { kind: 'unknown' };
+// ANSI capture — for checks that need styling to tell user-typed text from
+// the TUI's own painted hints (claude's ghost/predictive suggestions).
+async function readScreenAnsi(paneId) {
+  const r = await rpc('agent.read', { target: paneId, source: 'visible', format: 'ansi' });
+  return r.read?.text ?? '';
 }
 
-// Parse a numbered TUI menu (claude AskUserQuestion / permission prompts,
-// and anything else shaped like "❯ 1. Label" with indented descriptions).
-function parseMenuScreen(text) {
-  const lines = text.split('\n');
-  const optRe = /^\s*(❯)?\s*(\d+)\.\s+(.+)$/;
-  const opts = [];
-  let firstIdx = -1;
-  for (let i = 0; i < lines.length; i += 1) {
-    const m = lines[i].match(optRe);
-    if (m) {
-      opts.push({ n: +m[2], label: m[3].trim(), description: '', selected: !!m[1] });
-      if (firstIdx < 0) firstIdx = i;
-    } else if (opts.length && /^\s{3,}\S/.test(lines[i]) && !/^[─═╌\s]+$/.test(lines[i])) {
-      const o = opts[opts.length - 1];
-      o.description += (o.description ? ' ' : '') + lines[i].trim();
+// (classifyBlocked lives in lib/adapters.js; the screen grammars — claude ❯
+// menus, grok radio menus, rewind panel, mode footer — live in lib/screen.js.)
+
+// Answer a menu by arrowing the cursor onto the target row and pressing Enter,
+// verified against the live screen between steps. Digits are unsafe on claude
+// menus with a free-text row (the plan prompt): once ❯ sits in the text field,
+// every digit TYPES instead of selecting — that's how a user's taps once
+// became "4443" in the feedback box. `feedback` types into the free-text row
+// and submits (reject-with-feedback). Returns true, or null when the screen no
+// longer holds a matching menu — the caller 409s.
+const PLAN_INPUT_PLACEHOLDER = 'Tell Claude what to change';
+async function answerByNav(paneId, { option, feedback, kind }) {
+  if (kind === 'grok') return answerGrokMenu(paneId, { option });
+  const read = async () => parseMenuScreen(await readScreen(paneId));
+  const settle = () => new Promise((r) => setTimeout(r, 300));
+  const send = (keys) => agentRpc('agent.send_keys', { target: paneId, keys });
+  let menu = await read();
+  if (!menu) return null;
+  const inputOpt = menu.options.find((o) => o.input);
+  const targetN = option ?? inputOpt?.n;
+  if (!menu.options.some((o) => o.n === targetN)) return null;
+  const keys = [];
+  // typed text keeps focus in the input row — clear it or Enter commits junk
+  if (inputOpt?.selected) for (let i = 0; i < 100; i += 1) keys.push('Backspace');
+  const sel = (menu.options.find((o) => o.selected) ?? menu.options[0]).n;
+  for (let i = 0; i < Math.abs(targetN - sel); i += 1) keys.push(targetN > sel ? 'Down' : 'Up');
+  if (keys.length) {
+    await send(keys);
+    await settle();
+    menu = await read();
+    if (!menu?.options.find((o) => o.n === targetN)?.selected) return null;
+  }
+  if (feedback != null) {
+    const chars = feedback.replace(/\s+/g, ' ').trim().split('')
+      .map((c) => (c === ' ' ? 'space' : c));
+    if (chars.length) {
+      await send(chars);
+      await settle();
+      // keystrokes can race the row-focus and get dropped wholesale — an
+      // untouched placeholder means nothing landed, so don't Enter on it
+      const row = (await read())?.options.find((o) => o.n === targetN);
+      if (!row || row.label === PLAN_INPUT_PLACEHOLDER) return null;
     }
   }
-  if (opts.length < 2 || opts[0].n !== 1) return null;
-  for (let i = 1; i < opts.length; i += 1) {
-    if (opts[i].n !== opts[i - 1].n + 1) return null; // not a real menu
-  }
-  // real menus have a ❯ cursor; numbered lists in prose don't
-  if (!opts.some((o) => o.selected)) return null;
-  let question = '';
-  let header = '';
-  let qIdx = -1;
-  for (let i = firstIdx - 1; i >= 0; i -= 1) {
-    const t = lines[i].trim();
-    if (!t || /^[─═│╭╮╰╯╌|]+$/.test(t)) continue;
-    const cb = t.match(/^[☐☒✔✓■□]\s*(.*)$/);
-    if (cb) { header = cb[1]; continue; }
-    question = t;
-    qIdx = i;
-    break;
-  }
-  // context above the question (e.g. the command a permission prompt is
-  // about) up to the enclosing border
-  const detail = [];
-  for (let i = qIdx - 1; i >= 0 && qIdx > 0 && detail.length < 12; i -= 1) {
-    const t = lines[i].trim();
-    if (!t) continue; // menus space their sections with blank lines
-    if (/^[─═│╭╮╰╯╌|]+$/.test(t)) break; // enclosing border = top of menu
-    detail.unshift(t);
-  }
-  return { kind: 'menu', header, question, detail: detail.join('\n'), options: opts };
+  await send(['Enter']);
+  return true;
 }
 
-// Trim a raw pane capture down to the content worth salvaging: cut the
-// composer/status chrome off the bottom and, when the stopped prompt's echo
-// is findable, everything above it. Chrome patterns cover claude code
-// (rules + ❯ + ⏵⏵ status, ✻ spinner) and grok (╭│╰ box + help line).
-const CHROME_RES = [
-  /^\s*$/,
-  /^\s*[╭╰]─/, // box top/bottom
-  /^\s*─{5,}\s*$/, // horizontal rule
-  /^\s*│.*│\s*$/, // boxed input/status line
-  /^\s*❯/, // bare input line
-  /^\s*⏵/, // claude status line
-  /^\s*[✻✳✶✢✽]\s/, // spinner / "Cogitated for 1m 6s"
-  /esc to interrupt/,
-  /shift\+tab/i,
-  /shortcuts/i,
-];
-function trimSalvage(text, promptText) {
-  const lines = text.split('\n');
-  let end = lines.length;
-  while (end > 0 && CHROME_RES.some((re) => re.test(lines[end - 1]))) end -= 1;
-  let start = 0;
-  const firstLine = (promptText ?? '').split('\n')[0].trim().slice(0, 40);
-  if (firstLine) {
-    for (let i = end - 1; i >= 0; i -= 1) {
-      const m = lines[i].trim();
-      if ((m.startsWith('>') || m.startsWith('❯')) && m.slice(1).trim().startsWith(firstLine)) {
-        start = i + 1;
-        break;
+// Grok radio menus: a bare digit selects the row, and on permission prompts
+// ("1/3:select") submits it outright; ask/picker menus want an Enter after.
+// Press the digit, then Enter only if the menu is still up with the target
+// selected — covers both without double-answering. Free-text feedback isn't
+// wired for grok yet; callers get a 409 and fall back to typing a prompt.
+async function answerGrokMenu(paneId, { option }) {
+  const read = async () => parseMenuFor('grok', await readScreen(paneId));
+  const settle = () => new Promise((r) => setTimeout(r, 300));
+  let menu = await read();
+  if (!menu || option == null) return null;
+  if (!menu.options.some((o) => o.n === option && !o.input)) return null;
+  await agentRpc('agent.send_keys', { target: paneId, keys: [String(option)] });
+  await settle();
+  menu = await read();
+  if (menu?.options.find((o) => o.n === option)?.selected) {
+    await agentRpc('agent.send_keys', { target: paneId, keys: ['Enter'] });
+  }
+  return true;
+}
+
+// ---------- rewind (claude) ----------
+
+async function rewindOp(paneId, { op, index, option }) {
+  const read = async () => parseRewindScreen(await readScreen(paneId));
+  const settle = (ms = 400) => new Promise((r) => setTimeout(r, ms));
+  if (op === 'open') {
+    let state = await read(); // maybe already open (e.g. opened in the TUI)
+    if (!state) {
+      const live = await rpc('agent.get', { target: paneId });
+      const st = live.agent?.agent_status;
+      if (st === 'working' || st === 'blocked') {
+        throw httpErr(409, `agent is ${st} — rewind needs an idle session`);
+      }
+      // /rewind must land on an empty composer or it concatenates with the
+      // draft. Style-aware: claude paints its predictive/ghost suggestions in
+      // gray — only USER-typed (unstyled) text blocks the open.
+      const draft = typedComposerText(await readScreenAnsi(paneId));
+      if (draft) {
+        throw httpErr(409, `text is sitting on the TUI composer — clear it first ("${draft.slice(0, 60)}")`);
+      }
+      await agentRpc('agent.prompt', { target: paneId, text: '/rewind' });
+      for (let i = 0; i < 12 && !state; i += 1) {
+        await settle();
+        state = await read();
       }
     }
+    if (!state) throw httpErr(502, 'rewind panel never appeared');
+    if (state.step === 'empty') {
+      // don't leave the useless panel stranded on the TUI
+      await agentRpc('agent.send_keys', { target: paneId, keys: ['Escape'] });
+      throw httpErr(409, 'nothing to rewind to yet');
+    }
+    return state;
   }
-  const out = lines
-    .slice(start, end)
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-  return out ? out.slice(-8000) : null;
+  if (op === 'select') {
+    if (!Number.isInteger(index)) throw httpErr(400, 'index: integer');
+    let state = await read();
+    if (state?.step !== 'list') throw httpErr(409, 'no rewind list on screen');
+    const target = state.checkpoints[index];
+    if (!target) throw httpErr(409, 'no such checkpoint');
+    const from = state.checkpoints.findIndex((c) => c.selected);
+    if (index !== from) {
+      const keys = Array.from({ length: Math.abs(index - from) }, () => (index > from ? 'Down' : 'Up'));
+      await agentRpc('agent.send_keys', { target: paneId, keys });
+      await settle();
+      state = await read();
+      // verify by message text, not index — a scrolling list shifts the window
+      const sel = state?.step === 'list' ? state.checkpoints.find((c) => c.selected) : null;
+      if (!sel || sel.message !== target.message) throw httpErr(409, 'screen changed');
+    }
+    await agentRpc('agent.send_keys', { target: paneId, keys: ['Enter'] });
+    for (let i = 0; i < 8; i += 1) {
+      await settle();
+      const next = await read();
+      if (next?.step === 'confirm') return next;
+    }
+    throw httpErr(502, 'confirm step never appeared');
+  }
+  if (op === 'confirm') {
+    if (!Number.isInteger(option)) throw httpErr(400, 'option: integer');
+    const state = await read();
+    if (state?.step !== 'confirm') throw httpErr(409, 'no rewind confirm on screen');
+    if (!(await answerByNav(paneId, { option }))) throw httpErr(409, 'screen changed');
+    // A conversation-restore prefills the TUI composer with the rewound
+    // message; stranded there it would concatenate with the next web prompt.
+    // Capture it, clear it, hand it back as a draft for the web composer.
+    await settle(900);
+    const draft = composerText(await readScreen(paneId));
+    if (draft) {
+      await agentRpc('agent.send_keys', {
+        target: paneId,
+        keys: Array.from({ length: 300 }, () => 'Backspace'),
+      });
+    }
+    return { ok: true, draft: draft || null };
+  }
+  if (op === 'cancel') {
+    if (await read()) await agentRpc('agent.send_keys', { target: paneId, keys: ['Escape'] });
+    return { step: 'closed' };
+  }
+  throw httpErr(400, 'op: open|select|confirm|cancel');
+}
+
+// ---------- permission mode (claude) ----------
+// herdr's "Shift+Tab" key name is accepted but claude never sees a backtab —
+// send raw CSI Z instead. The three keys land in one send_keys rpc → one pty
+// write → parsed as shift+tab. (Split across writes the bare Escape would
+// interrupt the turn; verified stable across many presses, and the verify
+// loop below catches a press that didn't take.) NOT valid for grok: its TUI
+// types the raw `[Z` into the composer instead of decoding a backtab.
+const SHIFT_TAB_KEYS = ['Escape', '[', 'Z'];
+
+// Set the mode by verified shift+tab cycling: read footer → press → re-read,
+// never more than a full ring. Refuses while blocked — shift+tab is
+// overloaded on prompts (plan prompt: "approve with this feedback"; write
+// prompts: "allow all edits this session"), so a press there answers the
+// prompt instead of cycling. Same read-verify-act contract as answerByNav.
+async function setMode(paneId, target) {
+  const a = roster.agents.find((x) => x.paneId === paneId);
+  if (a && a.agent !== 'claude') throw httpErr(422, `no permission modes for "${a.agent}"`);
+  const live = await rpc('agent.get', { target: paneId });
+  if (live.agent?.agent_status === 'blocked') {
+    throw httpErr(409, 'agent is waiting on a prompt — answer it first');
+  }
+  let first = null;
+  for (let i = 0; i < 6; i += 1) {
+    const screen = await readScreen(paneId);
+    if (parseMenuScreen(screen)) {
+      throw httpErr(409, 'a menu is on screen — answer it first');
+    }
+    const cur = parseMode(screen);
+    if (cur === target) return cur;
+    if (cur === 'unknown') throw httpErr(409, "can't read the current mode off the screen");
+    if (first === null) first = cur;
+    else if (cur === first) break; // wrapped the ring without hitting target
+    await agentRpc('agent.send_keys', { target: paneId, keys: SHIFT_TAB_KEYS });
+    await new Promise((r) => setTimeout(r, 350));
+  }
+  const err = httpErr(409, `"${target}" isn't reachable in this session's mode cycle`);
+  err.mode = parseMode(await readScreen(paneId));
+  throw err;
+}
+
+// The plan prompt's footer names the saved plan file ("ctrl+g to edit in VS
+// Code · ~/.claude/plans/….md") — the only place the plan markdown is
+// readable while the prompt is up.
+async function attachPlanFile(ctx, screen) {
+  const m = screen.match(/[~/]\S*\/\.claude\/plans\/\S+\.md/);
+  if (!m) return;
+  try {
+    const file = m[0].replace(/^~(?=\/)/, os.homedir());
+    ctx.plan = (await fsp.readFile(file, 'utf8')).slice(0, 20_000);
+    ctx.planFile = m[0];
+  } catch {}
 }
 
 // What is the agent blocked ON? Session file first (pending tool_use), then
 // the visible screen parsed for a numbered menu. Shared by the API route and
 // the push coordinator (the notification body carries the question).
 async function blockedContext(paneId) {
-  const { adapter, session } = await resolveAgent(paneId, { optional: true });
+  const { agent, adapter, session } = await resolveAgent(paneId, { optional: true });
   // live status, not the roster cache — the cache can lag the event
   const live = await rpc('agent.get', { target: paneId });
   if (live.agent?.agent_status !== 'blocked') return { kind: 'none' };
@@ -356,14 +469,29 @@ async function blockedContext(paneId) {
   let ctx = classifyBlocked(events);
   if (ctx.kind === 'unknown') {
     const screen = await readScreen(paneId);
-    ctx = parseMenuScreen(screen) ?? { kind: 'unknown' };
-  } else if (ctx.kind === 'permission') {
+    const menu = parseMenuFor(agent.agent, screen);
+    // no pending tool_use to name the tool (claude flushes ExitPlanMode to the
+    // session file only with its result), but a feedback row on a claude menu
+    // can only be the plan-approval prompt (grok ask menus carry one too —
+    // their pending tool_call classifies above, so they never reach here)
+    if (agent.agent === 'claude' && menu?.options.some((o) => o.input)) {
+      ctx = { kind: 'plan', plan: '', question: menu.question, options: menu.options };
+      await attachPlanFile(ctx, screen);
+    } else {
+      ctx = menu ?? { kind: 'unknown' };
+    }
+  } else if (ctx.kind === 'permission' || ctx.kind === 'plan') {
     // permission prompts aren't uniform (Yes/No vs Yes/Yes-always/No…) — read
     // the real options off the screen so an answer can't hit the wrong number;
     // when nothing parses, callers must not guess digits
     try {
-      const menu = parseMenuScreen(await readScreen(paneId));
-      if (menu) ctx.options = menu.options;
+      const screen = await readScreen(paneId);
+      const menu = parseMenuFor(agent.agent, screen);
+      if (menu) {
+        ctx.options = menu.options;
+        if (ctx.kind === 'plan') ctx.question = menu.question;
+      }
+      if (ctx.kind === 'plan' && !ctx.plan) await attachPlanFile(ctx, screen);
     } catch {}
   }
   return ctx;
@@ -545,8 +673,19 @@ function cleanAgentName(raw) {
 //
 // worktree: { repoCwd, branch?, base?, path? } — create (or open, when `path`
 // names an existing checkout) a worktree-bound workspace and start there.
-async function createChat({ kind, name, cwd, workspaceId, label, args, worktree } = {}) {
+//
+// resume: a session uuid — spawns with --resume (claude and grok both take
+// it) and pins the pane's transcript binding to that session, skipping the
+// title/mtime guesswork (a resumed file is old, so the
+// created-since-process-start filter in claudeFindSession would otherwise
+// reject it until the ai-title lands).
+async function createChat({ kind, name, cwd, workspaceId, label, args, worktree, resume } = {}) {
   if (!kind || typeof kind !== 'string') throw httpErr(400, 'kind required');
+  if (resume !== undefined) {
+    if (kind !== 'claude' && kind !== 'grok') throw httpErr(400, `resume not supported for ${kind}`);
+    if (typeof resume !== 'string' || !/^[\w-]+$/.test(resume)) throw httpErr(400, 'resume: session id');
+    args = [...(args ?? []), '--resume', resume];
+  }
   const untilde = (s) => (s ? s.replace(/^~(?=\/|$)/, os.homedir()) : null);
   const dir = untilde(cwd);
   const opts = { cwd: dir, label: label || null, focus: false };
@@ -591,6 +730,7 @@ async function createChat({ kind, name, cwd, workspaceId, label, args, worktree 
     pane = r.root_pane;
     tab = r.tab ?? null;
   }
+  if (resume) pinnedSessions.set(pane.pane_id, resume);
   // pane ids can carry uppercase (w1:pC) — lowercase the generated fallback
   // or it fails herdr's name rule
   const agentName =
@@ -612,13 +752,29 @@ async function createChat({ kind, name, cwd, workspaceId, label, args, worktree 
         await new Promise((r) => setTimeout(r, 500));
         continue;
       }
+      pinnedSessions.delete(pane.pane_id);
       try { await rpc('pane.close', { pane_id: pane.pane_id }); } catch {}
       throw httpErr(502, `couldn't start ${kind}: ${msg}`);
     }
   }
   try {
     await waitAgentPromptable(pane.pane_id);
+    // A fresh grok in a directory it hasn't seen before opens a full-screen
+    // "Run Grok Build in a project directory?" picker that swallows any
+    // prompt sent under it. The caller already chose the directory — answer
+    // option 1 (current dir) on their behalf. (option digit selects the radio
+    // row; Enter submits.)
+    if (kind === 'grok') {
+      for (let i = 0; i < 8; i += 1) {
+        if (!isGrokProjectPicker(await readScreen(pane.pane_id))) break;
+        await agentRpc('agent.send_keys', { target: pane.pane_id, keys: ['1'] });
+        await new Promise((r) => setTimeout(r, 400));
+        await agentRpc('agent.send_keys', { target: pane.pane_id, keys: ['Enter'] });
+        await new Promise((r) => setTimeout(r, 600));
+      }
+    }
   } catch (e) {
+    pinnedSessions.delete(pane.pane_id);
     try { await rpc('pane.close', { pane_id: pane.pane_id }); } catch {}
     throw httpErr(502, `couldn't start ${kind}: ${e.message ?? e}`);
   }
@@ -693,6 +849,9 @@ async function verifyPromptLanded(paneId, text, attempt = 1) {
     // busy agent means it landed — done.
     const norm = (s) => s.replace(/\s+/g, ' ');
     if (lines.some((l) => norm(l).includes(head))) return;
+    // a dialog/menu owns the screen (startup picker, permission prompt whose
+    // status hasn't flipped yet) — retyping would type into it; hands off
+    if (parseMenuFor(kind, screen)) return;
     const a = (await rpc('agent.get', { target: paneId }).catch(() => ({}))).agent ?? {};
     if (a.agent_status && !['idle', 'done', 'unknown'].includes(a.agent_status)) return;
     // composer holds other text (user typing in the TUI?) — hands off
@@ -949,6 +1108,18 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && seg[1] === 'projects' && !seg[2]) {
       return sendJson(res, 200, { projects: await listProjects() });
     }
+    if (req.method === 'GET' && seg[1] === 'sessions' && !seg[2]) {
+      const cwd = url.searchParams.get('cwd');
+      if (!cwd) throw httpErr(400, 'cwd required');
+      const kind = url.searchParams.get('kind') ?? 'claude';
+      const sessions = await listSessions(kind, cwd.replace(/^~(?=\/|$)/, os.homedir()));
+      // a session already bound to a live pane must not be resumed twice —
+      // hand the client the pane instead so "resume" becomes "jump to it"
+      for (const s of sessions) {
+        s.livePaneId = roster.agents.find((a) => a.sessionId === s.sessionId)?.paneId ?? null;
+      }
+      return sendJson(res, 200, { sessions });
+    }
     if (req.method === 'GET' && seg[1] === 'worktrees' && !seg[2]) {
       const cwd = url.searchParams.get('cwd');
       if (!cwd) throw httpErr(400, 'cwd required');
@@ -1014,9 +1185,8 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (req.method === 'GET' && action === 'stream') {
-        const { agent, adapter, session } = await resolveAgent(paneId, { optional: true });
+        const { adapter, session } = await resolveAgent(paneId, { optional: true });
         let offset = Number(url.searchParams.get('offset') ?? 0);
-        let lastStatus = agent.status;
         let ticks = 0;
         let resetSent = false; // the client reloads on reset — say it once
         startSse(res);
@@ -1037,17 +1207,17 @@ const server = http.createServer(async (req, res) => {
           }
           if (session) {
             const r = await readEvents(adapter, session.file, offset);
-            if (r.events.length) {
-              offset = r.offset;
-              res.write(`event: events\ndata: ${JSON.stringify(r.events)}\n\n`);
-            } else {
-              offset = r.offset;
+            if (r.reset) {
+              // the file shrank (rewind/compaction rewrote it) — replaying
+              // from 0 would duplicate the whole transcript; reload instead
+              resetSent = true;
+              res.write('event: reset\ndata: {}\n\n');
+              return;
             }
-          }
-          const cur = roster.agents.find((x) => x.paneId === paneId);
-          if (cur && cur.status !== lastStatus) {
-            lastStatus = cur.status;
-            res.write(`event: status\ndata: ${JSON.stringify({ status: cur.status })}\n\n`);
+            offset = r.offset;
+            if (r.events.length) {
+              res.write(`event: events\ndata: ${JSON.stringify(r.events)}\n\n`);
+            }
           }
         };
         // don't let a slow read overlap the next tick — two concurrent reads
@@ -1063,7 +1233,46 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (req.method === 'GET' && action === 'screen') {
-        return sendJson(res, 200, { text: await readScreen(paneId) });
+        // mode piggybacks so LiveTail's poll keeps the chip live for free
+        const text = await readScreen(paneId);
+        return sendJson(res, 200, { text, mode: parseMode(text) });
+      }
+
+      if (action === 'mode') {
+        const a = roster.agents.find((x) => x.paneId === paneId);
+        if (a && a.agent !== 'claude') throw httpErr(422, `no permission modes for "${a.agent}"`);
+        if (req.method === 'GET') {
+          return sendJson(res, 200, { mode: parseMode(await readScreen(paneId)) });
+        }
+        if (req.method === 'POST') {
+          const { mode } = await readBody(req);
+          if (!MODES.includes(mode)) throw httpErr(400, `mode: one of ${MODES.join(', ')}`);
+          try {
+            return sendJson(res, 200, { ok: true, mode: await setMode(paneId, mode) });
+          } catch (e) {
+            if (e.status === 409) {
+              return sendJson(res, 409, { error: String(e.message ?? e), mode: e.mode ?? null });
+            }
+            throw e;
+          }
+        }
+      }
+
+      if (action === 'rewind') {
+        const a = roster.agents.find((x) => x.paneId === paneId);
+        if (a && a.agent !== 'claude') throw httpErr(422, `no rewind for "${a.agent}"`);
+        if (req.method === 'GET') {
+          return sendJson(res, 200, parseRewindScreen(await readScreen(paneId)) ?? { step: 'closed' });
+        }
+        if (req.method === 'POST') {
+          const { op, index, option } = await readBody(req);
+          try {
+            return sendJson(res, 200, await rewindOp(paneId, { op, index, option }));
+          } catch (e) {
+            if (e.status === 409) return sendJson(res, 409, { error: String(e.message ?? e) });
+            throw e;
+          }
+        }
       }
 
       if (req.method === 'GET' && action === 'blocked-context') {
@@ -1071,9 +1280,19 @@ const server = http.createServer(async (req, res) => {
       }
 
       // Answer a menu with keystrokes, but only after verifying the screen
-      // still shows what the client thinks it's answering.
+      // still shows what the client thinks it's answering. `option`/`feedback`
+      // answer by cursor navigation instead of digits — required for menus
+      // with a free-text row (the plan prompt), safe for any ❯ menu.
       if (req.method === 'POST' && action === 'answer') {
-        const { keys, expect } = await readBody(req);
+        const { keys, expect, option, feedback } = await readBody(req);
+        if (option != null || feedback != null) {
+          if (option != null && !Number.isInteger(option)) throw httpErr(400, 'option: integer');
+          if (feedback != null && typeof feedback !== 'string') throw httpErr(400, 'feedback: string');
+          const kind = roster.agents.find((x) => x.paneId === paneId)?.agent;
+          const ok = await answerByNav(paneId, { option, feedback, kind });
+          if (!ok) return sendJson(res, 409, { error: 'screen changed', screen: await readScreen(paneId) });
+          return sendJson(res, 200, { ok: true });
+        }
         if (!Array.isArray(keys) || !keys.length) throw httpErr(400, 'keys: string[]');
         if (expect) {
           const screen = await readScreen(paneId);

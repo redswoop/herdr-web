@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { SpawnTarget } from '../spawn';
 import type { Agent, AgentStatus, Roster, Tab, Workspace } from '../types';
+import { STATUS_ORDER, STATUS_WORD, basename } from '../util';
 import { Chevrons } from './ui/Chevrons';
 
 export type GroupBy = 'workspace' | 'status' | 'project' | 'agent';
@@ -11,15 +12,6 @@ const GROUP_MODES: { key: GroupBy; label: string }[] = [
   { key: 'agent', label: 'agent' },
   { key: 'status', label: 'status' },
 ];
-
-const STATUS_ORDER: Record<string, number> = { blocked: 0, working: 1, idle: 2, unknown: 3, done: 4 };
-const STATUS_WORD: Record<string, string> = {
-  blocked: 'needs you',
-  working: 'working…',
-  idle: 'idle',
-  done: 'done',
-  unknown: '?',
-};
 
 const GROUPBY_KEY = 'herdr.groupBy';
 const CLOSED_KEY = 'herdr.groupsClosed';
@@ -37,8 +29,6 @@ function loadClosed(): Set<string> {
     return new Set();
   }
 }
-
-const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
 
 interface TabSub {
   key: string;

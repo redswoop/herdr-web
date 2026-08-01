@@ -106,6 +106,7 @@ export default function App() {
       {pane ? (
         <AgentView
           key={pane}
+          paneId={pane}
           agent={agent}
           file={route.file}
           onBack={() => {

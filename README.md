@@ -24,6 +24,11 @@ static files the daemon serves. Runtime is still just `node server.js`.
   rendered as tappable buttons. Answers are verified server-side: keys are only
   sent if the screen still shows what you think you're answering (409
   otherwise, and the UI falls back to a raw key pad: esc/↑/↓/⏎/y/n/^C).
+- **Local slash overrides** — `/rewind` and `/resume` typed into the composer
+  never reach the TUI: `/rewind` opens the checkpoint card, `/resume` lists the
+  cwd's past sessions to resume into a new pane (`/resume <id-prefix>` skips
+  the list; an already-live session jumps to its pane instead). Other slash
+  commands still mirror the TUI dialog for driving with the key strip.
 - **Push** — when an agent blocks, your phone gets one notification carrying
   the actual question, with answer action buttons for simple choices. Resolve
   it at your desk instead and the notification retracts itself. The whole herd
@@ -52,14 +57,15 @@ Per-agent adapters (`lib/adapters.js`):
 | agent | transcript source | pane→session correlation |
 |---|---|---|
 | claude (Claude Code) | `~/.claude/projects/<cwd-slug>/<uuid>.jsonl` | terminal title vs the jsonl's `ai-title`, newest-mtime fallback |
-| grok | `~/.grok/sessions/<cwd>/<id>/chat_history.jsonl` | live pid + cwd from `active_sessions.json` |
+| grok | `~/.grok/sessions/<cwd>/<id>/updates.jsonl` (ACP `session/update` stream — live, timestamped, with per-turn usage; `chat_history.jsonl` fallback for pre-ACP sessions) | pane pid matched against `active_sessions.json` (exact — follows `/clear`), pinned session on `--resume`, cwd+newest fallback |
 
 Blocked-context classification is two-tier: pending `tool_use` in the session
-file first (AskUserQuestion / permission asks), then a generic numbered-menu
-parser over the visible screen (`❯ 1. Label` + indented descriptions). The
-screen parser is load-bearing, not a fallback — Claude Code doesn't flush a
-tool_use to its jsonl until the tool *resolves*, so pending prompts are
-invisible in the file.
+file first (AskUserQuestion / permission asks — grok streams the pending
+`tool_call` to disk at permission time, so the file tier covers it), then a
+per-agent menu parser over the visible screen: claude's `❯ 1. Label` numbered
+menus and grok's `1 (●) Label` radio menus (`lib/screen.js`). The screen
+parser is load-bearing for claude, which doesn't always flush a tool_use to
+its jsonl until the tool *resolves*.
 
 Web Push is hand-rolled on `node:crypto`: VAPID (RFC 8292) + aes128gcm payload
 encryption (RFC 8291/8188), validated against the RFC test vectors. VAPID keys
@@ -129,10 +135,12 @@ All under `/api`, JSON in/out. `:pane` is a herdr pane id like `w1:p2`.
 | `POST /api/agent/:pane/prompt` | `{text}` → `agent.prompt` |
 | `POST /api/agent/:pane/answer` | `{keys, expect}` → send keys only if `expect` is still on screen (409 if not) |
 | `POST /api/agent/:pane/keys` | `{keys}` → raw `agent.send_keys` |
+| `GET`/`POST /api/agent/:pane/rewind` | drive claude's /rewind panel: POST `{op: open\|select\|confirm\|cancel, index?, option?}`; confirm returns the rewound message as `draft` after clearing it off the TUI composer |
 | `GET /api/kinds` | startable agent kinds from herdr's manifests + installed probe |
 | `GET /api/projects` | places to start a session: live cwds + workspace checkouts + dirs decoded from `~/.claude/projects`, collapsed by git repo |
 | `GET /api/worktrees?cwd=` | a repo's checkouts (herdr `worktree.list`) with open-workspace links |
-| `POST /api/chats` | start an agent: `{kind, cwd?, workspaceId?, name?, args?, worktree?}` — `worktree: {repoCwd, branch}` creates a checkout, `{repoCwd, path}` opens one |
+| `GET /api/sessions?cwd=&kind=` | resumable sessions for a dir (kind: `claude` default, or `grok`): id, title, first prompt, mtime, `livePaneId` when already bound to a pane |
+| `POST /api/chats` | start an agent: `{kind, cwd?, workspaceId?, name?, args?, worktree?, resume?}` — `worktree: {repoCwd, branch}` creates a checkout, `{repoCwd, path}` opens one; `resume: <session-uuid>` (claude or grok) spawns with `--resume` and pins the transcript binding |
 | `GET /api/push/pubkey` · `POST /api/push/subscribe` · `…/unsubscribe` · `…/test` | Web Push plumbing |
 
 ## Security model

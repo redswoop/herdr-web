@@ -47,10 +47,15 @@ function splitCells(line: string): string[] {
   return s.split('|').map((c) => c.trim());
 }
 
+/** Separator row: each cell is dashes with optional alignment colons. GFM
+ *  needs only one dash, but a colon-less cell must have 3+ so a prose line
+ *  like `a | - | b` can't gate a table. */
 function isTableSep(line: string): boolean {
   if (!line.includes('|') && !/-{3,}/.test(line)) return false;
   const cells = splitCells(line);
-  return cells.length > 0 && cells.every((c) => /^:?-{3,}:?$/.test(c));
+  return (
+    cells.length > 0 && cells.every((c) => /^:?-+:?$/.test(c) && (c.length >= 3 || c.includes(':')))
+  );
 }
 
 function isTableRow(line: string): boolean {
@@ -155,12 +160,16 @@ function parseTextSegment(src: string): Block[] {
 export function parseMd(src: string): Block[] {
   const blocks: Block[] = [];
   const parts = src.split(/```(\w*)\n?/);
+  // Split with one capture group emits TWO slots per fence (separator is
+  // consumed, capture is kept), and a code block has two fences — so the
+  // layout has period FOUR: [text, openLang, code, closeLang, text, …].
+  // (An unclosed trailing fence still lands its code at i%4===2.)
   for (let i = 0; i < parts.length; i += 1) {
-    if (i % 3 === 2) {
+    if (i % 4 === 2) {
       blocks.push({ type: 'code', lang: parts[i - 1] ?? '', text: parts[i] });
       continue;
     }
-    if (i % 3 === 1) continue;
+    if (i % 4 === 1 || i % 4 === 3) continue; // fence language tags
     if (parts[i]) blocks.push(...parseTextSegment(parts[i]));
   }
   return blocks;

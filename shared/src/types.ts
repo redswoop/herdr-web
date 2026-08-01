@@ -68,6 +68,23 @@ export interface NewChatRequest {
   args?: string[];
   /** create (branch) or open (path) a worktree-bound workspace and start there */
   worktree?: { repoCwd: string; branch?: string; base?: string; path?: string };
+  /** session uuid to resume — claude and grok both take --resume; the server
+   *  pins the pane's transcript binding to that session */
+  resume?: string;
+}
+
+/** GET /api/sessions?cwd=&kind= — resumable sessions for one directory
+ *  (kind defaults to claude; grok lists ~/.grok summary.json inventories) */
+export interface SessionEntry {
+  sessionId: string;
+  mtime: number;
+  size: number;
+  /** claude's ai-title / grok's generated title, when the session earned one */
+  title: string | null;
+  /** first real user message, truncated — the fallback label */
+  firstPrompt: string | null;
+  /** already bound to a live pane: jump there instead of resuming twice */
+  livePaneId: string | null;
 }
 
 /** GET /api/projects — everywhere agents run or have run, repo-collapsed */
@@ -109,6 +126,7 @@ export type EventKind =
   | 'tool_use'
   | 'tool_result'
   | 'note'
+  | 'usage' // zero-render: per-turn token accounting (grok ships it once per turn)
   | 'command' // slash command run in the TUI (name = /command, text = args)
   | 'command_out' // its stdout; merged into the preceding command pill
   | 'command_err' // client-only: error text salvaged off the screen; rendered expanded
@@ -124,7 +142,8 @@ export interface TEvent {
   input?: unknown;
   /** API message id — usage repeats per content-block line, dedupe on this */
   msgId?: string;
-  /** claude only: output tokens + context size for the API call */
+  /** output tokens + context size: claude ships it inline on message events,
+   *  grok as a standalone 'usage' event at turn end */
   usage?: { out: number; ctx: number };
 }
 
@@ -172,6 +191,52 @@ export interface AskQuestion {
   options: { label: string; description?: string }[];
 }
 
+export interface MenuOption {
+  n: number;
+  label: string;
+  description: string;
+  selected: boolean;
+  /** free-text row (plan feedback): typing goes here, digits don't select */
+  input?: boolean;
+}
+
+/** POST /api/agent/:id/answer — either raw keys+expect, or cursor navigation */
+export interface AnswerBody {
+  keys?: string[];
+  expect?: string | null;
+  /** arrow the ❯ onto this option and Enter (safe on free-text-row menus) */
+  option?: number;
+  /** type into the menu's free-text row and Enter (plan reject-with-feedback) */
+  feedback?: string;
+}
+
+/** claude's permission modes, footer-parsed server-side (GET/POST /mode) */
+export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'auto' | 'bypassPermissions';
+export type ModeState = PermissionMode | 'unknown';
+
+/** GET/POST /api/agent/:id/rewind — claude's /rewind panel, screen-parsed.
+ *  step 'list' is the checkpoint picker, 'confirm' the restore-type menu. */
+export interface RewindCheckpoint {
+  index: number;
+  /** the user message this checkpoint precedes; "(current)" marks the tail */
+  message: string;
+  /** file-change summary lines shown under the message */
+  detail: string;
+  selected: boolean;
+  current: boolean;
+}
+export type RewindState =
+  | { step: 'closed' }
+  | { step: 'empty' } // panel open but "Nothing to rewind to yet."
+  | { step: 'list'; checkpoints: RewindCheckpoint[] }
+  | {
+      step: 'confirm';
+      message: string;
+      effects: string[];
+      warning: string | null;
+      options: MenuOption[];
+    };
+
 export type BlockedCtx =
   | { kind: 'none' }
   | { kind: 'unknown' }
@@ -181,12 +246,20 @@ export type BlockedCtx =
       tool: string;
       detail: string;
       /** real options parsed off the screen; absent when the parse failed */
-      options?: { n: number; label: string; description: string; selected: boolean }[];
+      options?: MenuOption[];
     }
   | {
       kind: 'menu';
       header: string;
       question: string;
       detail: string;
-      options: { n: number; label: string; description: string; selected: boolean }[];
+      options: MenuOption[];
+    }
+  | {
+      kind: 'plan';
+      /** the plan markdown from the pending ExitPlanMode call; '' when only
+       *  the screen was available */
+      plan: string;
+      question?: string;
+      options?: MenuOption[];
     };

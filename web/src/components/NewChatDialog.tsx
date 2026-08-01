@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { errorOf, post } from '../api';
 import { rememberKind, lastKind, type SpawnTarget } from '../spawn';
-import type { AgentKind, NewChatRequest, Project, Roster, WorktreeEntry } from '../types';
+import { ago, basename, shortPath } from '../util';
+import type { AgentKind, NewChatRequest, Project, Roster, SessionEntry, WorktreeEntry } from '../types';
 
 /** Where the new session starts. The launcher is place-first: pick the
  *  destination, then the agent. */
@@ -10,6 +11,7 @@ type Dest =
   | { type: 'project'; path: string } // fresh workspace in a known dir
   | { type: 'worktree-open'; repoCwd: string; path: string } // open existing checkout
   | { type: 'worktree-new'; repoCwd: string } // create checkout (branch below)
+  | { type: 'resume'; dir: string; sessionId: string; title: string | null; kind: string } // past session
   | { type: 'path' }; // custom dir
 
 const destKey = (d: Dest) =>
@@ -17,10 +19,8 @@ const destKey = (d: Dest) =>
   : d.type === 'project' ? `proj:${d.path}`
   : d.type === 'worktree-open' ? `wt:${d.path}`
   : d.type === 'worktree-new' ? `wtnew:${d.repoCwd}`
+  : d.type === 'resume' ? `resume:${d.sessionId}`
   : 'path';
-
-const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
-const shortPath = (p: string) => p.replace(/^\/home\/[^/]+/, '~');
 
 /** Mirror of the server's agent-name cleanup (herdr wants ^[a-z][a-z0-9_-]{0,31}$).
  *  Typed text is kept verbatim for the tab label; this is what the agent runs as. */
@@ -32,6 +32,29 @@ const cleanAgentName = (raw: string) =>
     .replace(/-{2,}/g, '-')
     .replace(/-+$/, '')
     .slice(0, 32);
+
+/** Spawn-time permission mode — claude and grok share the --permission-mode
+ *  vocabulary. yolo differs per kind: claude keeps the legacy flag
+ *  (--permission-mode bypassPermissions needs a settings opt-in, the flag
+ *  doesn't) and grok spells it --always-approve. */
+type SpawnMode = 'default' | 'acceptEdits' | 'plan' | 'auto' | 'yolo';
+const SPAWN_MODES: Record<SpawnMode, { label: string; args: string[]; hint: string }> = {
+  default: { label: 'manual', args: [], hint: 'approve every tool use' },
+  acceptEdits: {
+    label: 'edits',
+    args: ['--permission-mode', 'acceptEdits'],
+    hint: 'file edits auto-approved',
+  },
+  plan: { label: 'plan', args: ['--permission-mode', 'plan'], hint: 'read-only until you approve a plan' },
+  auto: { label: 'auto', args: ['--permission-mode', 'auto'], hint: 'runs tools without asking' },
+  yolo: {
+    label: 'yolo',
+    args: ['--dangerously-skip-permissions'],
+    hint: 'no permission checks at all',
+  },
+};
+const spawnModeArgs = (kind: string, m: SpawnMode) =>
+  m === 'yolo' && kind === 'grok' ? ['--always-approve'] : SPAWN_MODES[m].args;
 
 /** Modal form for starting a fresh agent chat: destination + kind. */
 export function NewChatDialog({
@@ -52,6 +75,10 @@ export function NewChatDialog({
   const [projects, setProjects] = useState<Project[] | null>(null);
   // repo path -> its checkouts (fetched when a repo project is opened)
   const [worktrees, setWorktrees] = useState<Record<string, WorktreeEntry[] | null>>({});
+  // project key -> resumable sessions (claude + grok) across the project's dirs
+  const [sessions, setSessions] = useState<
+    Record<string, (SessionEntry & { dir: string; kind: string })[] | null>
+  >({});
   const [openProject, setOpenProject] = useState<string | null>(null);
   const [dest, setDest] = useState<Dest>(() => {
     const w = target?.workspaceId
@@ -66,7 +93,7 @@ export function NewChatDialog({
   const [branch, setBranch] = useState('');
   const [name, setName] = useState('');
   const [argsText, setArgsText] = useState('');
-  const [yolo, setYolo] = useState(false);
+  const [spawnMode, setSpawnMode] = useState<SpawnMode>('default');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const branchField = useRef<HTMLInputElement>(null);
@@ -118,6 +145,24 @@ export function NewChatDialog({
         )
         .catch(() => setWorktrees((w) => ({ ...w, [p.path]: [] })));
     }
+    // resumable sessions live per-dir and per-kind; a project can span several
+    if (next && sessions[p.key] === undefined) {
+      setSessions((s) => ({ ...s, [p.key]: null }));
+      Promise.all(
+        p.dirs.flatMap((d) =>
+          ['claude', 'grok'].map((k) =>
+            fetch(`/api/sessions?cwd=${encodeURIComponent(d)}&kind=${k}`)
+              .then((r) => (r.ok ? r.json() : Promise.reject()))
+              .then((j: { sessions: SessionEntry[] }) =>
+                j.sessions.map((s) => ({ ...s, dir: d, kind: k })))
+              .catch(() => [] as (SessionEntry & { dir: string; kind: string })[]),
+          ),
+        ),
+      ).then((lists) => {
+        const merged = lists.flat().sort((a, b) => b.mtime - a.mtime).slice(0, 8);
+        setSessions((s) => ({ ...s, [p.key]: merged }));
+      });
+    }
   };
 
   // cwd suggestions for the custom-path row
@@ -128,21 +173,30 @@ export function NewChatDialog({
     return [...dirs].sort();
   }, [roster, projects]);
 
+  // a resume row already knows its agent kind — the kind picker is moot
+  const isResume = dest.type === 'resume';
+  const effKind = dest.type === 'resume' ? dest.kind : kind;
+
   const submit = async () => {
-    if (!kind || busy) return;
+    if (!effKind || busy) return;
     setBusy(true);
     setError(null);
     const args = [
-      ...(kind === 'claude' && yolo ? ['--dangerously-skip-permissions'] : []),
+      ...(effKind === 'claude' || effKind === 'grok' ? spawnModeArgs(effKind, spawnMode) : []),
       ...(argsText.trim() ? argsText.trim().split(/\s+/) : []),
     ];
+    // an untitled resume inherits the session's title so the tab reads right
+    const effName = name.trim() || (dest.type === 'resume' ? (dest.title ?? '') : '');
     const body: NewChatRequest = {
-      kind,
-      name: name.trim() || undefined,
-      label: name.trim() || undefined,
+      kind: effKind,
+      name: effName || undefined,
+      label: effName || undefined,
       args: args.length ? args : undefined,
     };
-    if (dest.type === 'workspace') {
+    if (dest.type === 'resume') {
+      body.cwd = dest.dir;
+      body.resume = dest.sessionId;
+    } else if (dest.type === 'workspace') {
       body.workspaceId = dest.workspaceId;
       body.cwd = dest.cwd;
     } else if (dest.type === 'project') {
@@ -162,7 +216,7 @@ export function NewChatDialog({
     try {
       const r = await post('/api/chats', body);
       if (!r.ok) throw new Error(await errorOf(r));
-      rememberKind(kind);
+      rememberKind(effKind);
       const { paneId } = (await r.json()) as { paneId: string };
       onCreated(paneId);
     } catch (e) {
@@ -191,6 +245,42 @@ export function NewChatDialog({
       {extra}
     </button>
   );
+
+  // Past sessions (claude + grok) under an open project. A session already
+  // bound to a live pane can't be resumed twice — its row jumps there instead.
+  const sessionRows = (p: Project) => {
+    const list = sessions[p.key];
+    if (list === null) return <div className="dest-note sub">loading sessions…</div>;
+    if (!list?.length) return null;
+    return (
+      <>
+        <div className="dest-sec">resume a session</div>
+        {list.map((s) => {
+          const label = s.title ?? s.firstPrompt ?? s.sessionId.slice(0, 8);
+          return s.livePaneId ? (
+            <button
+              type="button"
+              key={s.sessionId}
+              className="dest"
+              onClick={() => onCreated(s.livePaneId!)}
+            >
+              <span className="dest-label">↻ {label}</span>
+              <span className="dest-live">live</span>
+            </button>
+          ) : (
+            row(
+              { type: 'resume', dir: s.dir, sessionId: s.sessionId, title: s.title, kind: s.kind },
+              <>↻ {label}</>,
+              <>
+                <span className="dest-badge">{s.kind}</span>
+                <span className="dest-badge">{ago(s.mtime)}</span>
+              </>,
+            )
+          );
+        })}
+      </>
+    );
+  };
 
   return (
     <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -283,6 +373,7 @@ export function NewChatDialog({
                         autoCapitalize="off"
                       />
                     )}
+                    {sessionRows(p)}
                   </div>
                 )}
                 {open && !p.repo && (
@@ -290,6 +381,7 @@ export function NewChatDialog({
                     {row({ type: 'project', path: p.path }, 'start here', (
                       <span className="dest-badge">{shortPath(p.path)}</span>
                     ))}
+                    {sessionRows(p)}
                   </div>
                 )}
               </div>
@@ -317,7 +409,7 @@ export function NewChatDialog({
 
         <label className="field">
           <span>agent</span>
-          <select value={kind} onChange={(e) => setKind(e.target.value)} disabled={!kinds}>
+          <select value={effKind} onChange={(e) => setKind(e.target.value)} disabled={!kinds || isResume}>
             {!kinds && <option>loading…</option>}
             {kinds?.map((k) => (
               <option key={k.kind} value={k.kind} disabled={!k.installed}>
@@ -326,6 +418,7 @@ export function NewChatDialog({
               </option>
             ))}
           </select>
+          {isResume && <span className="field-hint sub">resuming a {effKind} session</span>}
         </label>
 
         <label className="field">
@@ -344,12 +437,22 @@ export function NewChatDialog({
           )}
         </label>
 
-        {kind === 'claude' && (
-          <label className="checkline">
-            <input type="checkbox" checked={yolo} onChange={(e) => setYolo(e.target.checked)} />
-            <span>
-              auto-approve tools <em className="sub">(--dangerously-skip-permissions)</em>
-            </span>
+        {(effKind === 'claude' || effKind === 'grok') && (
+          <label className="field">
+            <span>permission mode</span>
+            <div className="seg-row">
+              {(Object.keys(SPAWN_MODES) as SpawnMode[]).map((m) => (
+                <button
+                  type="button"
+                  key={m}
+                  className={`seg ${spawnMode === m ? 'on' : ''}`}
+                  onClick={() => setSpawnMode(m)}
+                >
+                  {SPAWN_MODES[m].label}
+                </button>
+              ))}
+            </div>
+            <span className="field-hint sub">{SPAWN_MODES[spawnMode].hint}</span>
           </label>
         )}
 
@@ -371,8 +474,10 @@ export function NewChatDialog({
           <button type="button" className="btn" onClick={onClose} disabled={busy}>
             cancel
           </button>
-          <button type="submit" className="btn primary" disabled={busy || !kind}>
-            {busy ? `starting ${kind}…` : 'start chat'}
+          <button type="submit" className="btn primary" disabled={busy || !effKind}>
+            {busy
+              ? isResume ? 'resuming…' : `starting ${effKind}…`
+              : isResume ? 'resume chat' : 'start chat'}
           </button>
         </footer>
       </form>

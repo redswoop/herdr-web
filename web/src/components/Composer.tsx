@@ -90,6 +90,18 @@ export function Composer({
   const [atts, setAtts] = useState<Attachment[]>(() => loadAtts(paneId));
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const paneRef = useRef(paneId);
+  paneRef.current = paneId;
+
+  // blob previews leak if the component unmounts with chips still up
+  const attsRef = useRef(atts);
+  attsRef.current = atts;
+  useEffect(
+    () => () => {
+      for (const a of attsRef.current) if (a.url.startsWith('blob:')) URL.revokeObjectURL(a.url);
+    },
+    [],
+  );
 
   const setText = (t: string) => {
     setTextState(t);
@@ -201,9 +213,15 @@ export function Composer({
       await onSend(full);
       for (const a of sending) if (a.url.startsWith('blob:')) URL.revokeObjectURL(a.url);
     } catch (e) {
-      // put the draft back, images included
-      setText(t);
-      mutateAtts(pane, () => sending);
+      // put the draft back, images included — into the pane it was typed for,
+      // which may no longer be the one on screen
+      if (paneRef.current === pane) {
+        setTextState(t);
+        mutateAtts(pane, () => sending);
+      } else {
+        persistAtts(pane, sending);
+      }
+      persistText(pane, t);
       alert(String((e as Error).message ?? e));
     }
   };
