@@ -83,8 +83,11 @@ node server.js --port 7683 --host 127.0.0.1
 HERDR_WEB_TOKEN=long-random-string node server.js   # cookie auth
 ```
 
-With a token set, open `https://host/?token=…` once per device; it's stored in
-an HttpOnly cookie for a year.
+With a token set, enroll each device once — either open a
+`https://host/?token=…` link, or just load the app and paste the token into
+the lock screen it shows. Both store it in an HttpOnly cookie for a year. The
+app shell itself is served without auth (it holds no data); everything under
+`/api` requires the cookie.
 
 ### As a service (systemd user unit)
 
@@ -126,6 +129,10 @@ All under `/api`, JSON in/out. `:pane` is a herdr pane id like `w1:p2`.
 | `POST /api/agent/:pane/prompt` | `{text}` → `agent.prompt` |
 | `POST /api/agent/:pane/answer` | `{keys, expect}` → send keys only if `expect` is still on screen (409 if not) |
 | `POST /api/agent/:pane/keys` | `{keys}` → raw `agent.send_keys` |
+| `GET /api/kinds` | startable agent kinds from herdr's manifests + installed probe |
+| `GET /api/projects` | places to start a session: live cwds + workspace checkouts + dirs decoded from `~/.claude/projects`, collapsed by git repo |
+| `GET /api/worktrees?cwd=` | a repo's checkouts (herdr `worktree.list`) with open-workspace links |
+| `POST /api/chats` | start an agent: `{kind, cwd?, workspaceId?, name?, args?, worktree?}` — `worktree: {repoCwd, branch}` creates a checkout, `{repoCwd, path}` opens one |
 | `GET /api/push/pubkey` · `POST /api/push/subscribe` · `…/unsubscribe` · `…/test` | Web Push plumbing |
 
 ## Security model

@@ -35,9 +35,19 @@ Corollaries that keep biting people who forget them:
   while open. The web UI mirrors the live screen for those (ScreenMirror) and
   treats the command's record finally landing in the file as the dismiss
   signal.
+- More generally, a message/tool block reaches the file only when it
+  *completes* — long turns stream on the terminal minutes before the
+  transcript can show them. LiveTail (the "live screen" strip while working)
+  is the mitigation, not a nicety.
 - Answers are verified: `POST …/answer` sends keys only if the screen still
   shows the `expect` text (409 otherwise). Never send blind keystrokes at a
   menu that may have moved.
+- `agent.prompt` acking ≠ delivery. claude sometimes eats the trailing Enter
+  (text stranded on the composer); a *fresh* grok TUI can drop the entire
+  first prompt — `interactive_ready` flips before its input loop is live, so
+  the keys vanish while the launch splash is still up. `verifyPromptLanded`
+  heals both (nudge Enter / retype, never when the pane looks touched) —
+  route new send paths through it, don't fire raw keystrokes and trust the ok.
 
 ## Server (`server.js` + `lib/`)
 
@@ -155,7 +165,10 @@ applied uniformly:
   arrives in the session file.
 - **localStorage keys are all `herdr.*`** — current registry:
   `herdr.sideHidden`, `herdr.groupBy`, `herdr.groupsClosed`,
-  `herdr.fileHist.<pane>`, `herdr.split.<id>` (resizable-split layouts).
+  `herdr.fileHist.<pane>`, `herdr.split.<id>` (resizable-split layouts),
+  `herdr.lastKind` (agent kind for one-click spawns), `herdr.homeView`
+  (phone home surface: list | cards), `herdr.liveTail` (live TUI tail
+  open | closed while an agent works).
   Add new ones to this list.
 - SSE cannot report a 401, so auth is probed with a plain fetch first
   (`useRoster`) — keep that pattern for new streams.
