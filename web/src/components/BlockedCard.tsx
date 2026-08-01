@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import type { BlockedCtx } from '../types';
+import type { AnswerBody, BlockedCtx } from '../types';
+import { md } from '../md';
 
 /**
  * Tappable options for whatever the agent is blocked on. `onAnswer` resolves
@@ -11,35 +12,38 @@ export function BlockedCard({
   onAnswer,
 }: {
   ctx: BlockedCtx;
-  onAnswer: (keys: string[], expect: string | null) => Promise<boolean>;
+  onAnswer: (body: AnswerBody) => Promise<boolean>;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
+  const [fb, setFb] = useState('');
 
-  const answer = async (id: string, keys: string[], expect: string | null) => {
+  const answer = async (id: string, body: AnswerBody) => {
     setBusy(id);
     try {
-      await onAnswer(keys, expect);
+      return await onAnswer(body);
     } finally {
       setBusy(null);
     }
   };
+
+  const btn = (id: string, label: string, body: AnswerBody, desc?: string, cls?: string) => (
+    <button
+      key={id}
+      className={`option ${cls ?? ''} ${busy === id ? 'busy' : ''}`}
+      disabled={busy !== null}
+      onClick={() => answer(id, body)}
+    >
+      <span className="opt-label">{label}</span>
+      {desc && <span className="opt-desc">{desc}</span>}
+    </button>
+  );
 
   const opt = (
     id: string,
     label: string,
     keys: string[],
     { desc, expect, cls }: { desc?: string; expect?: string | null; cls?: string } = {},
-  ) => (
-    <button
-      key={id}
-      className={`option ${cls ?? ''} ${busy === id ? 'busy' : ''}`}
-      disabled={busy !== null}
-      onClick={() => answer(id, keys, expect ?? null)}
-    >
-      <span className="opt-label">{label}</span>
-      {desc && <span className="opt-desc">{desc}</span>}
-    </button>
-  );
+  ) => btn(id, label, { keys, expect: expect ?? null }, desc, cls);
 
   if (ctx.kind === 'ask') {
     // both claude and grok menus select AND submit on the digit alone
@@ -78,6 +82,50 @@ export function BlockedCard({
               expect: o.label.slice(0, 30),
             }),
           )}
+        </div>
+      </div>
+    );
+  }
+
+  // Plan-mode approval: rows 1..3 select, but the last row is a free-text
+  // feedback field that swallows keystrokes once focused — never send digits.
+  // Options answer via cursor navigation ({option: n}); the textarea rejects
+  // the plan with feedback ({feedback}), which sends claude back to planning.
+  if (ctx.kind === 'plan') {
+    const choices = (ctx.options ?? []).filter((o) => !o.input);
+    return (
+      <div className="blocked-card">
+        <div className="question">
+          <div className="q-text">📋 {ctx.question || 'Claude has a plan — proceed?'}</div>
+          {ctx.plan && (
+            <div className="plan-doc" dangerouslySetInnerHTML={{ __html: md(ctx.plan) }} />
+          )}
+          {choices.map((o) =>
+            btn(
+              String(o.n),
+              o.label,
+              { option: o.n },
+              o.description,
+              /^yes/i.test(o.label) ? 'confirm' : /^no/i.test(o.label) ? 'deny' : '',
+            ),
+          )}
+          <textarea
+            className="plan-fb"
+            placeholder="tell claude what to change…"
+            rows={2}
+            value={fb}
+            disabled={busy !== null}
+            onChange={(e) => setFb(e.target.value)}
+          />
+          <button
+            className={`option deny ${busy === 'fb' ? 'busy' : ''}`}
+            disabled={busy !== null || !fb.trim()}
+            onClick={async () => {
+              if (await answer('fb', { feedback: fb.trim() })) setFb('');
+            }}
+          >
+            <span className="opt-label">send feedback (keeps planning)</span>
+          </button>
         </div>
       </div>
     );

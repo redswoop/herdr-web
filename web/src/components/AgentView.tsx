@@ -3,7 +3,7 @@ import { agentPath, post } from '../api';
 import { useAgentSession } from '../hooks/useAgentSession';
 import { useBlockedContext } from '../hooks/useBlockedContext';
 import { WIDE, useMediaQuery } from '../hooks/useMediaQuery';
-import type { Agent } from '../types';
+import type { Agent, AnswerBody } from '../types';
 import { BlockedCard } from './BlockedCard';
 import { Composer } from './Composer';
 import { FileViewer } from './FileViewer';
@@ -208,8 +208,8 @@ export function AgentView({
     return null;
   }, [items, working]);
 
-  const onAnswer = async (keys: string[], expect: string | null) => {
-    const r = await post(agentPath(paneId, 'answer'), { keys, expect });
+  const onAnswer = async (body: AnswerBody) => {
+    const r = await post(agentPath(paneId, 'answer'), body);
     if (r.status === 409) {
       // screen no longer shows what we thought — fall back to raw controls
       setKeysForced(true);

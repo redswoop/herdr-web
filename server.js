@@ -250,6 +250,9 @@ function classifyBlocked(events) {
       if (bare === 'askuserquestion' && Array.isArray(e.input?.questions)) {
         return { kind: 'ask', questions: e.input.questions };
       }
+      if (bare === 'exitplanmode') {
+        return { kind: 'plan', plan: typeof e.input?.plan === 'string' ? e.input.plan : '' };
+      }
       return { kind: 'permission', tool: e.name ?? 'tool', detail: e.text ?? '' };
     }
     if (e.kind === 'assistant' || e.kind === 'user') return { kind: 'unknown' };
@@ -280,6 +283,16 @@ function parseMenuScreen(text) {
   }
   // real menus have a ❯ cursor; numbered lists in prose don't
   if (!opts.some((o) => o.selected)) return null;
+  // The plan prompt's last row ("Tell Claude what to change") is a free-text
+  // field: once ❯ sits on it, digits and letters TYPE into it instead of
+  // selecting. Its hint line (swallowed into the description above) is the
+  // reliable structural marker — the label itself is whatever got typed.
+  for (const o of opts) {
+    if (/shift\+tab to approve with this feedback/i.test(o.description)) {
+      o.input = true;
+      o.description = '';
+    }
+  }
   let question = '';
   let header = '';
   let qIdx = -1;
@@ -302,6 +315,50 @@ function parseMenuScreen(text) {
     detail.unshift(t);
   }
   return { kind: 'menu', header, question, detail: detail.join('\n'), options: opts };
+}
+
+// Answer a menu by arrowing the cursor onto the target row and pressing Enter,
+// verified against the live screen between steps. Digits are unsafe on menus
+// with a free-text row (the plan prompt): once ❯ sits in the text field, every
+// digit TYPES instead of selecting — that's how a user's taps once became
+// "4443" in the feedback box. `feedback` types into the free-text row and
+// submits (reject-with-feedback). Returns true, or null when the screen no
+// longer holds a matching menu — the caller 409s.
+const PLAN_INPUT_PLACEHOLDER = 'Tell Claude what to change';
+async function answerByNav(paneId, { option, feedback }) {
+  const read = async () => parseMenuScreen(await readScreen(paneId));
+  const settle = () => new Promise((r) => setTimeout(r, 300));
+  const send = (keys) => agentRpc('agent.send_keys', { target: paneId, keys });
+  let menu = await read();
+  if (!menu) return null;
+  const inputOpt = menu.options.find((o) => o.input);
+  const targetN = option ?? inputOpt?.n;
+  if (!menu.options.some((o) => o.n === targetN)) return null;
+  const keys = [];
+  // typed text keeps focus in the input row — clear it or Enter commits junk
+  if (inputOpt?.selected) for (let i = 0; i < 100; i += 1) keys.push('Backspace');
+  const sel = (menu.options.find((o) => o.selected) ?? menu.options[0]).n;
+  for (let i = 0; i < Math.abs(targetN - sel); i += 1) keys.push(targetN > sel ? 'Down' : 'Up');
+  if (keys.length) {
+    await send(keys);
+    await settle();
+    menu = await read();
+    if (!menu?.options.find((o) => o.n === targetN)?.selected) return null;
+  }
+  if (feedback != null) {
+    const chars = feedback.replace(/\s+/g, ' ').trim().split('')
+      .map((c) => (c === ' ' ? 'space' : c));
+    if (chars.length) {
+      await send(chars);
+      await settle();
+      // keystrokes can race the row-focus and get dropped wholesale — an
+      // untouched placeholder means nothing landed, so don't Enter on it
+      const row = (await read())?.options.find((o) => o.n === targetN);
+      if (!row || row.label === PLAN_INPUT_PLACEHOLDER) return null;
+    }
+  }
+  await send(['Enter']);
+  return true;
 }
 
 // Trim a raw pane capture down to the content worth salvaging: cut the
@@ -343,6 +400,19 @@ function trimSalvage(text, promptText) {
   return out ? out.slice(-8000) : null;
 }
 
+// The plan prompt's footer names the saved plan file ("ctrl+g to edit in VS
+// Code · ~/.claude/plans/….md") — the only place the plan markdown is
+// readable while the prompt is up.
+async function attachPlanFile(ctx, screen) {
+  const m = screen.match(/[~/]\S*\/\.claude\/plans\/\S+\.md/);
+  if (!m) return;
+  try {
+    const file = m[0].replace(/^~(?=\/)/, os.homedir());
+    ctx.plan = (await fsp.readFile(file, 'utf8')).slice(0, 20_000);
+    ctx.planFile = m[0];
+  } catch {}
+}
+
 // What is the agent blocked ON? Session file first (pending tool_use), then
 // the visible screen parsed for a numbered menu. Shared by the API route and
 // the push coordinator (the notification body carries the question).
@@ -356,14 +426,28 @@ async function blockedContext(paneId) {
   let ctx = classifyBlocked(events);
   if (ctx.kind === 'unknown') {
     const screen = await readScreen(paneId);
-    ctx = parseMenuScreen(screen) ?? { kind: 'unknown' };
-  } else if (ctx.kind === 'permission') {
+    const menu = parseMenuScreen(screen);
+    // no pending tool_use to name the tool (claude flushes ExitPlanMode to the
+    // session file only with its result), but a feedback row on screen can
+    // only be the plan-approval prompt
+    if (menu?.options.some((o) => o.input)) {
+      ctx = { kind: 'plan', plan: '', question: menu.question, options: menu.options };
+      await attachPlanFile(ctx, screen);
+    } else {
+      ctx = menu ?? { kind: 'unknown' };
+    }
+  } else if (ctx.kind === 'permission' || ctx.kind === 'plan') {
     // permission prompts aren't uniform (Yes/No vs Yes/Yes-always/No…) — read
     // the real options off the screen so an answer can't hit the wrong number;
     // when nothing parses, callers must not guess digits
     try {
-      const menu = parseMenuScreen(await readScreen(paneId));
-      if (menu) ctx.options = menu.options;
+      const screen = await readScreen(paneId);
+      const menu = parseMenuScreen(screen);
+      if (menu) {
+        ctx.options = menu.options;
+        if (ctx.kind === 'plan') ctx.question = menu.question;
+      }
+      if (ctx.kind === 'plan' && !ctx.plan) await attachPlanFile(ctx, screen);
     } catch {}
   }
   return ctx;
@@ -1071,9 +1155,18 @@ const server = http.createServer(async (req, res) => {
       }
 
       // Answer a menu with keystrokes, but only after verifying the screen
-      // still shows what the client thinks it's answering.
+      // still shows what the client thinks it's answering. `option`/`feedback`
+      // answer by cursor navigation instead of digits — required for menus
+      // with a free-text row (the plan prompt), safe for any ❯ menu.
       if (req.method === 'POST' && action === 'answer') {
-        const { keys, expect } = await readBody(req);
+        const { keys, expect, option, feedback } = await readBody(req);
+        if (option != null || feedback != null) {
+          if (option != null && !Number.isInteger(option)) throw httpErr(400, 'option: integer');
+          if (feedback != null && typeof feedback !== 'string') throw httpErr(400, 'feedback: string');
+          const ok = await answerByNav(paneId, { option, feedback });
+          if (!ok) return sendJson(res, 409, { error: 'screen changed', screen: await readScreen(paneId) });
+          return sendJson(res, 200, { ok: true });
+        }
         if (!Array.isArray(keys) || !keys.length) throw httpErr(400, 'keys: string[]');
         if (expect) {
           const screen = await readScreen(paneId);

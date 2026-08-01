@@ -172,6 +172,25 @@ export interface AskQuestion {
   options: { label: string; description?: string }[];
 }
 
+export interface MenuOption {
+  n: number;
+  label: string;
+  description: string;
+  selected: boolean;
+  /** free-text row (plan feedback): typing goes here, digits don't select */
+  input?: boolean;
+}
+
+/** POST /api/agent/:id/answer — either raw keys+expect, or cursor navigation */
+export interface AnswerBody {
+  keys?: string[];
+  expect?: string | null;
+  /** arrow the ❯ onto this option and Enter (safe on free-text-row menus) */
+  option?: number;
+  /** type into the menu's free-text row and Enter (plan reject-with-feedback) */
+  feedback?: string;
+}
+
 export type BlockedCtx =
   | { kind: 'none' }
   | { kind: 'unknown' }
@@ -181,12 +200,20 @@ export type BlockedCtx =
       tool: string;
       detail: string;
       /** real options parsed off the screen; absent when the parse failed */
-      options?: { n: number; label: string; description: string; selected: boolean }[];
+      options?: MenuOption[];
     }
   | {
       kind: 'menu';
       header: string;
       question: string;
       detail: string;
-      options: { n: number; label: string; description: string; selected: boolean }[];
+      options: MenuOption[];
+    }
+  | {
+      kind: 'plan';
+      /** the plan markdown from the pending ExitPlanMode call; '' when only
+       *  the screen was available */
+      plan: string;
+      question?: string;
+      options?: MenuOption[];
     };
