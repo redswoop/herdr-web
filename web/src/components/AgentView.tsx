@@ -144,10 +144,23 @@ export function AgentView({
   }, [restoredDraft]);
 
   const rewindOp = useCallback(
-    async (body: { op: string; index?: number; option?: number }) => {
+    async function op(body: { op: string; index?: number; option?: number }, retried = false): Promise<void> {
       const r = await post(agentPath(paneId, 'rewind'), body);
       const j = await r.json().catch(() => ({}));
       if (!r.ok) {
+        // a draft is stranded on the TUI composer — offer to clear it (one
+        // C-c clears a non-empty claude input line) and try again
+        if (
+          !retried &&
+          body.op === 'open' &&
+          r.status === 409 &&
+          /composer/.test(j.error ?? '') &&
+          confirm(`${j.error}\n\nClear the TUI input line and open rewind?`)
+        ) {
+          await post(agentPath(paneId, 'keys'), { keys: ['C-c'] }).catch(() => null);
+          await new Promise((res) => setTimeout(res, 500));
+          return op(body, true);
+        }
         alert(j.error ?? r.statusText);
         setRewind(null);
         return;

@@ -10,7 +10,7 @@ import { rpc, subscribe } from './lib/herdr.js';
 import { adapterFor, readEvents, listSessions, classifyBlocked } from './lib/adapters.js';
 import {
   parseMenuScreen, parseMenuFor, isGrokProjectPicker, parseRewindScreen,
-  composerText, parseMode, MODES, trimSalvage,
+  composerText, typedComposerText, parseMode, MODES, trimSalvage,
 } from './lib/screen.js';
 import { PushStore, Coordinator } from './lib/notify.js';
 
@@ -245,6 +245,13 @@ async function readScreen(paneId) {
   return r.read?.text ?? '';
 }
 
+// ANSI capture — for checks that need styling to tell user-typed text from
+// the TUI's own painted hints (claude's ghost/predictive suggestions).
+async function readScreenAnsi(paneId) {
+  const r = await rpc('agent.read', { target: paneId, source: 'visible', format: 'ansi' });
+  return r.read?.text ?? '';
+}
+
 // (classifyBlocked lives in lib/adapters.js; the screen grammars — claude ❯
 // menus, grok radio menus, rewind panel, mode footer — live in lib/screen.js.)
 
@@ -326,9 +333,12 @@ async function rewindOp(paneId, { op, index, option }) {
       if (st === 'working' || st === 'blocked') {
         throw httpErr(409, `agent is ${st} — rewind needs an idle session`);
       }
-      // /rewind must land on an empty composer or it concatenates with the draft
-      if (composerText(await readScreen(paneId))) {
-        throw httpErr(409, 'text is sitting on the TUI composer — clear it first');
+      // /rewind must land on an empty composer or it concatenates with the
+      // draft. Style-aware: claude paints its predictive/ghost suggestions in
+      // gray — only USER-typed (unstyled) text blocks the open.
+      const draft = typedComposerText(await readScreenAnsi(paneId));
+      if (draft) {
+        throw httpErr(409, `text is sitting on the TUI composer — clear it first ("${draft.slice(0, 60)}")`);
       }
       await agentRpc('agent.prompt', { target: paneId, text: '/rewind' });
       for (let i = 0; i < 12 && !state; i += 1) {

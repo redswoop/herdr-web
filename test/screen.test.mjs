@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   parseMenuScreen, parseGrokMenuScreen, parseMenuFor, isGrokProjectPicker,
-  parseRewindScreen, parseMode, composerText, trimSalvage,
+  parseRewindScreen, parseMode, composerText, typedComposerText, trimSalvage,
 } from '../lib/screen.js';
 
 // ---------- claude ❯ menus ----------
@@ -231,6 +231,32 @@ test('parseMode reads footer strings, ignores scrollback mentions', () => {
 test('composerText finds the last bare-❯ draft', () => {
   assert.equal(composerText('a\n❯ draft text here\nfooter'), 'draft text here');
   assert.equal(composerText('no prompt lines'), null);
+});
+
+// ANSI fixtures captured from claude v2.1.220 panes: user-typed composer text
+// is UNSTYLED; claude paints its own hints/ghost suggestions in gray.
+const E = '\x1b[';
+test('typedComposerText: unstyled text is a real draft', () => {
+  assert.equal(typedComposerText('scrollback\n❯ Repl\r'), 'Repl');
+});
+
+test('typedComposerText: empty composer (styled ❯ or bare) is no draft', () => {
+  // verbatim sent-echo + bare composer from a live capture
+  const echo = `${E}0m${E}38;2;80;80;80m${E}48;2;55;55;55m❯ ${E}0m${E}38;2;255;255;255m`
+    + `${E}48;2;55;55;55mReply with just the word: ok${E}0m\r`;
+  assert.equal(typedComposerText(`${echo}\n❯ \r`), '');
+});
+
+test('typedComposerText: gray ghost/predictive text does not count as a draft', () => {
+  const ghost = `❯ ${E}38;2;153;153;153mTry "fix the failing tests"${E}0m\r`;
+  assert.equal(typedComposerText(`stuff\n${ghost}`), '');
+  const dim = `❯ ${E}2msuggested continuation${E}0m`;
+  assert.equal(typedComposerText(dim), '');
+});
+
+test('typedComposerText: typed text survives next to ghost continuation', () => {
+  const mixed = `❯ fix the${E}38;2;120;120;120m failing tests${E}0m`;
+  assert.equal(typedComposerText(mixed), 'fix the');
 });
 
 test('trimSalvage cuts chrome, prompt echo, and grok scrollbar cells', () => {
