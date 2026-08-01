@@ -25,11 +25,15 @@ function chromeVisible(raw: string): boolean {
 export function ScreenMirror({
   paneId,
   poke,
+  pinned = false,
   onClose,
   onGone,
 }: {
   paneId: string;
   poke: number;
+  /** opened by hand (not by a slash command): never self-dismiss, and there's
+   *  no command output to salvage — `onGone` is not called */
+  pinned?: boolean;
   onClose: () => void;
   /** chrome came back — dialog is gone; gets the final screen so the caller
    *  can salvage output the session file will never carry */
@@ -48,7 +52,7 @@ export function ScreenMirror({
       if (!r.ok) return;
       const { text: raw } = await r.json();
       if (closedRef.current) return;
-      if (chromeVisible(raw ?? '')) {
+      if (!pinned && chromeVisible(raw ?? '')) {
         // two consecutive sightings — a single one can race the dialog paint
         if (++chromeRuns.current >= 2) {
           closedRef.current = true;
@@ -88,7 +92,11 @@ export function ScreenMirror({
   return (
     <div className="dialog-mirror">
       <div className="dialog-banner">
-        <span className="banner-text">local dialog — drive it with the keys below</span>
+        <span className="banner-text">
+          {pinned
+            ? 'live TUI screen — drive it with the keys below'
+            : 'local dialog — drive it with the keys below'}
+        </span>
         <button className="ghost" onClick={onClose}>
           hide
         </button>

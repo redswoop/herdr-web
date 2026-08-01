@@ -10,9 +10,15 @@ import { md } from '../md';
 export function BlockedCard({
   ctx,
   onAnswer,
+  screenLive = false,
+  onToggleScreen,
 }: {
   ctx: BlockedCtx;
   onAnswer: (body: AnswerBody) => Promise<boolean>;
+  /** the live TUI mirror is currently up */
+  screenLive?: boolean;
+  /** show/hide the live TUI mirror; absent = no screen affordance */
+  onToggleScreen?: () => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [fb, setFb] = useState('');
@@ -60,10 +66,27 @@ export function BlockedCard({
                 expect: o.label.slice(0, 30),
               }),
             )}
-            {q.multiSelect &&
-              opt(`${qi}:done`, 'done ⏎ (multi-select: taps toggle)', ['Enter'], {
-                cls: 'confirm',
-              })}
+            {q.multiSelect && (
+              // Taps toggle blind — the web card can't see which boxes are
+              // ticked, only the TUI can. Pair `done` with a screen affordance
+              // so the selection is checkable before it's committed.
+              <div className="opt-split">
+                {opt(`${qi}:done`, 'done ⏎ (multi-select: taps toggle)', ['Enter'], {
+                  cls: 'confirm',
+                })}
+                {onToggleScreen && (
+                  <button
+                    className={`option opt-aux ${screenLive ? 'on' : ''}`}
+                    title={screenLive ? 'hide the live TUI screen' : 'check what’s ticked on the TUI'}
+                    aria-pressed={screenLive}
+                    onClick={onToggleScreen}
+                  >
+                    <span className="opt-label">▤</span>
+                    <span className="opt-desc">{screenLive ? 'hide' : 'screen'}</span>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>
