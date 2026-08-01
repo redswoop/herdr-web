@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import type { Agent, Roster, Tab, Workspace } from '../types';
+import type { SpawnTarget } from '../spawn';
+import type { Agent, AgentStatus, Roster, Tab, Workspace } from '../types';
 import { Chevrons } from './ui/Chevrons';
 
 export type GroupBy = 'workspace' | 'status' | 'project' | 'agent';
@@ -51,6 +52,10 @@ interface Group {
   title: string;
   badge?: string; // small dim tag next to the title (worktree, ws number…)
   focused?: boolean;
+  /** workspace rollup status (workspace mode only) */
+  status?: AgentStatus;
+  /** target for the group's one-click ＋ (workspace & project modes) */
+  spawn?: SpawnTarget;
   agents: Agent[];
   /** workspace mode: agents split by herdr tab when a workspace has several */
   subs?: TabSub[];
@@ -77,6 +82,19 @@ function splitByTab(agents: Agent[], tabs: Map<string, Tab>): TabSub[] | undefin
     .sort((a, b) => a.number - b.number);
 }
 
+/** Most common value among the agents; spawn targets follow the majority. */
+function dominant<T>(agents: Agent[], of: (a: Agent) => T | null): T | undefined {
+  const counts = new Map<T, number>();
+  for (const a of agents) {
+    const v = of(a);
+    if (v != null) counts.set(v, (counts.get(v) ?? 0) + 1);
+  }
+  let best: T | undefined;
+  let n = 0;
+  for (const [v, c] of counts) if (c > n) { best = v; n = c; }
+  return best;
+}
+
 function buildGroups(
   agents: Agent[],
   workspaces: Workspace[],
@@ -93,12 +111,14 @@ function buildGroups(
       mode === 'workspace' ? a.workspaceId
       : mode === 'status' ? a.status
       : mode === 'agent' ? (a.displayAgent ?? a.agent ?? 'unknown')
-      : a.cwd ? basename(a.cwd) : 'no project';
+      : a.repoRoot ?? a.cwd ?? 'no project';
     (bucket.get(k) ?? bucket.set(k, []).get(k)!).push(a);
   }
   for (const list of bucket.values()) list.sort(byStatus);
 
   if (mode === 'workspace') {
+    // agentless workspaces still render — the ＋ is how they get a session
+    for (const w of workspaces) if (!bucket.has(w.workspaceId)) bucket.set(w.workspaceId, []);
     const known = new Map(workspaces.map((w) => [w.workspaceId, w]));
     const tabMap = new Map(tabs.map((t) => [t.tabId, t]));
     return [...bucket.entries()]
@@ -109,6 +129,11 @@ function buildGroups(
           title: w?.label || `workspace ${w?.number ?? '?'}`,
           badge: w?.worktree?.isLinked ? `⎇ ${w.worktree.repoName ?? 'worktree'}` : undefined,
           focused: w?.focused,
+          status: w?.status,
+          spawn: {
+            workspaceId: key,
+            cwd: w?.worktree?.checkoutPath ?? dominant(list, (a) => a.cwd),
+          },
           agents: list,
           subs: splitByTab(list, tabMap),
           number: w?.number ?? 999,
@@ -120,6 +145,20 @@ function buildGroups(
     return [...bucket.entries()]
       .map(([key, list]) => ({ key, title: key, agents: list }))
       .sort((a, b) => (STATUS_ORDER[a.key] ?? 9) - (STATUS_ORDER[b.key] ?? 9));
+  }
+  if (mode === 'project') {
+    return [...bucket.entries()]
+      .map(([key, list]) => ({
+        key,
+        title: key === 'no project' ? key : basename(key),
+        badge: list[0]?.repoRoot === key ? '⎇' : undefined,
+        spawn:
+          key === 'no project'
+            ? undefined
+            : { cwd: key, workspaceId: dominant(list, (a) => a.workspaceId) },
+        agents: list,
+      }))
+      .sort((a, b) => a.title.localeCompare(b.title));
   }
   return [...bucket.entries()]
     .map(([key, list]) => ({ key, title: key, agents: list }))
@@ -138,6 +177,8 @@ export function Sidebar({
   onTogglePush,
   onCollapse,
   onNewChat,
+  onQuickChat,
+  onShowCards,
 }: {
   roster: Roster;
   connected: boolean;
@@ -147,10 +188,16 @@ export function Sidebar({
   pushOn: boolean;
   onTogglePush: () => void;
   onCollapse: () => void;
-  onNewChat: () => void;
+  /** open the full launcher, optionally pre-aimed at a place */
+  onNewChat: (target?: SpawnTarget) => void;
+  /** one-click spawn with defaults; resolves when the pane is live */
+  onQuickChat: (target: SpawnTarget) => Promise<void>;
+  /** phone only: swap the home surface to the project-card overview */
+  onShowCards?: () => void;
 }) {
   const [groupBy, setGroupBy] = useState<GroupBy>(loadGroupBy);
   const [collapsed, setCollapsed] = useState<Set<string>>(loadClosed);
+  const [spawning, setSpawning] = useState<string | null>(null); // group key
 
   const pick = (mode: GroupBy) => {
     setGroupBy(mode);
@@ -173,6 +220,18 @@ export function Sidebar({
       return next;
     });
 
+  const quickSpawn = async (g: Group) => {
+    if (!g.spawn || spawning) return;
+    setSpawning(g.key);
+    try {
+      await onQuickChat(g.spawn);
+    } catch (e) {
+      alert(String((e as Error).message ?? e));
+    } finally {
+      setSpawning(null);
+    }
+  };
+
   const showDiagnostics = () => {
     const secure = window.isSecureContext;
     alert(
@@ -190,7 +249,12 @@ export function Sidebar({
     <nav className="sidebar">
       <header className="bar">
         <h1>🐑 herd</h1>
-        <button className="ghost new-chat" onClick={onNewChat} title="start a new chat">
+        {onShowCards && (
+          <button className="ghost" aria-label="project overview" title="project overview" onClick={onShowCards}>
+            ⊞
+          </button>
+        )}
+        <button className="ghost new-chat" onClick={() => onNewChat()} title="start a new chat">
           ＋
         </button>
         {pushSupported && (
@@ -223,7 +287,7 @@ export function Sidebar({
       </div>
 
       <div className="scroll sessions">
-        {roster.agents.length === 0 ? (
+        {roster.agents.length === 0 && (roster.workspaces ?? []).length === 0 ? (
           <div className="empty">
             {roster.herdrDown ? 'herdr server unreachable' : 'no agents detected'}
           </div>
@@ -233,22 +297,39 @@ export function Sidebar({
             const blocked = g.agents.filter((a) => a.status === 'blocked').length;
             return (
               <section key={g.key} className="group">
-                <button
-                  className={`group-head ${closed ? 'closed' : ''}`}
-                  onClick={() => toggleGroup(`${groupBy}:${g.key}`)}
-                >
-                  <svg className="chev" viewBox="0 0 24 24" width="12" height="12" fill="none"
-                    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M9 6l6 6-6 6" />
-                  </svg>
-                  <span className="group-title">{g.title}</span>
-                  {g.badge && <span className="group-badge">{g.badge}</span>}
-                  {g.focused && <span className="group-badge eye" title="focused in the TUI">⌖</span>}
-                  <span className="group-count">
-                    {blocked > 0 && <em className="blocked-count">{blocked}</em>}
-                    {g.agents.length}
-                  </span>
-                </button>
+                <div className={`group-row ${closed ? 'closed' : ''}`}>
+                  <button
+                    className={`group-head ${closed ? 'closed' : ''}`}
+                    onClick={() => toggleGroup(`${groupBy}:${g.key}`)}
+                  >
+                    <svg className="chev" viewBox="0 0 24 24" width="12" height="12" fill="none"
+                      stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M9 6l6 6-6 6" />
+                    </svg>
+                    {g.status && <span className={`status-dot ${g.status}`} />}
+                    <span className="group-title">{g.title}</span>
+                    {g.badge && <span className="group-badge">{g.badge}</span>}
+                    {g.focused && <span className="group-badge eye" title="focused in the TUI">⌖</span>}
+                    <span className="group-count">
+                      {blocked > 0 && <em className="blocked-count">{blocked}</em>}
+                      {g.agents.length}
+                    </span>
+                  </button>
+                  {g.spawn && (
+                    <button
+                      className={`ghost group-spawn ${spawning === g.key ? 'busy' : ''}`}
+                      title="new session here (right-click to customize)"
+                      disabled={spawning !== null}
+                      onClick={() => quickSpawn(g)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        onNewChat(g.spawn);
+                      }}
+                    >
+                      {spawning === g.key ? '…' : '＋'}
+                    </button>
+                  )}
+                </div>
                 {!closed &&
                   (g.subs ? (
                     g.subs.map((t) => (
@@ -268,6 +349,8 @@ export function Sidebar({
                         ))}
                       </div>
                     ))
+                  ) : g.agents.length === 0 ? (
+                    <div className="group-empty sub">no sessions — ＋ starts one</div>
                   ) : (
                     g.agents.map((a) => (
                       <SessionChip
