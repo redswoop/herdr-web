@@ -74,6 +74,8 @@ export function AgentView({
   } = useAgentMode(paneId, agent?.agent, status);
   const [modeOpen, setModeOpen] = useState(false);
   const [screen, setScreen] = useState<string | null>(null);
+  // live TUI mirror opened by hand from the blocked card (multi-select `done`)
+  const [mirror, setMirror] = useState(false);
   // /rewind panel state, screen-parsed server-side; null = card closed
   const [rewind, setRewind] = useState<RewindState | null>(null);
   const [rewindBusy, setRewindBusy] = useState(false);
@@ -129,6 +131,7 @@ export function AgentView({
     if (!blocked) {
       setKeysForced(false);
       setScreen(null);
+      setMirror(false);
     }
   }, [blocked]);
 
@@ -136,6 +139,7 @@ export function AgentView({
   useEffect(() => {
     setRewind(null);
     setResumeOpen(false);
+    setMirror(false);
   }, [paneId]);
 
   // an interrupt-restored draft outranks a stale rewind draft
@@ -359,9 +363,19 @@ export function AgentView({
       alert(await errorOf(r));
       return false;
     }
+    setPoke((p) => p + 1); // a toggle just landed — repaint the mirror now
     setTimeout(refresh, 600); // menu may advance to the next question
     return true;
   };
+
+  // `done` on a multi-select: taps toggle boxes the card can't see, so let it
+  // pull up the real screen (and drop the static peek — one screen is enough)
+  const toggleMirror = useCallback(() => {
+    setMirror((m) => {
+      if (!m) setScreen(null);
+      return !m;
+    });
+  }, []);
 
   const peekScreen = async () => {
     if (screen !== null) {
@@ -379,7 +393,8 @@ export function AgentView({
   };
 
   const showBlockedCard = blocked && !keysForced && ctx != null && ctx.kind !== 'none' && ctx.kind !== 'unknown';
-  const showKeys = keysPinned || dialog !== null || (blocked && (keysForced || ctx?.kind === 'unknown'));
+  const showKeys =
+    keysPinned || dialog !== null || mirror || (blocked && (keysForced || ctx?.kind === 'unknown'));
   const wide = useMediaQuery(WIDE);
 
   const main = (
@@ -463,7 +478,14 @@ export function AgentView({
         onOpenFile={openFile}
       />
 
-      {showBlockedCard && ctx && <BlockedCard ctx={ctx} onAnswer={onAnswer} />}
+      {showBlockedCard && ctx && (
+        <BlockedCard
+          ctx={ctx}
+          onAnswer={onAnswer}
+          screenLive={mirror}
+          onToggleScreen={toggleMirror}
+        />
+      )}
 
       {rewind && (rewind.step === 'list' || rewind.step === 'confirm') && (
         <RewindCard state={rewind} onOp={rewindOp} onClose={() => rewindOp({ op: 'cancel' })} />
@@ -486,8 +508,16 @@ export function AgentView({
           agent works, the live screen is the only real-time view */}
       {working && !dialog && !blocked && <LiveTail paneId={paneId} onMode={acceptMode} />}
 
-      {dialog && (
-        <ScreenMirror paneId={paneId} poke={poke} onClose={closeDialog} onGone={onDialogGone} />
+      {/* a slash-command dialog outranks the hand-opened mirror — same widget,
+          but that one self-dismisses and salvages the command's output */}
+      {(dialog || mirror) && (
+        <ScreenMirror
+          paneId={paneId}
+          poke={poke}
+          pinned={!dialog}
+          onClose={dialog ? closeDialog : toggleMirror}
+          onGone={onDialogGone}
+        />
       )}
 
       <Composer

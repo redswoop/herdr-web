@@ -617,6 +617,16 @@ button.option .opt-desc { font-size: 12.5px; color: var(--sub); }
 button.option:active .opt-desc, button.option.busy .opt-desc { color: color-mix(in srgb, var(--accent-ink) 75%, transparent); }
 button.option.confirm { background: color-mix(in srgb, var(--done) 20%, var(--surface-2)); }
 button.option.deny { background: color-mix(in srgb, var(--blocked) 18%, var(--surface-2)); }
+/* confirm row + its screen affordance, sharing one line */
+.opt-split { display: flex; align-items: stretch; gap: 8px; }
+.opt-split > button.option { flex: 1; min-width: 0; }
+button.option.opt-aux {
+  flex: 0 0 auto; width: auto; align-items: center; justify-content: center; gap: 1px;
+  padding: 8px 12px;
+}
+button.option.opt-aux .opt-label { font-size: 15px; line-height: 1.1; }
+button.option.opt-aux .opt-desc { font-size: 11px; }
+button.option.opt-aux.on { background: color-mix(in srgb, var(--accent) 22%, var(--surface-2)); }
 .plan-doc {
   background: var(--surface-2); border: 1px solid var(--hairline);
   border-radius: var(--r-sm); padding: 10px 12px; margin: 0 0 10px;
