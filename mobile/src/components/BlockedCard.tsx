@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { BlockedCtx } from '@herdr/shared';
 import { colors, radius } from '../theme';
+import { Icon } from './Icon';
 
 export function BlockedCard({
   ctx,
@@ -92,9 +93,12 @@ export function BlockedCard({
     return (
       <View style={styles.card}>
         <View style={styles.question}>
-          <Text style={styles.qText}>
-            🔒 wants to run <Text style={styles.tool}>{ctx.tool}</Text>
-          </Text>
+          <View style={styles.qRow}>
+            <Icon name="lock" size={16} color={colors.blocked} />
+            <Text style={styles.qText}>
+              wants to run <Text style={styles.tool}>{ctx.tool}</Text>
+            </Text>
+          </View>
           {!!ctx.detail && (
             <Text style={styles.detail} numberOfLines={20}>
               {ctx.detail.slice(0, 2000)}
@@ -129,7 +133,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   question: { gap: 8 },
-  qText: { color: colors.text, fontSize: 15, fontWeight: '600' },
+  qRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  qText: { color: colors.text, fontSize: 15, fontWeight: '600', flex: 1 },
   detail: {
     fontFamily: 'monospace',
     color: colors.sub,

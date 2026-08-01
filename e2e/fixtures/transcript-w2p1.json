@@ -1,0 +1,14 @@
+[
+  {
+    "kind": "user",
+    "text": "delete the staging database",
+    "ts": "2024-06-01T12:20:00.000Z",
+    "msgId": "u3"
+  },
+  {
+    "kind": "assistant",
+    "text": "I need permission before running that.",
+    "ts": "2024-06-01T12:20:05.000Z",
+    "msgId": "a3"
+  }
+]

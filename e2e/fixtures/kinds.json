@@ -1,0 +1,7 @@
+{
+  "kinds": [
+    { "kind": "claude", "version": "1.0.0", "installed": true },
+    { "kind": "grok", "version": "0.9.0", "installed": true },
+    { "kind": "codex", "version": null, "installed": false }
+  ]
+}

@@ -13,6 +13,7 @@ export default defineConfig({
     // dev is reached by LAN/tailnet hostname, not localhost
     allowedHosts: ['stormer', '.ts.net'],
     fs: { allow: ['..'] },
-    proxy: { '/api': 'http://localhost:7683' },
+    // HERDR_API_PROXY overrides the live daemon for Playwright / mock e2e.
+    proxy: { '/api': process.env.HERDR_API_PROXY || 'http://localhost:7683' },
   },
 });

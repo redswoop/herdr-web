@@ -1,0 +1,14 @@
+{
+  "kind": "ask",
+  "questions": [
+    {
+      "question": "Which approach?",
+      "header": "choose",
+      "multiSelect": false,
+      "options": [
+        { "label": "Option A", "description": "fast path" },
+        { "label": "Option B", "description": "careful path" }
+      ]
+    }
+  ]
+}

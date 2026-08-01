@@ -25,6 +25,7 @@ import {
   type TEvent,
 } from '@herdr/shared';
 import { colors } from '../theme';
+import { Icon } from './Icon';
 import { MdView } from './MdView';
 
 export function Transcript({
@@ -93,6 +94,7 @@ export function Transcript({
             mine={it.mine}
             cancellable={it.mine.key === cancellableKey}
             onInterrupt={onInterrupt}
+            onOpenFile={onOpenFile}
           />
         ) : (
           <EventNode ev={it.ev} onOpenFile={onOpenFile} />
@@ -185,7 +187,12 @@ function ActivityGroup({
   return (
     <View style={styles.activity}>
       <Pressable style={styles.actHead} onPress={() => setOpen((o) => !o)}>
-        <Text style={styles.chev}>{open ? '▾' : '▸'}</Text>
+        <Icon
+          name={open ? 'chevron-down' : 'chevron-right'}
+          size={14}
+          color={colors.sub}
+          style={styles.chev}
+        />
         {live ? (
           <>
             <View style={styles.liveDot} />
@@ -297,18 +304,24 @@ function MineBubble({
   mine,
   cancellable,
   onInterrupt,
+  onOpenFile,
 }: {
   mine: Mine;
   cancellable: boolean;
   onInterrupt: () => void;
+  onOpenFile?: (path: string) => void;
 }) {
   return (
     <Pressable
-      style={styles.mine}
+      style={[styles.mine, cancellable && styles.mineCancellable]}
       onLongPress={cancellable ? onInterrupt : undefined}
+      accessibilityHint={cancellable ? 'Long press to stop' : undefined}
     >
-      <Text style={styles.mineText}>{mine.text}</Text>
-      <Text style={styles.mineStatus}>{MINE_STATUS[mine.state] ?? ''}</Text>
+      <MdView src={mine.text} onOpenFile={onOpenFile} />
+      <Text style={styles.mineStatus}>
+        {cancellable ? 'hold to stop · ' : ''}
+        {MINE_STATUS[mine.state] ?? ''}
+      </Text>
     </Pressable>
   );
 }
@@ -375,6 +388,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginVertical: 4,
   },
+  mineCancellable: { borderWidth: 1, borderColor: colors.working },
   mine: {
     alignSelf: 'flex-end',
     backgroundColor: colors.accent,

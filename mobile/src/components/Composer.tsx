@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  ActionSheetIOS,
   Image,
   Keyboard,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
-  useWindowDimensions,
 } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import {
   agentPath,
@@ -20,6 +22,7 @@ import {
 } from '@herdr/shared';
 import { fileRawUrl } from '../api-urls';
 import { colors, radius } from '../theme';
+import { Icon } from './Icon';
 
 const KEYS = [
   ['esc', 'Escape'],
@@ -33,8 +36,19 @@ const KEYS = [
   ['^C', 'C-c'],
 ] as const;
 
+/** Fixed composer field height — scrolls internally instead of growing the chrome. */
+const INPUT_H = 88;
+
+const IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+
 /** `path` is the server-side file; null while the upload is in flight. */
-type Attachment = { id: number; path: string | null; uri: string };
+type Attachment = {
+  id: number;
+  path: string | null;
+  uri: string;
+  kind: 'image' | 'file';
+  name?: string;
+};
 let nextAttId = 1;
 
 const textKey = (paneId: string) => `herdr.textDraft.${paneId}`;
@@ -45,31 +59,51 @@ function loadAtts(paneId: string): Attachment[] {
     const j = JSON.parse(getPlatform().kv.get(attKey(paneId)) ?? '[]');
     if (!Array.isArray(j)) return [];
     return j
-      .filter((p): p is string => typeof p === 'string')
-      .map((p) => ({ id: nextAttId++, path: p, uri: fileRawUrl(p) }));
+      .map((raw): Attachment | null => {
+        if (typeof raw === 'string') {
+          return { id: nextAttId++, path: raw, uri: fileRawUrl(raw), kind: 'image' };
+        }
+        if (raw && typeof raw === 'object' && typeof raw.path === 'string') {
+          const kind = raw.kind === 'file' ? 'file' : 'image';
+          return {
+            id: nextAttId++,
+            path: raw.path,
+            uri: kind === 'image' ? fileRawUrl(raw.path) : raw.uri ?? '',
+            kind,
+            name: typeof raw.name === 'string' ? raw.name : undefined,
+          };
+        }
+        return null;
+      })
+      .filter((a): a is Attachment => !!a);
   } catch {
     return [];
   }
 }
 
 function persistAtts(paneId: string, atts: Attachment[]) {
-  const paths = atts.filter((a) => a.path).map((a) => a.path);
-  if (paths.length) getPlatform().kv.set(attKey(paneId), JSON.stringify(paths));
+  const payload = atts
+    .filter((a) => a.path)
+    .map((a) => ({ path: a.path, kind: a.kind, name: a.name }));
+  if (payload.length) getPlatform().kv.set(attKey(paneId), JSON.stringify(payload));
   else getPlatform().kv.remove(attKey(paneId));
 }
 
-async function uploadImage(uri: string, mime: string): Promise<string> {
-  // RN: arrayBuffer is more reliable than blob for file:// / content:// URIs
+async function uploadBytes(uri: string, mime: string): Promise<string> {
   const src = await fetch(uri);
-  if (!src.ok) throw new Error('could not read image');
+  if (!src.ok) throw new Error('could not read file');
   const body = await src.arrayBuffer();
   const r = await fetch(apiUrl('/api/upload'), {
     method: 'POST',
-    headers: { 'content-type': mime },
+    headers: { 'content-type': mime || 'application/octet-stream' },
     body,
   });
   if (!r.ok) throw new Error(await errorOf(r));
   return ((await r.json()) as { path: string }).path;
+}
+
+function basename(p: string): string {
+  return p.replace(/\/+$/, '').split('/').pop() || p;
 }
 
 export function Composer({
@@ -94,11 +128,10 @@ export function Composer({
   onKeyTap?: () => void;
 }) {
   const kv = getPlatform().kv;
-  const { height } = useWindowDimensions();
   const [text, setTextState] = useState(() => kv.get(textKey(paneId)) ?? '');
   const [atts, setAtts] = useState<Attachment[]>(() => loadAtts(paneId));
-  const [inputH, setInputH] = useState(40);
   const [selection, setSelection] = useState<{ start: number; end: number } | undefined>();
+  const [menuOpen, setMenuOpen] = useState(false);
   const inputRef = useRef<TextInput>(null);
 
   const setText = (t: string) => {
@@ -123,6 +156,7 @@ export function Composer({
     setTextState(kv.get(textKey(paneId)) ?? '');
     setAtts(loadAtts(paneId));
     setSelection(undefined);
+    setMenuOpen(false);
   }, [paneId, kv]);
 
   useEffect(() => {
@@ -145,7 +179,34 @@ export function Composer({
   const hasDraft = hasText || atts.length > 0;
   const stop = !hasDraft && working;
 
-  const pickImage = async () => {
+  const enqueueUpload = (
+    uri: string,
+    mime: string,
+    kind: 'image' | 'file',
+    name?: string,
+  ) => {
+    const pane = paneId;
+    const id = nextAttId++;
+    setAtts((cur) => [...cur, { id, path: null, uri, kind, name }]);
+    uploadBytes(uri, mime).then(
+      (path) =>
+        mutateAtts(pane, (cur) =>
+          cur.some((a) => a.id === id)
+            ? cur.map((a) => (a.id === id ? { ...a, path } : a))
+            : null,
+        ),
+      (e) => {
+        mutateAtts(pane, (cur) =>
+          cur.some((a) => a.id === id) ? cur.filter((a) => a.id !== id) : null,
+        );
+        getPlatform().notifyError(
+          `upload failed: ${String((e as Error).message ?? e)}`,
+        );
+      },
+    );
+  };
+
+  const pickPhotos = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
       getPlatform().notifyError('photo library permission required');
@@ -158,25 +219,71 @@ export function Composer({
       selectionLimit: 6,
     });
     if (result.canceled || !result.assets?.length) return;
-    const pane = paneId;
     for (const asset of result.assets) {
       const mime = asset.mimeType ?? 'image/jpeg';
-      if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(mime)) continue;
-      const id = nextAttId++;
-      setAtts((cur) => [...cur, { id, path: null, uri: asset.uri }]);
-      uploadImage(asset.uri, mime).then(
-        (path) =>
-          mutateAtts(pane, (cur) =>
-            cur.some((a) => a.id === id)
-              ? cur.map((a) => (a.id === id ? { ...a, path } : a))
-              : null,
-          ),
-        (e) => {
-          mutateAtts(pane, (cur) => (cur.some((a) => a.id === id) ? cur.filter((a) => a.id !== id) : null));
-          getPlatform().notifyError(`image upload failed: ${String((e as Error).message ?? e)}`);
+      if (!IMAGE_MIMES.has(mime)) continue;
+      enqueueUpload(asset.uri, mime, 'image', asset.fileName ?? undefined);
+    }
+  };
+
+  const takePhoto = async () => {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) {
+      getPlatform().notifyError('camera permission required');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['images'],
+      quality: 0.9,
+    });
+    if (result.canceled || !result.assets?.length) return;
+    const asset = result.assets[0];
+    const mime = asset.mimeType ?? 'image/jpeg';
+    enqueueUpload(asset.uri, mime, 'image', asset.fileName ?? undefined);
+  };
+
+  const pickFiles = async () => {
+    const result = await DocumentPicker.getDocumentAsync({
+      multiple: true,
+      copyToCacheDirectory: true,
+    });
+    if (result.canceled || !result.assets?.length) return;
+    for (const asset of result.assets) {
+      const mime = asset.mimeType || 'application/octet-stream';
+      const kind: 'image' | 'file' = IMAGE_MIMES.has(mime) ? 'image' : 'file';
+      enqueueUpload(asset.uri, mime, kind, asset.name);
+    }
+  };
+
+  const openAttachMenu = () => {
+    const keyLabel = showKeys ? 'Hide key pad' : 'Show key pad';
+    const run = (action: 'photos' | 'camera' | 'files' | 'keys') => {
+      setMenuOpen(false);
+      if (action === 'photos') void pickPhotos();
+      else if (action === 'camera') void takePhoto();
+      else if (action === 'files') void pickFiles();
+      else onToggleKeys();
+    };
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Photo library', 'Camera', 'Files', keyLabel, 'Cancel'],
+          cancelButtonIndex: 4,
+          userInterfaceStyle: 'dark',
+        },
+        (i) => {
+          if (i === 0) run('photos');
+          else if (i === 1) run('camera');
+          else if (i === 2) run('files');
+          else if (i === 3) run('keys');
         },
       );
+      return;
     }
+
+    // Android / others: in-app sheet (also used as visual fallback)
+    setMenuOpen((o) => !o);
   };
 
   const removeAtt = (id: number) => {
@@ -190,10 +297,17 @@ export function Composer({
     const pane = paneId;
     setText('');
     mutateAtts(pane, () => []);
-    setInputH(40);
     setSelection(undefined);
+    setMenuOpen(false);
     if (t.startsWith('/')) Keyboard.dismiss();
-    const full = [t, ...sending.map((a) => `[pasted image: ${a.path}]`)]
+    const full = [
+      t,
+      ...sending.map((a) =>
+        a.kind === 'file'
+          ? `[pasted file: ${a.path}]`
+          : `[pasted image: ${a.path}]`,
+      ),
+    ]
       .filter(Boolean)
       .join('\n');
     try {
@@ -211,22 +325,30 @@ export function Composer({
     else onKeyTap?.();
   };
 
-  const maxH = height * 0.3;
-
   return (
     <View style={styles.wrap}>
       {atts.length > 0 && (
         <View style={styles.attRow}>
           {atts.map((a) => (
             <View key={a.id} style={[styles.att, !a.path && styles.attUploading]}>
-              <Image source={{ uri: a.uri }} style={styles.attImg} />
+              {a.kind === 'image' ? (
+                <Image source={{ uri: a.uri }} style={styles.attImg} />
+              ) : (
+                <View style={styles.attFile}>
+                  <Icon name="file" size={20} color={colors.accent} />
+                  <Text style={styles.attFileName} numberOfLines={2}>
+                    {a.name ? basename(a.name) : 'file'}
+                  </Text>
+                </View>
+              )}
               <Pressable style={styles.attX} onPress={() => removeAtt(a.id)} hitSlop={6}>
-                <Text style={styles.attXText}>×</Text>
+                <Icon name="close" size={12} color={colors.accentInk} />
               </Pressable>
             </View>
           ))}
         </View>
       )}
+
       {showKeys && (
         <View style={styles.keys}>
           {KEYS.map(([label, key]) => (
@@ -236,26 +358,73 @@ export function Composer({
           ))}
         </View>
       )}
+
+      {menuOpen && (
+        <View style={styles.menu}>
+          <MenuRow
+            icon="image"
+            label="Photo library"
+            onPress={() => {
+              setMenuOpen(false);
+              void pickPhotos();
+            }}
+          />
+          <MenuRow
+            icon="camera"
+            label="Camera"
+            onPress={() => {
+              setMenuOpen(false);
+              void takePhoto();
+            }}
+          />
+          <MenuRow
+            icon="file"
+            label="Files"
+            onPress={() => {
+              setMenuOpen(false);
+              void pickFiles();
+            }}
+          />
+          <MenuRow
+            icon="keyboard"
+            label={showKeys ? 'Hide key pad' : 'Show key pad'}
+            accent={showKeys}
+            onPress={() => {
+              setMenuOpen(false);
+              onToggleKeys();
+            }}
+          />
+        </View>
+      )}
+
       <View style={styles.row}>
-        <Pressable style={styles.iconBtn} onPress={onToggleKeys} accessibilityLabel="toggle key pad">
-          <Text style={styles.icon}>⌨</Text>
+        <Pressable
+          style={[styles.iconBtn, menuOpen && styles.iconBtnOn]}
+          onPress={openAttachMenu}
+          onLongPress={() => {
+            // long-press: jump straight to key pad (muscle memory)
+            setMenuOpen(false);
+            onToggleKeys();
+          }}
+          accessibilityLabel="attach menu"
+        >
+          <Icon name="attach" size={22} color={menuOpen || showKeys ? colors.accent : colors.sub} />
         </Pressable>
-        <Pressable style={styles.iconBtn} onPress={pickImage} accessibilityLabel="attach image">
-          <Text style={styles.icon}>🖼</Text>
-        </Pressable>
+
         <View style={styles.inputWrap}>
           <TextInput
             ref={inputRef}
-            style={[styles.input, { height: Math.min(Math.max(inputH, 40), maxH) }]}
+            style={styles.input}
             value={text}
             onChangeText={(t) => {
               setText(t);
               setSelection(undefined);
             }}
-            onContentSizeChange={(e) => setInputH(e.nativeEvent.contentSize.height + 16)}
             placeholder="prompt…"
             placeholderTextColor={colors.sub}
             multiline
+            scrollEnabled
+            textAlignVertical="top"
             autoCorrect={false}
             autoCapitalize="none"
             spellCheck={false}
@@ -271,15 +440,15 @@ export function Composer({
               style={styles.clear}
               onPress={() => {
                 setText('');
-                setInputH(40);
                 inputRef.current?.focus();
               }}
               accessibilityLabel="clear draft"
             >
-              <Text style={styles.clearX}>×</Text>
+              <Icon name="close" size={14} color={colors.text} />
             </Pressable>
           )}
         </View>
+
         <Pressable
           style={[
             styles.send,
@@ -290,10 +459,29 @@ export function Composer({
           onPress={stop ? onInterrupt : send}
           accessibilityLabel={stop ? 'stop' : 'send'}
         >
-          <Text style={styles.sendIcon}>{stop ? '■' : '↑'}</Text>
+          <Icon name={stop ? 'stop' : 'send'} size={18} color={colors.accentInk} />
         </Pressable>
       </View>
     </View>
+  );
+}
+
+function MenuRow({
+  icon,
+  label,
+  onPress,
+  accent,
+}: {
+  icon: 'image' | 'camera' | 'file' | 'keyboard';
+  label: string;
+  onPress: () => void;
+  accent?: boolean;
+}) {
+  return (
+    <Pressable style={styles.menuRow} onPress={onPress}>
+      <Icon name={icon} size={18} color={accent ? colors.accent : colors.text} />
+      <Text style={[styles.menuLabel, accent && styles.menuLabelOn]}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -321,6 +509,18 @@ const styles = StyleSheet.create({
   },
   attUploading: { opacity: 0.5 },
   attImg: { width: '100%', height: '100%' },
+  attFile: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 4,
+    gap: 2,
+  },
+  attFileName: {
+    color: colors.sub,
+    fontSize: 9,
+    textAlign: 'center',
+  },
   attX: {
     position: 'absolute',
     top: 2,
@@ -332,7 +532,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  attXText: { color: '#fff', fontSize: 12, lineHeight: 14 },
+
   keys: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -347,29 +547,63 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
   },
   keyLabel: { color: colors.text, fontSize: 13, fontWeight: '600' },
+
+  menu: {
+    marginHorizontal: 10,
+    marginBottom: 6,
+    backgroundColor: colors.surface2,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.hairline,
+    overflow: 'hidden',
+  },
+  menuRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.hairline,
+  },
+  menuLabel: { color: colors.text, fontSize: 15, fontWeight: '500' },
+  menuLabelOn: { color: colors.accent },
+
   row: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 4,
+    gap: 6,
     paddingHorizontal: 8,
   },
   iconBtn: {
-    width: 36,
+    width: 40,
     height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: colors.surface2,
+    marginBottom: 2,
   },
-  icon: { fontSize: 18, color: colors.sub },
-  inputWrap: { flex: 1, position: 'relative' },
+  iconBtnOn: {
+    backgroundColor: 'rgba(122,162,247,0.18)',
+  },
+
+  inputWrap: {
+    flex: 1,
+    position: 'relative',
+    height: INPUT_H,
+  },
   input: {
+    height: INPUT_H,
     backgroundColor: colors.surface2,
     borderRadius: radius.md,
     color: colors.text,
     fontSize: 16,
+    lineHeight: 22,
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingTop: 10,
+    paddingBottom: 10,
     paddingRight: 36,
-    maxHeight: 200,
   },
   clear: {
     position: 'absolute',
@@ -378,11 +612,11 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  clearX: { color: colors.text, fontSize: 16, lineHeight: 18 },
+
   send: {
     width: 40,
     height: 40,
@@ -390,8 +624,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 2,
   },
   sendStop: { backgroundColor: colors.blocked },
   sendDisabled: { opacity: 0.4 },
-  sendIcon: { color: colors.accentInk, fontSize: 18, fontWeight: '700' },
 });
