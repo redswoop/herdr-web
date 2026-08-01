@@ -973,6 +973,14 @@ const UPLOAD_DIR = path.join(os.tmpdir(), 'herdr-web', 'uploads');
 const UPLOAD_MAX = 20 * 1024 * 1024;
 const UPLOAD_EXT = {
   'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif',
+  'application/pdf': '.pdf',
+  'text/plain': '.txt', 'text/markdown': '.md', 'text/x-markdown': '.md',
+  'text/csv': '.csv', 'text/html': '.html', 'text/css': '.css',
+  'application/json': '.json', 'application/javascript': '.js', 'text/javascript': '.js',
+  'application/typescript': '.ts', 'text/typescript': '.ts',
+  'application/xml': '.xml', 'text/xml': '.xml',
+  'application/zip': '.zip', 'application/gzip': '.gz',
+  'application/octet-stream': '.bin',
 };
 
 async function saveUpload(req) {

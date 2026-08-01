@@ -1,0 +1,9 @@
+{
+  "kind": "permission",
+  "tool": "Bash",
+  "detail": "rm -rf /tmp/staging-db",
+  "options": [
+    { "n": 1, "label": "Yes", "description": "allow once", "selected": true },
+    { "n": 2, "label": "No", "description": "deny", "selected": false }
+  ]
+}

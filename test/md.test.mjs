@@ -1,21 +1,34 @@
-// Markdown renderer regressions. md.ts is TypeScript, so transpile it with
-// the esbuild that vite already vendors under web/node_modules; when the web
-// deps aren't installed the suite skips rather than fails.
+// Markdown renderer regressions. The engine now lives in @herdr/shared
+// (md/parse.ts + md/render-html.ts) with web/src/md.ts a re-export shim, so
+// bundle render-html — that inlines parse and keeps the surface identical to
+// what the web app imports. TypeScript, so run it through the esbuild vite
+// vendors; when deps aren't installed the suite skips rather than fails.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fsp from 'node:fs/promises';
 
 let md;
 let pathish;
 try {
-  const esbuild = await import('../web/node_modules/esbuild/lib/main.js');
-  const src = await fsp.readFile(new URL('../web/src/md.ts', import.meta.url), 'utf8');
-  const { code } = await esbuild.transform(src, { loader: 'ts', format: 'esm' });
+  let esbuild;
+  for (const p of ['../node_modules/esbuild/lib/main.js', '../web/node_modules/esbuild/lib/main.js'])
+    try {
+      esbuild = await import(p);
+      break;
+    } catch {
+      /* try the next hoist location */
+    }
+  const { outputFiles } = await esbuild.build({
+    entryPoints: [new URL('../shared/src/md/render-html.ts', import.meta.url).pathname],
+    bundle: true,
+    write: false,
+    format: 'esm',
+    platform: 'neutral',
+  });
   ({ md, pathish } = await import(
-    `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`
+    `data:text/javascript;base64,${Buffer.from(outputFiles[0].text).toString('base64')}`
   ));
 } catch {
-  test('md.ts suite skipped — web/node_modules not installed', { skip: true }, () => {});
+  test('md suite skipped — node_modules not installed', { skip: true }, () => {});
 }
 const t = (name, fn) => test(name, { skip: !md }, fn);
 

@@ -7,9 +7,13 @@ export default defineConfig({
   plugins: [react()],
   publicDir: 'static',
   build: { outDir: '../public', emptyOutDir: true },
+  optimizeDeps: { exclude: ['@herdr/shared'] },
   server: {
+    port: 5174,
     // dev is reached by LAN/tailnet hostname, not localhost
     allowedHosts: ['stormer', '.ts.net'],
-    proxy: { '/api': 'http://localhost:7683' },
+    fs: { allow: ['..'] },
+    // HERDR_API_PROXY overrides the live daemon for Playwright / mock e2e.
+    proxy: { '/api': process.env.HERDR_API_PROXY || 'http://localhost:7683' },
   },
 });
