@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -18,6 +19,7 @@ import {
   type SpawnTarget,
 } from '@herdr/shared';
 import { colors, radius, statusColor } from '../theme';
+import { Icon } from './Icon';
 
 const STATUS_ORDER: Record<string, number> = {
   blocked: 0,
@@ -121,7 +123,14 @@ export function Overview({
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
       <View style={styles.head}>
-        <Text style={styles.title}>🐑 the herd</Text>
+        <View style={styles.titleRow}>
+          <Image
+            source={require('../../assets/brand/sheep-mark.png')}
+            style={styles.mark}
+            accessibilityLabel="herdr"
+          />
+          <Text style={styles.title}>the herd</Text>
+        </View>
         <Text style={styles.summary}>
           {roster.herdrDown
             ? 'herdr unreachable'
@@ -134,10 +143,14 @@ export function Overview({
       {cards.map((c) => (
         <View key={c.key} style={styles.card}>
           <View style={styles.cardHead}>
-            <Text style={styles.cardTitle} numberOfLines={1}>
-              {c.repo ? '⎇ ' : ''}
-              {c.title}
-            </Text>
+            <View style={styles.cardTitleRow}>
+              {c.repo ? (
+                <Icon name="folder" size={14} color={colors.accent} />
+              ) : null}
+              <Text style={styles.cardTitle} numberOfLines={1}>
+                {c.title}
+              </Text>
+            </View>
             {!!c.path && (
               <Text style={styles.cardPath} numberOfLines={1}>
                 {shortPath(c.path)}
@@ -147,12 +160,14 @@ export function Overview({
               <Pressable
                 style={styles.cardPlus}
                 onPress={() => quick(c.key, c.spawn!)}
+                onLongPress={() => onNewChat(c.spawn)}
                 disabled={!!spawning}
+                accessibilityLabel="new session here (long-press to customize)"
               >
                 {spawning === c.key ? (
                   <ActivityIndicator size="small" color={colors.accent} />
                 ) : (
-                  <Text style={styles.cardPlusText}>＋</Text>
+                  <Icon name="plus" size={18} color={colors.accent} />
                 )}
               </Pressable>
             )}
@@ -161,10 +176,16 @@ export function Overview({
             <Pressable key={a.paneId} style={styles.agentRow} onPress={() => onSelect(a.paneId)}>
               <View style={[styles.dot, { backgroundColor: statusColor(a.status) }]} />
               <View style={{ flex: 1 }}>
-                <Text style={styles.agentName} numberOfLines={1}>
-                  {chipName(a)}
+                <View style={styles.agentNameRow}>
+                  <Text style={styles.agentName} numberOfLines={1}>
+                    {chipName(a)}
+                  </Text>
+                  {a.focused ? <Icon name="focus" size={13} color={colors.accent} /> : null}
+                </View>
+                <Text style={styles.agentSub}>
+                  {STATUS_WORD[a.status] ?? a.status}
+                  {a.displayAgent || a.agent ? ` · ${a.displayAgent ?? a.agent}` : ''}
                 </Text>
-                <Text style={styles.agentSub}>{STATUS_WORD[a.status] ?? a.status}</Text>
               </View>
             </Pressable>
           ))}
@@ -173,22 +194,26 @@ export function Overview({
 
       {dormant.length > 0 && (
         <>
-          <Text style={styles.sec}>recent projects</Text>
-          {dormant.map((p) => (
-            <Pressable
-              key={p.key}
-              style={styles.dormant}
-              onPress={() => onNewChat({ cwd: p.path })}
-            >
-              <Text style={styles.dormantName} numberOfLines={1}>
-                {p.repo ? '⎇ ' : ''}
-                {p.name}
-              </Text>
-              <Text style={styles.dormantPath} numberOfLines={1}>
-                {shortPath(p.path)}
-              </Text>
-            </Pressable>
-          ))}
+          <Text style={styles.sec}>start somewhere</Text>
+          <View style={styles.dormantRow}>
+            {dormant.map((p) => (
+              <Pressable
+                key={p.key}
+                style={styles.dormant}
+                onPress={() => quick(p.key, { cwd: p.path })}
+                onLongPress={() => onNewChat({ cwd: p.path })}
+                disabled={!!spawning}
+                accessibilityLabel={`${p.name} — tap to start, long-press to customize`}
+              >
+                <View style={styles.dormantInner}>
+                  {p.repo ? <Icon name="folder" size={12} color={colors.accent} /> : null}
+                  <Text style={styles.dormantName} numberOfLines={1}>
+                    {spawning === p.key ? '…' : p.name}
+                  </Text>
+                </View>
+              </Pressable>
+            ))}
+          </View>
         </>
       )}
 
@@ -203,6 +228,8 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   content: { padding: 14, paddingBottom: 100, gap: 10 },
   head: { marginBottom: 6 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  mark: { width: 36, height: 36, borderRadius: 10 },
   title: { color: colors.text, fontSize: 22, fontWeight: '700' },
   summary: { color: colors.sub, fontSize: 13, marginTop: 4 },
   card: {
@@ -213,7 +240,8 @@ const styles = StyleSheet.create({
     borderColor: colors.hairline,
   },
   cardHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
-  cardTitle: { color: colors.text, fontWeight: '700', fontSize: 15, flex: 1 },
+  cardTitleRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
+  cardTitle: { color: colors.text, fontWeight: '700', fontSize: 15, flexShrink: 1 },
   cardPath: { color: colors.sub, fontSize: 11, maxWidth: '35%' },
   cardPlus: {
     width: 28,
@@ -223,7 +251,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cardPlusText: { color: colors.accent, fontSize: 16, fontWeight: '600' },
+  agentNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   agentRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -233,7 +261,7 @@ const styles = StyleSheet.create({
     borderTopColor: colors.hairline,
   },
   dot: { width: 8, height: 8, borderRadius: 4 },
-  agentName: { color: colors.text, fontSize: 14, fontWeight: '600' },
+  agentName: { color: colors.text, fontSize: 14, fontWeight: '600', flexShrink: 1 },
   agentSub: { color: colors.sub, fontSize: 11 },
   sec: {
     color: colors.sub,
@@ -242,14 +270,17 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     marginTop: 12,
   },
+  dormantRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   dormant: {
     backgroundColor: colors.surface,
     borderRadius: radius.sm,
-    padding: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     borderWidth: 1,
     borderColor: colors.hairline,
+    maxWidth: '48%',
   },
-  dormantName: { color: colors.text, fontWeight: '600' },
-  dormantPath: { color: colors.sub, fontSize: 11, marginTop: 2 },
+  dormantInner: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  dormantName: { color: colors.text, fontWeight: '600', fontSize: 13, flexShrink: 1 },
   empty: { color: colors.sub, textAlign: 'center', marginTop: 40 },
 });

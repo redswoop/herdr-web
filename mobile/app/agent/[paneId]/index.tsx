@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
-  KeyboardAvoidingView,
   Platform,
+  Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -42,6 +44,7 @@ export default function AgentScreen() {
 
   const [keysPinned, setKeysPinned] = useState(false);
   const [keysForced, setKeysForced] = useState(false);
+  const [screen, setScreen] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{ sinceKey: number } | null>(null);
   const [poke, setPoke] = useState(0);
   const armRef = useRef<{ timer: ReturnType<typeof setTimeout>; sinceKey: number } | null>(null);
@@ -65,8 +68,25 @@ export default function AgentScreen() {
   }, [navigation, agent, paneId, status]);
 
   useEffect(() => {
-    if (status !== 'blocked') setKeysForced(false);
+    if (status !== 'blocked') {
+      setKeysForced(false);
+      setScreen(null);
+    }
   }, [status]);
+
+  const peekScreen = async () => {
+    if (screen !== null) {
+      setScreen(null);
+      return;
+    }
+    try {
+      const r = await get(agentPath(paneId, 'screen'));
+      const { text } = (await r.json()) as { text?: string };
+      setScreen((text ?? '').replace(/\n{3,}/g, '\n\n').trimEnd());
+    } catch (e) {
+      getPlatform().notifyError(String((e as Error).message ?? e));
+    }
+  };
 
   const closeDialog = useCallback(() => {
     if (armRef.current) {
@@ -190,15 +210,19 @@ export default function AgentScreen() {
     keysPinned || dialog !== null || (blocked && (keysForced || ctx?.kind === 'unknown'));
 
   return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={insets.top + 44}
-    >
+    <KeyboardAvoidingView style={styles.root} behavior="padding" keyboardVerticalOffset={insets.top + 44}>
       {blocked && (
         <View style={styles.blockedBanner}>
           <Text style={styles.blockedText}>agent is waiting on you</Text>
+          <Pressable onPress={peekScreen} hitSlop={8}>
+            <Text style={styles.peekBtn}>{screen !== null ? 'hide screen' : 'view screen'}</Text>
+          </Pressable>
         </View>
+      )}
+      {screen !== null && (
+        <ScrollView style={styles.screenPeek} nestedScrollEnabled>
+          <Text style={styles.screenPre}>{screen}</Text>
+        </ScrollView>
       )}
       {!!agent?.cwd && (
         <Text style={styles.cwd} numberOfLines={1}>
@@ -252,8 +276,27 @@ const styles = StyleSheet.create({
   blockedBanner: {
     backgroundColor: 'rgba(247,118,142,0.2)',
     padding: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
   },
   blockedText: { color: colors.blocked, textAlign: 'center', fontWeight: '600', fontSize: 13 },
+  peekBtn: { color: colors.accent, fontSize: 13, fontWeight: '600' },
+  screenPeek: {
+    maxHeight: 160,
+    backgroundColor: colors.surface,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.hairline,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  screenPre: {
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    color: colors.sub,
+    fontSize: 11,
+    lineHeight: 15,
+  },
   cwd: {
     color: colors.sub,
     fontSize: 11,

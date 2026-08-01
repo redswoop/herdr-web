@@ -9,8 +9,15 @@
   "scripts": {
     "check": "npm run check -w @herdr/shared && npm run check -w herdr-web-ui",
     "test": "npm run test -w @herdr/shared",
+    "test:unit": "npm run test -w @herdr/shared",
+    "test:e2e": "playwright test -c e2e/playwright.config.mjs",
+    "test:e2e:ui": "playwright test -c e2e/playwright.config.mjs --ui",
+    "test:all": "npm run test:unit && npm run test:e2e",
     "dev:web": "npm run dev -w herdr-web-ui",
     "dev:mobile": "npm run start -w herdr-mobile",
     "build:web": "npm run build -w herdr-web-ui"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1"
   }
 }

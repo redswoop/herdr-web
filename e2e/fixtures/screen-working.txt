@@ -1,0 +1,8 @@
+● Thinking about Button.tsx
+
+I'll update the styles module next.
+
+╭──────────────────────────────────────────────────╮
+│ ❯                                                │
+╰──────────────────────────────────────────────────╯
+  ⏸ working · esc to interrupt · ? for shortcuts

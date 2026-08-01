@@ -24,6 +24,7 @@ import {
   type WorktreeEntry,
 } from '@herdr/shared';
 import { colors, radius } from '../theme';
+import { Icon } from './Icon';
 
 type Dest =
   | { type: 'workspace'; workspaceId: string; cwd?: string }
@@ -215,8 +216,8 @@ export function NewChatSheet({
     <View style={styles.root}>
       <View style={styles.head}>
         <Text style={styles.title}>new chat</Text>
-        <Pressable onPress={onClose} hitSlop={12} disabled={busy}>
-          <Text style={styles.close}>✕</Text>
+        <Pressable onPress={onClose} hitSlop={12} disabled={busy} accessibilityLabel="close">
+          <Icon name="close" size={22} color={colors.sub} />
         </Pressable>
       </View>
 
@@ -235,7 +236,7 @@ export function NewChatSheet({
               cwd: w.worktree?.checkoutPath ?? undefined,
             }}
             label={`${w.label || `workspace ${w.number}`}`}
-            extra={w.worktree?.isLinked ? `⎇ ${w.worktree.repoName}` : undefined}
+            extra={w.worktree?.isLinked ? `git · ${w.worktree.repoName}` : undefined}
           />
         ))}
 
@@ -251,11 +252,13 @@ export function NewChatSheet({
                 style={[styles.dest, !open && key === `proj:${p.path}` && styles.destOn]}
                 onPress={() => openRepo(p)}
               >
-                <Text style={styles.destLabel} numberOfLines={1}>
-                  {p.repo ? '⎇ ' : ''}
-                  {p.name}
-                  {p.live > 0 ? ` · ${p.live} live` : ''}
-                </Text>
+                <View style={styles.destLabelRow}>
+                  {p.repo ? <Icon name="folder" size={14} color={colors.accent} /> : null}
+                  <Text style={styles.destLabel} numberOfLines={1}>
+                    {p.name}
+                    {p.live > 0 ? ` · ${p.live} live` : ''}
+                  </Text>
+                </View>
                 <Text style={styles.destExtra} numberOfLines={1}>
                   {shortPath(p.path)}
                 </Text>
@@ -273,13 +276,13 @@ export function NewChatSheet({
                       <DestRow
                         key={t.path}
                         d={{ type: 'worktree-open', repoCwd: p.path, path: t.path }}
-                        label={`⎇ ${t.branch ?? t.label}`}
+                        label={t.branch ?? t.label}
                         extra={t.openWorkspaceId ? 'open' : basename(t.path)}
                       />
                     ))}
                   {p.repo && (
                     <>
-                      <DestRow d={{ type: 'worktree-new', repoCwd: p.path }} label="＋ new worktree" />
+                      <DestRow d={{ type: 'worktree-new', repoCwd: p.path }} label="+ new worktree" />
                       {key === `wtnew:${p.path}` && (
                         <TextInput
                           style={styles.branch}
@@ -433,7 +436,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   title: { color: colors.text, fontSize: 18, fontWeight: '700' },
-  close: { color: colors.sub, fontSize: 18, padding: 4 },
+
   scroll: { flex: 1 },
   scrollContent: { padding: 14, paddingBottom: 40, gap: 6 },
   sec: {
@@ -458,6 +461,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   destOn: { borderColor: colors.accent, backgroundColor: colors.surface2 },
+  destLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 },
   destLabel: { color: colors.text, fontSize: 14, fontWeight: '600', flex: 1 },
   destLabelOn: { color: colors.accent },
   destExtra: { color: colors.sub, fontSize: 11, maxWidth: '40%' },

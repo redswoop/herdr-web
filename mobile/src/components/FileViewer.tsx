@@ -4,14 +4,18 @@ import {
   Image,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import * as Sharing from 'expo-sharing';
 import type { FileInfo } from '@herdr/shared';
+import { getPlatform } from '@herdr/shared';
 import { fileInfoUrl, fileRawUrl } from '../api-urls';
 import { colors, radius } from '../theme';
+import { Icon } from './Icon';
 import { MdView } from './MdView';
 
 function fmtSize(n: number): string {
@@ -74,11 +78,26 @@ export function FileViewer({
 
   const isMd = /\.(md|markdown)$/i.test(info?.path ?? path);
 
+  const shareFile = async () => {
+    if (!info) return;
+    const url = fileRawUrl(info.path, null);
+    try {
+      if (await Sharing.isAvailableAsync()) {
+        // Remote URLs need a local download for expo-sharing; fall back to Share sheet with URL.
+        await Share.share({ url, message: info.path });
+      } else {
+        await Share.share({ message: `${info.path}\n${url}` });
+      }
+    } catch (e) {
+      getPlatform().notifyError(String((e as Error).message ?? e));
+    }
+  };
+
   return (
     <View style={styles.root}>
       <View style={styles.bar}>
-        <Pressable onPress={onClose} hitSlop={10} style={styles.barBtn}>
-          <Text style={styles.barBtnText}>←</Text>
+        <Pressable onPress={onClose} hitSlop={10} style={styles.barBtn} accessibilityLabel="close">
+          <Icon name="back" size={22} color={colors.accent} />
         </Pressable>
         <TextInput
           style={styles.path}
@@ -94,9 +113,18 @@ export function FileViewer({
             <Text style={styles.barBtnText}>{raw ? 'pretty' : 'raw'}</Text>
           </Pressable>
         )}
+        {(info?.kind === 'binary' || info?.kind === 'image') && (
+          <Pressable style={styles.barBtn} onPress={shareFile} accessibilityLabel="share file">
+            <Icon name="share" size={18} color={colors.accent} />
+          </Pressable>
+        )}
         {history.length > 0 && (
-          <Pressable style={styles.barBtn} onPress={() => setHistOpen((o) => !o)}>
-            <Text style={styles.barBtnText}>🕘</Text>
+          <Pressable
+            style={styles.barBtn}
+            onPress={() => setHistOpen((o) => !o)}
+            accessibilityLabel="file history"
+          >
+            <Icon name="history" size={18} color={colors.accent} />
           </Pressable>
         )}
       </View>
@@ -116,8 +144,8 @@ export function FileViewer({
                   {p}
                 </Text>
               </Pressable>
-              <Pressable onPress={() => onRemoveHist(p)} hitSlop={8}>
-                <Text style={styles.histX}>✕</Text>
+              <Pressable onPress={() => onRemoveHist(p)} hitSlop={8} accessibilityLabel="remove">
+                <Icon name="close" size={16} color={colors.sub} />
               </Pressable>
             </View>
           ))}
@@ -167,7 +195,7 @@ export function FileViewer({
           <View style={styles.dir}>
             {info.path !== '/' && (
               <Pressable style={styles.dirRow} onPress={() => onNavigate(parent(info.path))}>
-                <Text style={styles.dirIco}>📁</Text>
+                <Icon name="folder" size={18} color={colors.working} />
                 <Text style={styles.dirName}>..</Text>
               </Pressable>
             )}
@@ -177,7 +205,11 @@ export function FileViewer({
                 style={styles.dirRow}
                 onPress={() => onNavigate(join(info.path, e.name))}
               >
-                <Text style={styles.dirIco}>{e.dir ? '📁' : '📄'}</Text>
+                <Icon
+                  name={e.dir ? 'folder' : 'file'}
+                  size={18}
+                  color={e.dir ? colors.working : colors.sub}
+                />
                 <Text style={styles.dirName}>
                   {e.name}
                   {e.dir ? '/' : ''}
@@ -237,7 +269,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.hairline,
   },
   histPath: { color: colors.text, fontSize: 12, fontFamily: 'monospace' },
-  histX: { color: colors.sub, paddingLeft: 10 },
+
   body: { flex: 1 },
   bodyContent: { padding: 14, paddingBottom: 40 },
   loading: { padding: 40, alignItems: 'center' },
@@ -259,7 +291,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.hairline,
   },
-  dirIco: { fontSize: 16 },
   dirName: { color: colors.text, fontSize: 15, flex: 1 },
   meta: {
     color: colors.sub,

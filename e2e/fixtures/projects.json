@@ -1,0 +1,31 @@
+{
+  "projects": [
+    {
+      "key": "app",
+      "path": "/home/armen/src/app",
+      "name": "app",
+      "repo": true,
+      "live": 2,
+      "lastActive": 1700000000000,
+      "dirs": ["/home/armen/src/app"]
+    },
+    {
+      "key": "other",
+      "path": "/home/armen/src/other",
+      "name": "other",
+      "repo": true,
+      "live": 1,
+      "lastActive": 1699990000000,
+      "dirs": ["/home/armen/src/other"]
+    },
+    {
+      "key": "dormant",
+      "path": "/home/armen/src/dormant",
+      "name": "dormant",
+      "repo": true,
+      "live": 0,
+      "lastActive": 1690000000000,
+      "dirs": ["/home/armen/src/dormant"]
+    }
+  ]
+}

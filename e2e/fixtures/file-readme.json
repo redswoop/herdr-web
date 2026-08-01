@@ -1,0 +1,8 @@
+{
+  "path": "/home/armen/src/app/README.md",
+  "size": 128,
+  "mtime": 1700000000000,
+  "kind": "text",
+  "content": "# App\n\nSetup steps live in `docs/setup.md`.\n\nSee also /home/armen/src/app/src/auth/login.ts\n",
+  "truncated": false
+}

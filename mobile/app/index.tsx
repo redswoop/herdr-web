@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   SectionList,
   StyleSheet,
@@ -23,6 +24,7 @@ import {
   type GroupBy,
   type SpawnTarget,
 } from '@herdr/shared';
+import { Icon } from '../src/components/Icon';
 import { Overview } from '../src/components/Overview';
 import { colors, radius, statusColor } from '../src/theme';
 
@@ -63,15 +65,35 @@ export default function RosterScreen() {
     [roster, groupBy],
   );
 
+  type Row =
+    | { type: 'tab'; key: string; title: string; focused: boolean }
+    | { type: 'agent'; key: string; agent: Agent };
+
+  const closedKey = (gKey: string) => `${groupBy}:${gKey}`;
+
   const sections = useMemo(
     () =>
-      groups.map((g) => ({
-        title: g.title,
-        key: g.key,
-        group: g,
-        data: closed.has(g.key) ? ([] as Agent[]) : g.subs ? g.subs.flatMap((s) => s.agents) : g.agents,
-      })),
-    [groups, closed],
+      groups.map((g) => {
+        const collapsed = closed.has(closedKey(g.key));
+        let data: Row[] = [];
+        if (!collapsed) {
+          if (g.subs?.length) {
+            data = g.subs.flatMap((s) => [
+              {
+                type: 'tab' as const,
+                key: `tab:${s.key}`,
+                title: s.title,
+                focused: !!s.focused,
+              },
+              ...s.agents.map((a) => ({ type: 'agent' as const, key: a.paneId, agent: a })),
+            ]);
+          } else {
+            data = g.agents.map((a) => ({ type: 'agent' as const, key: a.paneId, agent: a }));
+          }
+        }
+        return { title: g.title, key: g.key, group: g, data };
+      }),
+    [groups, closed, groupBy],
   );
 
   const pickGroupBy = (mode: GroupBy) => {
@@ -84,15 +106,17 @@ export default function RosterScreen() {
     getPlatform().kv.set(HOME_VIEW_KEY, v);
   };
 
-  const toggle = useCallback((key: string) => {
+  const toggle = useCallback((gKey: string) => {
+    const key = `${groupBy}:${gKey}`;
     setClosed((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
-      getPlatform().kv.set(CLOSED_KEY, JSON.stringify([...next]));
+      // cap so stale group keys can't accumulate forever
+      getPlatform().kv.set(CLOSED_KEY, JSON.stringify([...next].slice(-100)));
       return next;
     });
-  }, []);
+  }, [groupBy]);
 
   const openNew = (target?: SpawnTarget) => {
     router.push({
@@ -120,7 +144,11 @@ export default function RosterScreen() {
   if (authNeeded || !roster.updatedAt) {
     return (
       <View style={[styles.center, { paddingTop: insets.top }]}>
-        <Text style={styles.emoji}>🔒</Text>
+        <Image
+          source={require('../assets/brand/empty-sheep.png')}
+          style={styles.gateArt}
+          accessibilityLabel="herdr sheep"
+        />
         <Text style={styles.gateTitle}>
           {authNeeded ? 'this herd is fenced' : 'connect to herdr'}
         </Text>
@@ -131,6 +159,7 @@ export default function RosterScreen() {
         </Text>
         <Link href="/settings" asChild>
           <Pressable style={styles.primaryBtn}>
+            <Icon name="settings" size={18} color={colors.accentInk} />
             <Text style={styles.primaryBtnText}>open settings</Text>
           </Pressable>
         </Link>
@@ -158,8 +187,8 @@ export default function RosterScreen() {
           )}
         </View>
         <Link href="/settings" asChild>
-          <Pressable hitSlop={12}>
-            <Text style={styles.settingsLink}>settings</Text>
+          <Pressable hitSlop={12} style={styles.settingsBtn} accessibilityLabel="settings">
+            <Icon name="settings" size={20} color={colors.accent} />
           </Pressable>
         </Link>
       </View>
@@ -168,13 +197,25 @@ export default function RosterScreen() {
         <Pressable
           style={[styles.modeChip, homeView === 'list' && styles.modeOn]}
           onPress={() => pickHomeView('list')}
+          accessibilityLabel="list view"
         >
+          <Icon
+            name="list"
+            size={15}
+            color={homeView === 'list' ? colors.accentInk : colors.sub}
+          />
           <Text style={[styles.modeText, homeView === 'list' && styles.modeTextOn]}>list</Text>
         </Pressable>
         <Pressable
           style={[styles.modeChip, homeView === 'cards' && styles.modeOn]}
           onPress={() => pickHomeView('cards')}
+          accessibilityLabel="cards view"
         >
+          <Icon
+            name="grid"
+            size={15}
+            color={homeView === 'cards' ? colors.accentInk : colors.sub}
+          />
           <Text style={[styles.modeText, homeView === 'cards' && styles.modeTextOn]}>cards</Text>
         </Pressable>
         {homeView === 'list' &&
@@ -204,70 +245,127 @@ export default function RosterScreen() {
       ) : (
         <SectionList
           sections={sections}
-          keyExtractor={(a) => a.paneId}
+          keyExtractor={(row) => row.key}
           stickySectionHeadersEnabled
           contentContainerStyle={styles.list}
           ListEmptyComponent={
             <View style={styles.emptyBox}>
-              <Text style={styles.empty}>no agents yet</Text>
-              <Pressable style={styles.primaryBtn} onPress={() => openNew()}>
-                <Text style={styles.primaryBtnText}>start a chat</Text>
-              </Pressable>
+              <Image
+                source={require('../assets/brand/empty-sheep.png')}
+                style={styles.emptyArt}
+                accessibilityLabel="herdr sheep"
+              />
+              <Text style={styles.empty}>
+                {roster.herdrDown ? 'herdr server unreachable' : 'no agents detected'}
+              </Text>
+              {!roster.herdrDown && (
+                <Pressable style={styles.primaryBtn} onPress={() => openNew()}>
+                  <Icon name="plus" size={18} color={colors.accentInk} />
+                  <Text style={styles.primaryBtnText}>start a chat</Text>
+                </Pressable>
+              )}
             </View>
           }
           renderSectionHeader={({ section }) => {
             const g = section.group as Group;
-            const collapsed = closed.has(g.key);
+            const collapsed = closed.has(`${groupBy}:${g.key}`);
+            const blockedInGroup = g.agents.filter((a) => a.status === 'blocked').length;
             return (
               <View style={styles.sectionHead}>
                 <Pressable style={styles.sectionMain} onPress={() => toggle(g.key)}>
-                  <Text style={styles.sectionTitle}>
-                    {collapsed ? '▸' : '▾'} {g.title}
-                  </Text>
+                  <Icon
+                    name={collapsed ? 'chevron-right' : 'chevron-down'}
+                    size={16}
+                    color={colors.sub}
+                  />
+                  <Text style={styles.sectionTitle}>{g.title}</Text>
                   {!!g.badge && <Text style={styles.badge}>{g.badge}</Text>}
+                  {!!g.focused && <Icon name="focus" size={14} color={colors.accent} />}
                   {!!g.status && (
                     <View style={[styles.dot, { backgroundColor: statusColor(g.status) }]} />
                   )}
+                  <Text style={styles.groupCount}>
+                    {blockedInGroup > 0 ? `${blockedInGroup}·` : ''}
+                    {g.agents.length}
+                  </Text>
                 </Pressable>
                 {!!g.spawn && (
                   <Pressable
                     style={styles.quickBtn}
                     onPress={() => quickChat(g.key, g.spawn!)}
+                    onLongPress={() => openNew(g.spawn)}
                     disabled={!!spawning}
                     hitSlop={8}
+                    accessibilityLabel="new session here (long-press to customize)"
                   >
                     {spawning === g.key ? (
                       <ActivityIndicator size="small" color={colors.accent} />
                     ) : (
-                      <Text style={styles.quickText}>＋</Text>
+                      <Icon name="plus" size={18} color={colors.accent} />
                     )}
                   </Pressable>
                 )}
               </View>
             );
           }}
-          renderItem={({ item }) => (
-            <Pressable
-              style={styles.row}
-              onPress={() => router.push(`/agent/${encodeURIComponent(item.paneId)}`)}
-            >
-              <View style={[styles.statusDot, { backgroundColor: statusColor(item.status) }]} />
-              <View style={styles.rowBody}>
-                <Text style={styles.rowTitle} numberOfLines={1}>
-                  {chipName(item)}
-                </Text>
-                <Text style={styles.rowSub} numberOfLines={1}>
-                  {STATUS_WORD[item.status] ?? item.status}
-                  {item.cwd ? ` · ${item.cwd.split('/').slice(-2).join('/')}` : ''}
-                </Text>
-              </View>
-              {item.status === 'blocked' && (
-                <View style={styles.blockedChip}>
-                  <Text style={styles.blockedChipText}>!</Text>
+          renderItem={({ item }) => {
+            if (item.type === 'tab') {
+              return (
+                <View style={styles.tabHead}>
+                  <Text style={styles.tabTitle}>{item.title}</Text>
+                  {item.focused && <Icon name="focus" size={14} color={colors.accent} />}
                 </View>
-              )}
-            </Pressable>
-          )}
+              );
+            }
+            const a = item.agent;
+            const labels = Object.entries(a.stateLabels ?? {});
+            const showAgent = groupBy !== 'agent';
+            const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
+            return (
+              <Pressable
+                style={styles.row}
+                onPress={() => router.push(`/agent/${encodeURIComponent(a.paneId)}`)}
+              >
+                <View style={[styles.statusDot, { backgroundColor: statusColor(a.status) }]} />
+                <View style={styles.rowBody}>
+                  <View style={styles.rowTitleRow}>
+                    <Text style={styles.rowTitle} numberOfLines={1}>
+                      {chipName(a)}
+                    </Text>
+                    {a.focused ? <Icon name="focus" size={13} color={colors.accent} /> : null}
+                  </View>
+                  <Text style={styles.rowSub} numberOfLines={1}>
+                    {[
+                      showAgent ? a.displayAgent ?? a.agent ?? '?' : null,
+                      a.cwd ? basename(a.cwd) : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </Text>
+                  {(labels.length > 0 ||
+                    !a.hasTranscript ||
+                    (a.launchPending && a.status === 'unknown')) && (
+                    <View style={styles.tags}>
+                      {a.launchPending && a.status === 'unknown' && (
+                        <Text style={[styles.tag, styles.tagWarn]}>starting…</Text>
+                      )}
+                      {!a.hasTranscript && a.status !== 'unknown' && (
+                        <Text style={styles.tag}>fresh</Text>
+                      )}
+                      {labels.map(([k, v]) => (
+                        <Text key={k} style={styles.tag}>
+                          {v}
+                        </Text>
+                      ))}
+                    </View>
+                  )}
+                </View>
+                <Text style={[styles.stateWord, { color: statusColor(a.status) }]}>
+                  {STATUS_WORD[a.status] ?? a.status}
+                </Text>
+              </Pressable>
+            );
+          }}
         />
       )}
 
@@ -276,7 +374,7 @@ export default function RosterScreen() {
         onPress={() => openNew()}
         accessibilityLabel="new chat"
       >
-        <Text style={styles.fabText}>＋</Text>
+        <Icon name="plus" size={28} color={colors.accentInk} />
       </Pressable>
     </View>
   );
@@ -292,7 +390,8 @@ const styles = StyleSheet.create({
     padding: 32,
     gap: 10,
   },
-  emoji: { fontSize: 40 },
+  gateArt: { width: 180, height: 180, marginBottom: 4 },
+  emptyArt: { width: 140, height: 140, opacity: 0.95 },
   gateTitle: { color: colors.text, fontSize: 20, fontWeight: '700' },
   gateSub: { color: colors.sub, textAlign: 'center', marginBottom: 12 },
   primaryBtn: {
@@ -300,6 +399,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 12,
     borderRadius: radius.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   primaryBtnText: { color: colors.accentInk, fontWeight: '700' },
   banner: { backgroundColor: colors.working, padding: 8 },
@@ -335,7 +437,12 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   blockedBadgeText: { color: colors.blocked, fontSize: 12, fontWeight: '700' },
-  settingsLink: { color: colors.accent, fontSize: 14 },
+  settingsBtn: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   modeRow: {
     flexDirection: 'row',
     gap: 6,
@@ -350,12 +457,15 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 999,
     backgroundColor: colors.surface2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
   },
   modeOn: { backgroundColor: colors.accent },
   modeText: { color: colors.sub, fontSize: 12, fontWeight: '600' },
   modeTextOn: { color: colors.accentInk },
   list: { paddingBottom: 100 },
-  emptyBox: { alignItems: 'center', marginTop: 48, gap: 16 },
+  emptyBox: { alignItems: 'center', marginTop: 32, gap: 12, paddingHorizontal: 24 },
   empty: { color: colors.sub, textAlign: 'center' },
   sectionHead: {
     flexDirection: 'row',
@@ -369,6 +479,29 @@ const styles = StyleSheet.create({
   sectionMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
   sectionTitle: { color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 },
   badge: { color: colors.sub, fontSize: 11 },
+  groupCount: { color: colors.sub, fontSize: 11, fontVariant: ['tabular-nums'] },
+  tabHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 18,
+    paddingTop: 8,
+    paddingBottom: 2,
+    backgroundColor: colors.bg,
+  },
+  tabTitle: { color: colors.sub, fontSize: 11, fontWeight: '700', textTransform: 'uppercase' },
+  tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
+  tag: {
+    color: colors.sub,
+    fontSize: 10,
+    backgroundColor: colors.surface2,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  tagWarn: { color: colors.working },
+  stateWord: { fontSize: 11, fontWeight: '700', textTransform: 'lowercase' },
   quickBtn: {
     width: 32,
     height: 32,
@@ -377,7 +510,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: colors.surface2,
   },
-  quickText: { color: colors.accent, fontSize: 18, fontWeight: '600', marginTop: -1 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -389,7 +521,8 @@ const styles = StyleSheet.create({
   },
   statusDot: { width: 10, height: 10, borderRadius: 5 },
   rowBody: { flex: 1, minWidth: 0 },
-  rowTitle: { color: colors.text, fontSize: 15, fontWeight: '600' },
+  rowTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  rowTitle: { color: colors.text, fontSize: 15, fontWeight: '600', flexShrink: 1 },
   rowSub: { color: colors.sub, fontSize: 12, marginTop: 2 },
   blockedChip: {
     backgroundColor: colors.blocked,
@@ -415,5 +548,4 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
   },
-  fabText: { color: colors.accentInk, fontSize: 28, fontWeight: '500', marginTop: -2 },
 });

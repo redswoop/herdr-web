@@ -1,0 +1,140 @@
+{
+  "agents": [
+    {
+      "paneId": "w1:p1",
+      "workspaceId": "w1",
+      "tabId": "w1:t1",
+      "agent": "claude",
+      "displayAgent": "Claude Code",
+      "label": "fix-auth",
+      "title": "fix-auth",
+      "status": "idle",
+      "cwd": "/home/armen/src/app",
+      "repoRoot": "/home/armen/src/app",
+      "focused": true,
+      "launchPending": false,
+      "stateLabels": { "model": "opus" },
+      "revision": 1,
+      "hasTranscript": true,
+      "sessionId": "sess-1"
+    },
+    {
+      "paneId": "w1:p2",
+      "workspaceId": "w1",
+      "tabId": "w1:t1",
+      "agent": "claude",
+      "displayAgent": "Claude Code",
+      "label": "fix-ui",
+      "title": "fix-ui",
+      "status": "working",
+      "cwd": "/home/armen/src/app",
+      "repoRoot": "/home/armen/src/app",
+      "focused": false,
+      "launchPending": false,
+      "stateLabels": {},
+      "revision": 2,
+      "hasTranscript": true,
+      "sessionId": "sess-2"
+    },
+    {
+      "paneId": "w2:p1",
+      "workspaceId": "w2",
+      "tabId": "w2:t1",
+      "agent": "grok",
+      "displayAgent": "Grok",
+      "label": null,
+      "title": "explore",
+      "status": "blocked",
+      "cwd": "/home/armen/src/other",
+      "repoRoot": "/home/armen/src/other",
+      "focused": false,
+      "launchPending": false,
+      "stateLabels": {},
+      "revision": 3,
+      "hasTranscript": true,
+      "sessionId": "sess-3"
+    },
+    {
+      "paneId": "w3:p1",
+      "workspaceId": "w3",
+      "tabId": "w3:t1",
+      "agent": "claude",
+      "displayAgent": "Claude Code",
+      "label": "fresh-start",
+      "title": "fresh-start",
+      "status": "unknown",
+      "cwd": "/tmp/new",
+      "repoRoot": null,
+      "focused": false,
+      "launchPending": true,
+      "stateLabels": {},
+      "revision": 0,
+      "hasTranscript": false,
+      "sessionId": null
+    }
+  ],
+  "workspaces": [
+    {
+      "workspaceId": "w1",
+      "number": 1,
+      "label": "app",
+      "focused": true,
+      "status": "working",
+      "worktree": {
+        "repoName": "app",
+        "repoRoot": "/home/armen/src/app",
+        "isLinked": true,
+        "checkoutPath": "/home/armen/src/app"
+      }
+    },
+    {
+      "workspaceId": "w2",
+      "number": 2,
+      "label": "other",
+      "focused": false,
+      "status": "blocked",
+      "worktree": null
+    },
+    {
+      "workspaceId": "w3",
+      "number": 3,
+      "label": "scratch",
+      "focused": false,
+      "status": "unknown",
+      "worktree": null
+    }
+  ],
+  "tabs": [
+    {
+      "tabId": "w1:t1",
+      "workspaceId": "w1",
+      "number": 1,
+      "label": "1",
+      "focused": true,
+      "paneCount": 2,
+      "status": "working"
+    },
+    {
+      "tabId": "w2:t1",
+      "workspaceId": "w2",
+      "number": 1,
+      "label": "1",
+      "focused": true,
+      "paneCount": 1,
+      "status": "blocked"
+    },
+    {
+      "tabId": "w3:t1",
+      "workspaceId": "w3",
+      "number": 1,
+      "label": "1",
+      "focused": true,
+      "paneCount": 1,
+      "status": "unknown"
+    }
+  ],
+  "herdrDown": false,
+  "updatedAt": 1700000000000,
+  "build": "e2e-mock",
+  "bootedAt": "2024-01-01T00:00:00.000Z"
+}

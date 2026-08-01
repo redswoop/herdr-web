@@ -1,0 +1,18 @@
+{
+  "worktrees": [
+    {
+      "path": "/home/armen/src/app",
+      "branch": "main",
+      "label": "main",
+      "openWorkspaceId": "w1",
+      "isLinked": true
+    },
+    {
+      "path": "/home/armen/src/app-feat",
+      "branch": "feat/x",
+      "label": "feat/x",
+      "openWorkspaceId": null,
+      "isLinked": true
+    }
+  ]
+}

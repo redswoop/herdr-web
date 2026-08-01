@@ -20,11 +20,13 @@
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         },
-        "NSPhotoLibraryUsageDescription": "Attach images to agent prompts"
+        "NSPhotoLibraryUsageDescription": "Attach photos to agent prompts",
+        "NSCameraUsageDescription": "Take photos to attach to agent prompts"
       }
     },
     "android": {
       "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#0e0e13"
       },
       "package": "dev.herdr.mobile"
@@ -40,9 +42,12 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Attach images to agent prompts"
+          "photosPermission": "Attach photos to agent prompts",
+          "cameraPermission": "Take photos to attach to agent prompts"
         }
-      ]
+      ],
+      "expo-document-picker",
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true
