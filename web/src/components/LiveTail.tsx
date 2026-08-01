@@ -7,15 +7,35 @@ const OPEN_KEY = 'herdr.liveTail';
  *  cut it so the tail is output, not chrome */
 const TAIL_CHROME_RES = [
   /^\s*$/,
-  /^\s*[╭╰]─/,
   /^\s*─{5,}\s*$/,
-  /^\s*│.*│\s*$/,
   /^\s*❯/,
   /^\s*[⏸⏵]/,
   /esc to interrupt/,
   /\? for shortcuts/i,
   /shift\+tab/i,
 ];
+
+/** Peel trailing chrome. `│…│` rows are ambiguous — the composer box AND
+ *  rendered markdown tables both paint them — so they only peel inside a
+ *  ROUNDED box (╰…╭, the composers'); tables use sharp corners (└…┌) and
+ *  stop the peel, keeping a streaming table visible instead of frozen. */
+function stripChrome(lines: string[]): number {
+  let end = lines.length;
+  let inBox = false;
+  while (end > 0) {
+    const l = lines[end - 1];
+    if (/^\s*╰─/.test(l)) { inBox = true; end -= 1; continue; }
+    if (/^\s*╭─/.test(l)) { inBox = false; end -= 1; continue; }
+    if (/^\s*│.*│\s*$/.test(l)) {
+      if (!inBox) break;
+      end -= 1;
+      continue;
+    }
+    if (TAIL_CHROME_RES.some((re) => re.test(l))) { end -= 1; continue; }
+    break;
+  }
+  return end;
+}
 
 /**
  * Live tail of the TUI screen while the agent is working. The session file
@@ -48,8 +68,7 @@ export function LiveTail({ paneId }: { paneId: string }) {
         const { text: raw } = (await r.json()) as { text: string };
         if (!alive) return;
         const lines = (raw ?? '').split('\n');
-        let end = lines.length;
-        while (end > 0 && TAIL_CHROME_RES.some((re) => re.test(lines[end - 1]))) end -= 1;
+        const end = stripChrome(lines);
         setText(lines.slice(0, end).join('\n').replace(/\n{3,}/g, '\n\n').trimEnd());
       } catch {}
     };
