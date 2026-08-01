@@ -132,7 +132,8 @@ All under `/api`, JSON in/out. `:pane` is a herdr pane id like `w1:p2`.
 | `GET /api/kinds` | startable agent kinds from herdr's manifests + installed probe |
 | `GET /api/projects` | places to start a session: live cwds + workspace checkouts + dirs decoded from `~/.claude/projects`, collapsed by git repo |
 | `GET /api/worktrees?cwd=` | a repo's checkouts (herdr `worktree.list`) with open-workspace links |
-| `POST /api/chats` | start an agent: `{kind, cwd?, workspaceId?, name?, args?, worktree?}` — `worktree: {repoCwd, branch}` creates a checkout, `{repoCwd, path}` opens one |
+| `GET /api/sessions?cwd=` | resumable claude sessions for a dir: id, title, first prompt, mtime, `livePaneId` when already bound to a pane |
+| `POST /api/chats` | start an agent: `{kind, cwd?, workspaceId?, name?, args?, worktree?, resume?}` — `worktree: {repoCwd, branch}` creates a checkout, `{repoCwd, path}` opens one; `resume: <session-uuid>` (claude) spawns with `--resume` and pins the transcript binding |
 | `GET /api/push/pubkey` · `POST /api/push/subscribe` · `…/unsubscribe` · `…/test` | Web Push plumbing |
 
 ## Security model

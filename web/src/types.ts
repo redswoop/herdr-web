@@ -68,6 +68,22 @@ export interface NewChatRequest {
   args?: string[];
   /** create (branch) or open (path) a worktree-bound workspace and start there */
   worktree?: { repoCwd: string; branch?: string; base?: string; path?: string };
+  /** claude session uuid to resume (server appends --resume and pins the
+   *  pane's transcript binding to that file) */
+  resume?: string;
+}
+
+/** GET /api/sessions?cwd= — resumable claude sessions for one directory */
+export interface SessionEntry {
+  sessionId: string;
+  mtime: number;
+  size: number;
+  /** claude's ai-title, when the session earned one */
+  title: string | null;
+  /** first real user message, truncated — the fallback label */
+  firstPrompt: string | null;
+  /** already bound to a live pane: jump there instead of resuming twice */
+  livePaneId: string | null;
 }
 
 /** GET /api/projects — everywhere agents run or have run, repo-collapsed */

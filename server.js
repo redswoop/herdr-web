@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rpc, subscribe } from './lib/herdr.js';
-import { adapterFor, readEvents } from './lib/adapters.js';
+import { adapterFor, readEvents, listClaudeSessions } from './lib/adapters.js';
 import { PushStore, Coordinator } from './lib/notify.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -130,6 +130,7 @@ async function doRefreshRoster() {
       for (const paneId of prev.keys()) {
         coordinator.onRemove(paneId);
         startTimeCache.delete(paneId);
+        pinnedSessions.delete(paneId);
       }
     }
     roster = { agents, workspaces, tabs, herdrDown: false, updatedAt: Date.now(), build: BUILD, bootedAt: BOOTED_AT };
@@ -205,12 +206,17 @@ async function agentStartTime(paneId, kind) {
   return startedAt;
 }
 
+// Panes spawned with an explicit --resume know their session id up front —
+// no need to guess the binding from titles/mtimes. paneId -> sessionId,
+// cleared when the pane leaves the roster.
+const pinnedSessions = new Map();
+
 // Shared by the roster refresh and the API routes so every caller correlates
 // pane → session file the same way.
 async function findSessionFor({ paneId, agent, cwd, title }) {
   const adapter = adapterFor(agent);
   if (!adapter || !cwd) return null;
-  const hints = { title: title ?? '' };
+  const hints = { title: title ?? '', sessionId: pinnedSessions.get(paneId) };
   if (agent === 'claude') hints.startedAfter = await agentStartTime(paneId, agent);
   try {
     return await adapter.find(cwd, hints);
@@ -690,8 +696,18 @@ function cleanAgentName(raw) {
 //
 // worktree: { repoCwd, branch?, base?, path? } — create (or open, when `path`
 // names an existing checkout) a worktree-bound workspace and start there.
-async function createChat({ kind, name, cwd, workspaceId, label, args, worktree } = {}) {
+//
+// resume: a claude session uuid — spawns with --resume and pins the pane's
+// transcript binding to that file, skipping the title/mtime guesswork (a
+// resumed file is old, so the created-since-process-start filter in
+// claudeFindSession would otherwise reject it until the ai-title lands).
+async function createChat({ kind, name, cwd, workspaceId, label, args, worktree, resume } = {}) {
   if (!kind || typeof kind !== 'string') throw httpErr(400, 'kind required');
+  if (resume !== undefined) {
+    if (kind !== 'claude') throw httpErr(400, 'resume is claude-only');
+    if (typeof resume !== 'string' || !/^[\w-]+$/.test(resume)) throw httpErr(400, 'resume: session id');
+    args = [...(args ?? []), '--resume', resume];
+  }
   const untilde = (s) => (s ? s.replace(/^~(?=\/|$)/, os.homedir()) : null);
   const dir = untilde(cwd);
   const opts = { cwd: dir, label: label || null, focus: false };
@@ -736,6 +752,7 @@ async function createChat({ kind, name, cwd, workspaceId, label, args, worktree 
     pane = r.root_pane;
     tab = r.tab ?? null;
   }
+  if (resume) pinnedSessions.set(pane.pane_id, resume);
   // pane ids can carry uppercase (w1:pC) — lowercase the generated fallback
   // or it fails herdr's name rule
   const agentName =
@@ -757,6 +774,7 @@ async function createChat({ kind, name, cwd, workspaceId, label, args, worktree 
         await new Promise((r) => setTimeout(r, 500));
         continue;
       }
+      pinnedSessions.delete(pane.pane_id);
       try { await rpc('pane.close', { pane_id: pane.pane_id }); } catch {}
       throw httpErr(502, `couldn't start ${kind}: ${msg}`);
     }
@@ -764,6 +782,7 @@ async function createChat({ kind, name, cwd, workspaceId, label, args, worktree 
   try {
     await waitAgentPromptable(pane.pane_id);
   } catch (e) {
+    pinnedSessions.delete(pane.pane_id);
     try { await rpc('pane.close', { pane_id: pane.pane_id }); } catch {}
     throw httpErr(502, `couldn't start ${kind}: ${e.message ?? e}`);
   }
@@ -1093,6 +1112,17 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && seg[1] === 'projects' && !seg[2]) {
       return sendJson(res, 200, { projects: await listProjects() });
+    }
+    if (req.method === 'GET' && seg[1] === 'sessions' && !seg[2]) {
+      const cwd = url.searchParams.get('cwd');
+      if (!cwd) throw httpErr(400, 'cwd required');
+      const sessions = await listClaudeSessions(cwd.replace(/^~(?=\/|$)/, os.homedir()));
+      // a session already bound to a live pane must not be resumed twice —
+      // hand the client the pane instead so "resume" becomes "jump to it"
+      for (const s of sessions) {
+        s.livePaneId = roster.agents.find((a) => a.sessionId === s.sessionId)?.paneId ?? null;
+      }
+      return sendJson(res, 200, { sessions });
     }
     if (req.method === 'GET' && seg[1] === 'worktrees' && !seg[2]) {
       const cwd = url.searchParams.get('cwd');
