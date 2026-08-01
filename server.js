@@ -23,7 +23,7 @@ const TOKEN = process.env.HERDR_WEB_TOKEN ?? null;
 
 // Build stamp: hash of the code THIS process loaded (public/ is read from disk
 // per-request, so only server-side files count). Shown in the UI header.
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
 // constant-time compare; hashing first sidesteps the equal-length requirement
 function tokenEq(a, b) {
@@ -805,6 +805,36 @@ async function serveRawFile(url, res) {
   res.end(body);
 }
 
+// ---------- uploads (pasted images) ----------
+
+// Pasted/dropped images land here and the prompt references them by path —
+// the agent views them with its own file tools. tmp is fine: pastes are
+// ephemeral, and writing into the agent's cwd would dirty worktrees.
+const UPLOAD_DIR = path.join(os.tmpdir(), 'herdr-web', 'uploads');
+const UPLOAD_MAX = 20 * 1024 * 1024;
+const UPLOAD_EXT = {
+  'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif',
+};
+
+async function saveUpload(req) {
+  const ext = UPLOAD_EXT[(req.headers['content-type'] ?? '').split(';')[0].trim()];
+  if (!ext) throw httpErr(415, `content-type must be one of: ${Object.keys(UPLOAD_EXT).join(', ')}`);
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > UPLOAD_MAX) throw httpErr(413, 'image too large (20MB max)');
+    chunks.push(chunk);
+  }
+  if (!size) throw httpErr(400, 'empty body');
+  const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+  const name = `paste-${stamp}-${randomBytes(4).toString('hex')}${ext}`;
+  await fsp.mkdir(UPLOAD_DIR, { recursive: true });
+  const target = path.join(UPLOAD_DIR, name);
+  await fsp.writeFile(target, Buffer.concat(chunks));
+  return { path: target };
+}
+
 // ---------- http ----------
 
 function httpErr(status, message) {
@@ -907,6 +937,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && seg[1] === 'file' && seg[2] === 'raw') {
       return await serveRawFile(url, res);
+    }
+
+    if (req.method === 'POST' && seg[1] === 'upload' && !seg[2]) {
+      return sendJson(res, 200, await saveUpload(req));
     }
 
     if (req.method === 'GET' && seg[1] === 'kinds' && !seg[2]) {
