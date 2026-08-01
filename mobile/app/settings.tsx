@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -31,7 +32,10 @@ export default function SettingsScreen() {
   const probe = async () => {
     const url = baseUrl.trim().replace(/\/$/, '');
     const t = token.trim();
-    if (!url) {
+    // On web an empty URL is a real setting: relative /api against whatever
+    // origin served the page (the dev-origin proxy fronts both). Native has no
+    // origin to be relative to, so it still needs an absolute URL.
+    if (!url && Platform.OS !== 'web') {
       setError('server URL is required');
       return;
     }
@@ -57,6 +61,9 @@ export default function SettingsScreen() {
       setBusy(false);
     }
   };
+
+  // web may legitimately run same-origin with an empty URL
+  const blocked = busy || (!baseUrl.trim() && Platform.OS !== 'web');
 
   return (
     <View style={styles.root}>
@@ -89,8 +96,8 @@ export default function SettingsScreen() {
       {!!error && <Text style={styles.error}>{error}</Text>}
       {!!ok && <Text style={styles.ok}>{ok}</Text>}
       <Pressable
-        style={[styles.btn, (busy || !baseUrl.trim()) && styles.btnDisabled]}
-        disabled={busy || !baseUrl.trim()}
+        style={[styles.btn, blocked && styles.btnDisabled]}
+        disabled={blocked}
         onPress={probe}
       >
         {busy ? (
