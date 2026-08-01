@@ -615,7 +615,13 @@ const MIME = {
   '.webmanifest': 'application/manifest+json',
 };
 
-function checkAuth(req, res, url) {
+// The static app shell is served WITHOUT auth — it holds no data, and a
+// cookie-less device has to be able to load it or the client-side TokenGate
+// can never render (the old everything-gated behavior greeted new phones
+// with a bare JSON 401). All data lives under /api, which enforces the
+// token. A valid ?token= on ANY request upgrades to the year-long cookie —
+// that one path serves both ?token=… links and the gate's probe fetch.
+function checkAuth(req, res, url, { enforce = true } = {}) {
   if (!TOKEN) return true;
   const qtok = url.searchParams.get('token');
   const cookie = (req.headers.cookie ?? '').split(/;\s*/).find((c) => c.startsWith('hw_token='));
@@ -624,17 +630,29 @@ function checkAuth(req, res, url) {
     return true;
   }
   if (tokenEq(cookie?.slice('hw_token='.length), TOKEN)) return true;
-  sendJson(res, 401, { error: 'missing/bad token — open /?token=...' });
+  if (enforce) sendJson(res, 401, { error: 'missing/bad token — open /?token=… or paste it into the gate' });
   return false;
 }
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
+  // failures only — enough to debug "my phone shows an error" without
+  // access-log noise. UA + cookie-presence answer the usual questions
+  // (which device, is it enrolled) without logging any secret.
+  res.on('finish', () => {
+    if (res.statusCode < 400) return;
+    const ua = (req.headers['user-agent'] ?? '?').slice(0, 60);
+    const cookie = (req.headers.cookie ?? '').includes('hw_token=') ? 'cookie' : 'no-cookie';
+    console.warn(`${res.statusCode} ${req.method} ${url.pathname} [${cookie}] ${ua}`);
+  });
   try {
-    if (!checkAuth(req, res, url)) return;
     const seg = url.pathname.split('/').filter(Boolean); // ['api','agent','w1:p1','stream']
 
-    if (seg[0] !== 'api') return await serveStatic(url.pathname, res);
+    if (seg[0] !== 'api') {
+      checkAuth(req, res, url, { enforce: false }); // ?token= links still enroll the cookie
+      return await serveStatic(url.pathname, res);
+    }
+    if (!checkAuth(req, res, url)) return;
 
     if (req.method === 'GET' && seg[1] === 'roster' && !seg[2]) {
       return sendJson(res, 200, roster);
