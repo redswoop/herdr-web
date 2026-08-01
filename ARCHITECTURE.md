@@ -48,6 +48,12 @@ Corollaries that keep biting people who forget them:
   the keys vanish while the launch splash is still up. `verifyPromptLanded`
   heals both (nudge Enter / retype, never when the pane looks touched) —
   route new send paths through it, don't fire raw keystrokes and trust the ok.
+- Permission mode is read from the TUI footer (`parseMode`, no herdr rpc has
+  it) and set by verified shift+tab cycling (`setMode`: read → press → re-read,
+  ≤ a full ring). Refused while blocked: shift+tab is overloaded on prompts
+  (plan prompt "approve with feedback", write prompts "allow all edits").
+  Shift+tab itself is raw CSI Z — `['Escape','[','Z']` in ONE send_keys call
+  (herdr's `Shift+Tab` key name is accepted but claude never sees a backtab).
 
 ## Server (`server.js` + `lib/`)
 

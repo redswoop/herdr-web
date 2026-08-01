@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { agentPath, post } from '../api';
+import { useAgentMode } from '../hooks/useAgentMode';
 import { useAgentSession } from '../hooks/useAgentSession';
 import { useBlockedContext } from '../hooks/useBlockedContext';
 import { WIDE, useMediaQuery } from '../hooks/useMediaQuery';
-import type { Agent, AnswerBody } from '../types';
+import type { Agent, AnswerBody, ModeState, PermissionMode } from '../types';
 import { BlockedCard } from './BlockedCard';
 import { Composer } from './Composer';
 import { FileViewer } from './FileViewer';
@@ -27,6 +28,23 @@ function isTuiChrome(line: string): boolean {
   return TUI_CHROME_RES.some((re) => re.test(line));
 }
 
+const MODE_LABEL: Record<ModeState, string> = {
+  default: 'manual',
+  acceptEdits: 'edits',
+  plan: 'plan',
+  auto: 'auto',
+  bypassPermissions: 'bypass',
+  unknown: '—',
+};
+const MODE_DESC: Record<PermissionMode, string> = {
+  default: 'approve every tool use',
+  acceptEdits: 'file edits auto-approved',
+  plan: 'read-only until you approve a plan',
+  auto: 'runs tools without asking',
+  bypassPermissions: 'no permission checks at all',
+};
+const MODE_ORDER: PermissionMode[] = ['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions'];
+
 export function AgentView({
   agent,
   file,
@@ -41,6 +59,13 @@ export function AgentView({
   const { items, error, loaded, send, interrupt, cooldown, working, restoredDraft, inject } =
     useAgentSession(paneId, status, agent?.agent);
   const { ctx, refresh } = useBlockedContext(paneId, status);
+  const {
+    mode,
+    busy: modeBusy,
+    setMode,
+    accept: acceptMode,
+  } = useAgentMode(paneId, agent?.agent, status);
+  const [modeOpen, setModeOpen] = useState(false);
   const [screen, setScreen] = useState<string | null>(null);
   const [keysPinned, setKeysPinned] = useState(false);
   const [keysForced, setKeysForced] = useState(false); // 409 fallback
@@ -252,7 +277,40 @@ export function AgentView({
             {agent ? [agent.displayAgent ?? agent.agent, agent.cwd].filter(Boolean).join(' · ') : ''}
           </div>
         </div>
+        {agent?.agent === 'claude' && mode !== 'unknown' && (
+          <button
+            className={`chip mode-chip mode-${mode} ${modeBusy ? 'busy' : ''}`}
+            disabled={modeBusy}
+            onClick={() => setModeOpen((o) => !o)}
+          >
+            {MODE_LABEL[mode]}
+          </button>
+        )}
         <span className={`chip ${status ?? ''}`}>{status ?? '—'}</span>
+        {modeOpen && (
+          <>
+            <div className="pop-backdrop" onClick={() => setModeOpen(false)} />
+            <div className="mode-pop">
+              {MODE_ORDER.map((m) => (
+                <button
+                  key={m}
+                  className={`mode-row ${m === mode ? 'current' : ''}`}
+                  disabled={modeBusy}
+                  onClick={async () => {
+                    setModeOpen(false);
+                    if (m !== mode) await setMode(m);
+                  }}
+                >
+                  <span className="mode-name">
+                    {m === mode ? '❯ ' : ''}
+                    {MODE_LABEL[m]}
+                  </span>
+                  <span className="mode-desc">{MODE_DESC[m]}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </header>
 
       {blocked && (
@@ -279,7 +337,7 @@ export function AgentView({
 
       {/* session files only get content when a block completes — while the
           agent works, the live screen is the only real-time view */}
-      {working && !dialog && !blocked && <LiveTail paneId={paneId} />}
+      {working && !dialog && !blocked && <LiveTail paneId={paneId} onMode={acceptMode} />}
 
       {dialog && (
         <ScreenMirror paneId={paneId} poke={poke} onClose={closeDialog} onGone={onDialogGone} />

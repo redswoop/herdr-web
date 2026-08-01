@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { agentPath } from '../api';
+import type { ModeState } from '../types';
 
 const OPEN_KEY = 'herdr.liveTail';
 
@@ -43,7 +44,15 @@ function stripChrome(lines: string[]): number {
  * stream on the terminal minutes before the transcript can show them — this
  * is the honest window into that gap: the actual screen, polled.
  */
-export function LiveTail({ paneId }: { paneId: string }) {
+export function LiveTail({
+  paneId,
+  onMode,
+}: {
+  paneId: string;
+  /** the /screen payload carries the footer-parsed permission mode — feed it
+   *  to the mode chip so it stays live while the agent works */
+  onMode?: (mode: ModeState) => void;
+}) {
   const [open, setOpen] = useState(() => localStorage.getItem(OPEN_KEY) !== 'closed');
   const [text, setText] = useState<string | null>(null);
   const preRef = useRef<HTMLPreElement>(null);
@@ -65,8 +74,9 @@ export function LiveTail({ paneId }: { paneId: string }) {
       try {
         const r = await fetch(agentPath(paneId, 'screen'));
         if (!r.ok || !alive) return;
-        const { text: raw } = (await r.json()) as { text: string };
+        const { text: raw, mode } = (await r.json()) as { text: string; mode?: ModeState };
         if (!alive) return;
+        if (mode) onMode?.(mode);
         const lines = (raw ?? '').split('\n');
         const end = stripChrome(lines);
         setText(lines.slice(0, end).join('\n').replace(/\n{3,}/g, '\n\n').trimEnd());
@@ -78,7 +88,7 @@ export function LiveTail({ paneId }: { paneId: string }) {
       alive = false;
       clearInterval(t);
     };
-  }, [paneId, open]);
+  }, [paneId, open, onMode]);
 
   useEffect(() => {
     const el = preRef.current;

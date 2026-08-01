@@ -191,6 +191,10 @@ export interface AnswerBody {
   feedback?: string;
 }
 
+/** claude's permission modes, footer-parsed server-side (GET/POST /mode) */
+export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'auto' | 'bypassPermissions';
+export type ModeState = PermissionMode | 'unknown';
+
 export type BlockedCtx =
   | { kind: 'none' }
   | { kind: 'unknown' }

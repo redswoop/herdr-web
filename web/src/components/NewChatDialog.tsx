@@ -33,6 +33,25 @@ const cleanAgentName = (raw: string) =>
     .replace(/-+$/, '')
     .slice(0, 32);
 
+/** Spawn-time permission mode (claude only). yolo keeps the legacy flag —
+ *  --permission-mode bypassPermissions needs a settings opt-in, the flag doesn't. */
+type SpawnMode = 'default' | 'acceptEdits' | 'plan' | 'auto' | 'yolo';
+const SPAWN_MODES: Record<SpawnMode, { label: string; args: string[]; hint: string }> = {
+  default: { label: 'manual', args: [], hint: 'approve every tool use' },
+  acceptEdits: {
+    label: 'edits',
+    args: ['--permission-mode', 'acceptEdits'],
+    hint: 'file edits auto-approved',
+  },
+  plan: { label: 'plan', args: ['--permission-mode', 'plan'], hint: 'read-only until you approve a plan' },
+  auto: { label: 'auto', args: ['--permission-mode', 'auto'], hint: 'runs tools without asking' },
+  yolo: {
+    label: 'yolo',
+    args: ['--dangerously-skip-permissions'],
+    hint: 'no permission checks at all (--dangerously-skip-permissions)',
+  },
+};
+
 /** Modal form for starting a fresh agent chat: destination + kind. */
 export function NewChatDialog({
   roster,
@@ -66,7 +85,7 @@ export function NewChatDialog({
   const [branch, setBranch] = useState('');
   const [name, setName] = useState('');
   const [argsText, setArgsText] = useState('');
-  const [yolo, setYolo] = useState(false);
+  const [spawnMode, setSpawnMode] = useState<SpawnMode>('default');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const branchField = useRef<HTMLInputElement>(null);
@@ -133,7 +152,7 @@ export function NewChatDialog({
     setBusy(true);
     setError(null);
     const args = [
-      ...(kind === 'claude' && yolo ? ['--dangerously-skip-permissions'] : []),
+      ...(kind === 'claude' ? SPAWN_MODES[spawnMode].args : []),
       ...(argsText.trim() ? argsText.trim().split(/\s+/) : []),
     ];
     const body: NewChatRequest = {
@@ -345,11 +364,21 @@ export function NewChatDialog({
         </label>
 
         {kind === 'claude' && (
-          <label className="checkline">
-            <input type="checkbox" checked={yolo} onChange={(e) => setYolo(e.target.checked)} />
-            <span>
-              auto-approve tools <em className="sub">(--dangerously-skip-permissions)</em>
-            </span>
+          <label className="field">
+            <span>permission mode</span>
+            <div className="seg-row">
+              {(Object.keys(SPAWN_MODES) as SpawnMode[]).map((m) => (
+                <button
+                  type="button"
+                  key={m}
+                  className={`seg ${spawnMode === m ? 'on' : ''}`}
+                  onClick={() => setSpawnMode(m)}
+                >
+                  {SPAWN_MODES[m].label}
+                </button>
+              ))}
+            </div>
+            <span className="field-hint sub">{SPAWN_MODES[spawnMode].hint}</span>
           </label>
         )}
 

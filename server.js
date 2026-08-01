@@ -361,6 +361,67 @@ async function answerByNav(paneId, { option, feedback }) {
   return true;
 }
 
+// ---------- permission mode ----------
+// Claude's permission mode lives ONLY in the TUI footer (no herdr rpc exposes
+// it — state_labels is pane-reported and nothing reports it). Footer strings
+// verified against claude v2.1.220; herdr appends "· ← N agent" so match the
+// marker, not the whole line. The shift+tab ring: manual → accept edits →
+// plan → (bypass, only when enabled) → auto → manual.
+const MODE_RES = [
+  [/⏸ manual mode on/, 'default'],
+  [/⏵⏵ accept edits on/, 'acceptEdits'],
+  [/⏸ plan mode on/, 'plan'],
+  [/⏵⏵ auto mode on/, 'auto'],
+  [/⏵⏵ bypass permissions on/, 'bypassPermissions'],
+];
+const MODES = MODE_RES.map(([, m]) => m);
+// herdr's "Shift+Tab" key name is accepted but claude never sees a backtab —
+// send raw CSI Z instead. The three keys land in one send_keys rpc → one pty
+// write → parsed as shift+tab. (Split across writes the bare Escape would
+// interrupt the turn; verified stable across many presses, and the verify
+// loop below catches a press that didn't take.)
+const SHIFT_TAB_KEYS = ['Escape', '[', 'Z'];
+
+// Only the footer region — a mode string quoted in scrollback must not match.
+function parseMode(screen) {
+  const lines = screen.split('\n').filter((l) => l.trim());
+  for (const l of lines.slice(-6)) {
+    for (const [re, mode] of MODE_RES) if (re.test(l)) return mode;
+  }
+  return 'unknown';
+}
+
+// Set the mode by verified shift+tab cycling: read footer → press → re-read,
+// never more than a full ring. Refuses while blocked — shift+tab is
+// overloaded on prompts (plan prompt: "approve with this feedback"; write
+// prompts: "allow all edits this session"), so a press there answers the
+// prompt instead of cycling. Same read-verify-act contract as answerByNav.
+async function setMode(paneId, target) {
+  const a = roster.agents.find((x) => x.paneId === paneId);
+  if (a && a.agent !== 'claude') throw httpErr(422, `no permission modes for "${a.agent}"`);
+  const live = await rpc('agent.get', { target: paneId });
+  if (live.agent?.agent_status === 'blocked') {
+    throw httpErr(409, 'agent is waiting on a prompt — answer it first');
+  }
+  let first = null;
+  for (let i = 0; i < 6; i += 1) {
+    const screen = await readScreen(paneId);
+    if (parseMenuScreen(screen)) {
+      throw httpErr(409, 'a menu is on screen — answer it first');
+    }
+    const cur = parseMode(screen);
+    if (cur === target) return cur;
+    if (cur === 'unknown') throw httpErr(409, "can't read the current mode off the screen");
+    if (first === null) first = cur;
+    else if (cur === first) break; // wrapped the ring without hitting target
+    await agentRpc('agent.send_keys', { target: paneId, keys: SHIFT_TAB_KEYS });
+    await new Promise((r) => setTimeout(r, 350));
+  }
+  const err = httpErr(409, `"${target}" isn't reachable in this session's mode cycle`);
+  err.mode = parseMode(await readScreen(paneId));
+  throw err;
+}
+
 // Trim a raw pane capture down to the content worth salvaging: cut the
 // composer/status chrome off the bottom and, when the stopped prompt's echo
 // is findable, everything above it. Chrome patterns cover claude code
@@ -1147,7 +1208,29 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (req.method === 'GET' && action === 'screen') {
-        return sendJson(res, 200, { text: await readScreen(paneId) });
+        // mode piggybacks so LiveTail's poll keeps the chip live for free
+        const text = await readScreen(paneId);
+        return sendJson(res, 200, { text, mode: parseMode(text) });
+      }
+
+      if (action === 'mode') {
+        const a = roster.agents.find((x) => x.paneId === paneId);
+        if (a && a.agent !== 'claude') throw httpErr(422, `no permission modes for "${a.agent}"`);
+        if (req.method === 'GET') {
+          return sendJson(res, 200, { mode: parseMode(await readScreen(paneId)) });
+        }
+        if (req.method === 'POST') {
+          const { mode } = await readBody(req);
+          if (!MODES.includes(mode)) throw httpErr(400, `mode: one of ${MODES.join(', ')}`);
+          try {
+            return sendJson(res, 200, { ok: true, mode: await setMode(paneId, mode) });
+          } catch (e) {
+            if (e.status === 409) {
+              return sendJson(res, 409, { error: String(e.message ?? e), mode: e.mode ?? null });
+            }
+            throw e;
+          }
+        }
       }
 
       if (req.method === 'GET' && action === 'blocked-context') {

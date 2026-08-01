@@ -115,6 +115,7 @@ button:disabled { cursor: default; }
   border-bottom: 1px solid var(--hairline);
   flex: none;
   z-index: 2;
+  position: relative; /* anchors .mode-pop */
 }
 .bar h1 { font-size: 17px; font-weight: 700; letter-spacing: 0.01em; margin: 0; flex: 1; }
 .sub {
@@ -300,6 +301,39 @@ button:disabled { cursor: default; }
 .chip.blocked { background: color-mix(in srgb, var(--blocked) 22%, transparent); color: var(--blocked); }
 .chip.working { background: color-mix(in srgb, var(--working) 20%, transparent); color: var(--working); }
 .chip.done { background: color-mix(in srgb, var(--done) 20%, transparent); color: var(--done); }
+
+/* permission-mode chip (tap target) + picker */
+button.mode-chip { cursor: pointer; }
+button.mode-chip.busy { opacity: 0.5; }
+.chip.mode-plan { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--accent); }
+.chip.mode-acceptEdits { background: color-mix(in srgb, var(--working) 20%, transparent); color: var(--working); }
+.chip.mode-auto { background: color-mix(in srgb, var(--done) 20%, transparent); color: var(--done); }
+.chip.mode-bypassPermissions { background: color-mix(in srgb, var(--blocked) 22%, transparent); color: var(--blocked); }
+.mode-pop {
+  position: absolute; top: calc(100% + 6px); right: 10px; z-index: 10;
+  background: var(--surface); border: 1px solid var(--hairline);
+  border-radius: var(--r-sm); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  padding: 6px; min-width: 240px;
+  animation: rise 0.14s ease both;
+}
+.mode-row {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  width: 100%; text-align: left; padding: 8px 10px;
+  border-radius: calc(var(--r-sm) - 4px);
+}
+.mode-row:active { background: var(--surface-2); }
+.mode-row.current .mode-name { color: var(--accent); }
+.mode-row .mode-name { font-weight: 600; font-size: 13.5px; }
+.mode-row .mode-desc { font-size: 12px; color: var(--sub); }
+
+/* segmented row (spawn-time permission mode) */
+.seg-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.seg {
+  padding: 7px 12px; font-size: 13px; font-weight: 600;
+  background: var(--surface-2); border: 1px solid var(--hairline);
+  border-radius: 999px; color: var(--sub);
+}
+.seg.on { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--accent); border-color: transparent; }
 
 /* ---------- connection banner ---------- */
 .conn-banner {
