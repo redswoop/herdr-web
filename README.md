@@ -57,14 +57,15 @@ Per-agent adapters (`lib/adapters.js`):
 | agent | transcript source | pane→session correlation |
 |---|---|---|
 | claude (Claude Code) | `~/.claude/projects/<cwd-slug>/<uuid>.jsonl` | terminal title vs the jsonl's `ai-title`, newest-mtime fallback |
-| grok | `~/.grok/sessions/<cwd>/<id>/chat_history.jsonl` | live pid + cwd from `active_sessions.json` |
+| grok | `~/.grok/sessions/<cwd>/<id>/updates.jsonl` (ACP `session/update` stream — live, timestamped, with per-turn usage; `chat_history.jsonl` fallback for pre-ACP sessions) | pane pid matched against `active_sessions.json` (exact — follows `/clear`), pinned session on `--resume`, cwd+newest fallback |
 
 Blocked-context classification is two-tier: pending `tool_use` in the session
-file first (AskUserQuestion / permission asks), then a generic numbered-menu
-parser over the visible screen (`❯ 1. Label` + indented descriptions). The
-screen parser is load-bearing, not a fallback — Claude Code doesn't flush a
-tool_use to its jsonl until the tool *resolves*, so pending prompts are
-invisible in the file.
+file first (AskUserQuestion / permission asks — grok streams the pending
+`tool_call` to disk at permission time, so the file tier covers it), then a
+per-agent menu parser over the visible screen: claude's `❯ 1. Label` numbered
+menus and grok's `1 (●) Label` radio menus (`lib/screen.js`). The screen
+parser is load-bearing for claude, which doesn't always flush a tool_use to
+its jsonl until the tool *resolves*.
 
 Web Push is hand-rolled on `node:crypto`: VAPID (RFC 8292) + aes128gcm payload
 encryption (RFC 8291/8188), validated against the RFC test vectors. VAPID keys
@@ -138,8 +139,8 @@ All under `/api`, JSON in/out. `:pane` is a herdr pane id like `w1:p2`.
 | `GET /api/kinds` | startable agent kinds from herdr's manifests + installed probe |
 | `GET /api/projects` | places to start a session: live cwds + workspace checkouts + dirs decoded from `~/.claude/projects`, collapsed by git repo |
 | `GET /api/worktrees?cwd=` | a repo's checkouts (herdr `worktree.list`) with open-workspace links |
-| `GET /api/sessions?cwd=` | resumable claude sessions for a dir: id, title, first prompt, mtime, `livePaneId` when already bound to a pane |
-| `POST /api/chats` | start an agent: `{kind, cwd?, workspaceId?, name?, args?, worktree?, resume?}` — `worktree: {repoCwd, branch}` creates a checkout, `{repoCwd, path}` opens one; `resume: <session-uuid>` (claude) spawns with `--resume` and pins the transcript binding |
+| `GET /api/sessions?cwd=&kind=` | resumable sessions for a dir (kind: `claude` default, or `grok`): id, title, first prompt, mtime, `livePaneId` when already bound to a pane |
+| `POST /api/chats` | start an agent: `{kind, cwd?, workspaceId?, name?, args?, worktree?, resume?}` — `worktree: {repoCwd, branch}` creates a checkout, `{repoCwd, path}` opens one; `resume: <session-uuid>` (claude or grok) spawns with `--resume` and pins the transcript binding |
 | `GET /api/push/pubkey` · `POST /api/push/subscribe` · `…/unsubscribe` · `…/test` | Web Push plumbing |
 
 ## Security model

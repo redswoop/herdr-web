@@ -7,7 +7,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rpc, subscribe } from './lib/herdr.js';
-import { adapterFor, readEvents, listClaudeSessions } from './lib/adapters.js';
+import { adapterFor, readEvents, listSessions, classifyBlocked } from './lib/adapters.js';
+import {
+  parseMenuScreen, parseMenuFor, isGrokProjectPicker, parseRewindScreen,
+  composerText, parseMode, MODES, trimSalvage,
+} from './lib/screen.js';
 import { PushStore, Coordinator } from './lib/notify.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -129,7 +133,7 @@ async function doRefreshRoster() {
       }
       for (const paneId of prev.keys()) {
         coordinator.onRemove(paneId);
-        startTimeCache.delete(paneId);
+        paneProcCache.delete(paneId);
         pinnedSessions.delete(paneId);
       }
     }
@@ -182,28 +186,28 @@ async function bootTimeMs() {
   return btimeMs;
 }
 
-const startTimeCache = new Map(); // paneId -> {at, startedAt}
-async function agentStartTime(paneId, kind) {
-  const hit = startTimeCache.get(paneId);
-  if (hit && Date.now() - hit.at < 30_000) return hit.startedAt;
-  let startedAt = null;
+// The pane's agent process: pid (grok correlates sessions by it — exact match
+// against active_sessions.json) and start time (claude's created-since filter).
+const paneProcCache = new Map(); // paneId -> {at, pid, startedAt}
+async function paneProcess(paneId, kind) {
+  const hit = paneProcCache.get(paneId);
+  if (hit && Date.now() - hit.at < 30_000) return hit;
+  const info = { at: Date.now(), pid: null, startedAt: null };
   try {
+    const r = await rpc('pane.process_info', { pane_id: paneId });
+    const procs = r.process_info?.foreground_processes ?? [];
+    info.pid = (procs.find((p) => p.name === kind) ?? procs[0])?.pid ?? null;
     const btime = await bootTimeMs();
-    if (btime) {
-      const r = await rpc('pane.process_info', { pane_id: paneId });
-      const procs = r.process_info?.foreground_processes ?? [];
-      const pid = (procs.find((p) => p.name === kind) ?? procs[0])?.pid;
-      if (pid) {
-        const stat = await fsp.readFile(`/proc/${pid}/stat`, 'utf8');
-        // fields after the parenthesized comm; starttime is field 22 overall
-        const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-        const ticks = Number(fields[19]);
-        if (Number.isFinite(ticks)) startedAt = btime + (ticks / 100) * 1000;
-      }
+    if (info.pid && btime) {
+      const stat = await fsp.readFile(`/proc/${info.pid}/stat`, 'utf8');
+      // fields after the parenthesized comm; starttime is field 22 overall
+      const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+      const ticks = Number(fields[19]);
+      if (Number.isFinite(ticks)) info.startedAt = btime + (ticks / 100) * 1000;
     }
   } catch {}
-  startTimeCache.set(paneId, { at: Date.now(), startedAt });
-  return startedAt;
+  paneProcCache.set(paneId, info);
+  return info;
 }
 
 // Panes spawned with an explicit --resume know their session id up front —
@@ -217,7 +221,8 @@ async function findSessionFor({ paneId, agent, cwd, title }) {
   const adapter = adapterFor(agent);
   if (!adapter || !cwd) return null;
   const hints = { title: title ?? '', sessionId: pinnedSessions.get(paneId) };
-  if (agent === 'claude') hints.startedAfter = await agentStartTime(paneId, agent);
+  if (agent === 'claude') hints.startedAfter = (await paneProcess(paneId, agent)).startedAt;
+  if (agent === 'grok') hints.pid = (await paneProcess(paneId, agent)).pid;
   try {
     return await adapter.find(cwd, hints);
   } catch {
@@ -240,100 +245,19 @@ async function readScreen(paneId) {
   return r.read?.text ?? '';
 }
 
-// Walk the transcript backwards looking for a tool_use with no result.
-function classifyBlocked(events) {
-  const resultIds = new Set();
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const e = events[i];
-    if (e.kind === 'tool_result') {
-      if (e.id) resultIds.add(e.id);
-      continue;
-    }
-    if (e.kind === 'tool_use') {
-      if (e.id && resultIds.has(e.id)) return { kind: 'unknown' }; // last tool finished
-      // claude: AskUserQuestion; grok: ask_user_question — same input shape
-      const bare = (e.name ?? '').toLowerCase().replace(/[^a-z]/g, '');
-      if (bare === 'askuserquestion' && Array.isArray(e.input?.questions)) {
-        return { kind: 'ask', questions: e.input.questions };
-      }
-      if (bare === 'exitplanmode') {
-        return { kind: 'plan', plan: typeof e.input?.plan === 'string' ? e.input.plan : '' };
-      }
-      return { kind: 'permission', tool: e.name ?? 'tool', detail: e.text ?? '' };
-    }
-    if (e.kind === 'assistant' || e.kind === 'user') return { kind: 'unknown' };
-  }
-  return { kind: 'unknown' };
-}
-
-// Parse a numbered TUI menu (claude AskUserQuestion / permission prompts,
-// and anything else shaped like "❯ 1. Label" with indented descriptions).
-function parseMenuScreen(text) {
-  const lines = text.split('\n');
-  // menus taller than the panel carry ↑/↓ scroll markers on the edge rows
-  // (seen on /rewind's confirm step) — an option hiding behind one still counts
-  const optRe = /^\s*(?:[↑↓]\s+)?(❯)?\s*(\d+)\.\s+(.+)$/;
-  const opts = [];
-  let firstIdx = -1;
-  for (let i = 0; i < lines.length; i += 1) {
-    const m = lines[i].match(optRe);
-    if (m) {
-      opts.push({ n: +m[2], label: m[3].trim(), description: '', selected: !!m[1] });
-      if (firstIdx < 0) firstIdx = i;
-    } else if (opts.length && /^\s{3,}\S/.test(lines[i]) && !/^[─═╌\s]+$/.test(lines[i])) {
-      const o = opts[opts.length - 1];
-      o.description += (o.description ? ' ' : '') + lines[i].trim();
-    }
-  }
-  if (opts.length < 2 || opts[0].n !== 1) return null;
-  for (let i = 1; i < opts.length; i += 1) {
-    if (opts[i].n !== opts[i - 1].n + 1) return null; // not a real menu
-  }
-  // real menus have a ❯ cursor; numbered lists in prose don't
-  if (!opts.some((o) => o.selected)) return null;
-  // The plan prompt's last row ("Tell Claude what to change") is a free-text
-  // field: once ❯ sits on it, digits and letters TYPE into it instead of
-  // selecting. Its hint line (swallowed into the description above) is the
-  // reliable structural marker — the label itself is whatever got typed.
-  for (const o of opts) {
-    if (/shift\+tab to approve with this feedback/i.test(o.description)) {
-      o.input = true;
-      o.description = '';
-    }
-  }
-  let question = '';
-  let header = '';
-  let qIdx = -1;
-  for (let i = firstIdx - 1; i >= 0; i -= 1) {
-    const t = lines[i].trim();
-    if (!t || /^[─═│╭╮╰╯╌|]+$/.test(t)) continue;
-    const cb = t.match(/^[☐☒✔✓■□]\s*(.*)$/);
-    if (cb) { header = cb[1]; continue; }
-    question = t;
-    qIdx = i;
-    break;
-  }
-  // context above the question (e.g. the command a permission prompt is
-  // about) up to the enclosing border
-  const detail = [];
-  for (let i = qIdx - 1; i >= 0 && qIdx > 0 && detail.length < 12; i -= 1) {
-    const t = lines[i].trim();
-    if (!t) continue; // menus space their sections with blank lines
-    if (/^[─═│╭╮╰╯╌|]+$/.test(t)) break; // enclosing border = top of menu
-    detail.unshift(t);
-  }
-  return { kind: 'menu', header, question, detail: detail.join('\n'), options: opts };
-}
+// (classifyBlocked lives in lib/adapters.js; the screen grammars — claude ❯
+// menus, grok radio menus, rewind panel, mode footer — live in lib/screen.js.)
 
 // Answer a menu by arrowing the cursor onto the target row and pressing Enter,
-// verified against the live screen between steps. Digits are unsafe on menus
-// with a free-text row (the plan prompt): once ❯ sits in the text field, every
-// digit TYPES instead of selecting — that's how a user's taps once became
-// "4443" in the feedback box. `feedback` types into the free-text row and
-// submits (reject-with-feedback). Returns true, or null when the screen no
+// verified against the live screen between steps. Digits are unsafe on claude
+// menus with a free-text row (the plan prompt): once ❯ sits in the text field,
+// every digit TYPES instead of selecting — that's how a user's taps once
+// became "4443" in the feedback box. `feedback` types into the free-text row
+// and submits (reject-with-feedback). Returns true, or null when the screen no
 // longer holds a matching menu — the caller 409s.
 const PLAN_INPUT_PLACEHOLDER = 'Tell Claude what to change';
-async function answerByNav(paneId, { option, feedback }) {
+async function answerByNav(paneId, { option, feedback, kind }) {
+  if (kind === 'grok') return answerGrokMenu(paneId, { option });
   const read = async () => parseMenuScreen(await readScreen(paneId));
   const settle = () => new Promise((r) => setTimeout(r, 300));
   const send = (keys) => agentRpc('agent.send_keys', { target: paneId, keys });
@@ -369,75 +293,27 @@ async function answerByNav(paneId, { option, feedback }) {
   return true;
 }
 
-// ---------- rewind ----------
-// Claude's /rewind panel, verified live against v2.1.2xx. Step 1 is an
-// UNNUMBERED cursor list: blank-line-separated entries of [message line,
-// change-summary lines…], ❯ on the selected row, "(current)" as the bottom
-// entry. Step 2 ("Confirm you want to restore…") is a normal numbered ❯ menu
-// under a │-quoted message and "The code/conversation will…" effect lines.
-function parseRewindScreen(text) {
-  const lines = text.split('\n');
-  let h = -1;
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    if (lines[i].trim() === 'Rewind') { h = i; break; }
+// Grok radio menus: a bare digit selects the row, and on permission prompts
+// ("1/3:select") submits it outright; ask/picker menus want an Enter after.
+// Press the digit, then Enter only if the menu is still up with the target
+// selected — covers both without double-answering. Free-text feedback isn't
+// wired for grok yet; callers get a 409 and fall back to typing a prompt.
+async function answerGrokMenu(paneId, { option }) {
+  const read = async () => parseMenuFor('grok', await readScreen(paneId));
+  const settle = () => new Promise((r) => setTimeout(r, 300));
+  let menu = await read();
+  if (!menu || option == null) return null;
+  if (!menu.options.some((o) => o.n === option && !o.input)) return null;
+  await agentRpc('agent.send_keys', { target: paneId, keys: [String(option)] });
+  await settle();
+  menu = await read();
+  if (menu?.options.find((o) => o.n === option)?.selected) {
+    await agentRpc('agent.send_keys', { target: paneId, keys: ['Enter'] });
   }
-  if (h === -1) return null;
-  const body = lines.slice(h + 1);
-  // fresh/just-forked sessions: the panel opens but offers nothing
-  if (body.some((l) => /Nothing to rewind/.test(l))) return { step: 'empty' };
-  if (body.some((l) => /Confirm you want to restore/.test(l))) {
-    const menu = parseMenuScreen(text);
-    if (!menu) return null;
-    return {
-      step: 'confirm',
-      message: body.filter((l) => /^\s*│/.test(l))
-        .map((l) => l.replace(/^\s*│\s?/, '').trimEnd()).join('\n').trim(),
-      effects: body.filter((l) => /^\s*The \S+ will/.test(l)).map((l) => l.trim()),
-      warning: body.find((l) => /^\s*⚠/.test(l))?.trim() ?? null,
-      options: menu.options,
-    };
-  }
-  const items = [];
-  let cur = null;
-  const flush = () => { if (cur) { items.push(cur); cur = null; } };
-  for (const l of body) {
-    if (/Enter to continue/.test(l)) break;
-    const t = l.trim();
-    if (!t) { flush(); continue; }
-    if (/^Restore the code/.test(t)) continue;
-    const selected = /^\s*❯/.test(l);
-    const s = t.replace(/^❯\s*/, '');
-    if (!cur || selected) {
-      flush();
-      cur = { message: s, detail: [], selected, current: s === '(current)' };
-    } else {
-      cur.detail.push(s);
-    }
-  }
-  flush();
-  if (!items.length || !items.some((i) => i.selected)) return null;
-  return {
-    step: 'list',
-    checkpoints: items.map((i, idx) => ({
-      index: idx,
-      message: i.message,
-      detail: i.detail.join('\n'),
-      selected: i.selected,
-      current: i.current,
-    })),
-  };
+  return true;
 }
 
-// Text sitting on claude's composer — the LAST bare-❯ line of the screen.
-// Used to refuse opening rewind over a stranded TUI draft, and to salvage
-// the message a conversation-restore prefills there.
-function composerText(screen) {
-  const lines = screen.split('\n');
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    if (/^\s*❯/.test(lines[i])) return lines[i].replace(/^\s*❯/, '').trim();
-  }
-  return null;
-}
+// ---------- rewind (claude) ----------
 
 async function rewindOp(paneId, { op, index, option }) {
   const read = async () => parseRewindScreen(await readScreen(paneId));
@@ -517,35 +393,14 @@ async function rewindOp(paneId, { op, index, option }) {
   throw httpErr(400, 'op: open|select|confirm|cancel');
 }
 
-// ---------- permission mode ----------
-// Claude's permission mode lives ONLY in the TUI footer (no herdr rpc exposes
-// it — state_labels is pane-reported and nothing reports it). Footer strings
-// verified against claude v2.1.220; herdr appends "· ← N agent" so match the
-// marker, not the whole line. The shift+tab ring: manual → accept edits →
-// plan → (bypass, only when enabled) → auto → manual.
-const MODE_RES = [
-  [/⏸ manual mode on/, 'default'],
-  [/⏵⏵ accept edits on/, 'acceptEdits'],
-  [/⏸ plan mode on/, 'plan'],
-  [/⏵⏵ auto mode on/, 'auto'],
-  [/⏵⏵ bypass permissions on/, 'bypassPermissions'],
-];
-const MODES = MODE_RES.map(([, m]) => m);
+// ---------- permission mode (claude) ----------
 // herdr's "Shift+Tab" key name is accepted but claude never sees a backtab —
 // send raw CSI Z instead. The three keys land in one send_keys rpc → one pty
 // write → parsed as shift+tab. (Split across writes the bare Escape would
 // interrupt the turn; verified stable across many presses, and the verify
-// loop below catches a press that didn't take.)
+// loop below catches a press that didn't take.) NOT valid for grok: its TUI
+// types the raw `[Z` into the composer instead of decoding a backtab.
 const SHIFT_TAB_KEYS = ['Escape', '[', 'Z'];
-
-// Only the footer region — a mode string quoted in scrollback must not match.
-function parseMode(screen) {
-  const lines = screen.split('\n').filter((l) => l.trim());
-  for (const l of lines.slice(-6)) {
-    for (const [re, mode] of MODE_RES) if (re.test(l)) return mode;
-  }
-  return 'unknown';
-}
 
 // Set the mode by verified shift+tab cycling: read footer → press → re-read,
 // never more than a full ring. Refuses while blocked — shift+tab is
@@ -578,45 +433,6 @@ async function setMode(paneId, target) {
   throw err;
 }
 
-// Trim a raw pane capture down to the content worth salvaging: cut the
-// composer/status chrome off the bottom and, when the stopped prompt's echo
-// is findable, everything above it. Chrome patterns cover claude code
-// (rules + ❯ + ⏵⏵ status, ✻ spinner) and grok (╭│╰ box + help line).
-const CHROME_RES = [
-  /^\s*$/,
-  /^\s*[╭╰]─/, // box top/bottom
-  /^\s*─{5,}\s*$/, // horizontal rule
-  /^\s*│.*│\s*$/, // boxed input/status line
-  /^\s*❯/, // bare input line
-  /^\s*⏵/, // claude status line
-  /^\s*[✻✳✶✢✽]\s/, // spinner / "Cogitated for 1m 6s"
-  /esc to interrupt/,
-  /shift\+tab/i,
-  /shortcuts/i,
-];
-function trimSalvage(text, promptText) {
-  const lines = text.split('\n');
-  let end = lines.length;
-  while (end > 0 && CHROME_RES.some((re) => re.test(lines[end - 1]))) end -= 1;
-  let start = 0;
-  const firstLine = (promptText ?? '').split('\n')[0].trim().slice(0, 40);
-  if (firstLine) {
-    for (let i = end - 1; i >= 0; i -= 1) {
-      const m = lines[i].trim();
-      if ((m.startsWith('>') || m.startsWith('❯')) && m.slice(1).trim().startsWith(firstLine)) {
-        start = i + 1;
-        break;
-      }
-    }
-  }
-  const out = lines
-    .slice(start, end)
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-  return out ? out.slice(-8000) : null;
-}
-
 // The plan prompt's footer names the saved plan file ("ctrl+g to edit in VS
 // Code · ~/.claude/plans/….md") — the only place the plan markdown is
 // readable while the prompt is up.
@@ -634,7 +450,7 @@ async function attachPlanFile(ctx, screen) {
 // the visible screen parsed for a numbered menu. Shared by the API route and
 // the push coordinator (the notification body carries the question).
 async function blockedContext(paneId) {
-  const { adapter, session } = await resolveAgent(paneId, { optional: true });
+  const { agent, adapter, session } = await resolveAgent(paneId, { optional: true });
   // live status, not the roster cache — the cache can lag the event
   const live = await rpc('agent.get', { target: paneId });
   if (live.agent?.agent_status !== 'blocked') return { kind: 'none' };
@@ -643,11 +459,12 @@ async function blockedContext(paneId) {
   let ctx = classifyBlocked(events);
   if (ctx.kind === 'unknown') {
     const screen = await readScreen(paneId);
-    const menu = parseMenuScreen(screen);
+    const menu = parseMenuFor(agent.agent, screen);
     // no pending tool_use to name the tool (claude flushes ExitPlanMode to the
-    // session file only with its result), but a feedback row on screen can
-    // only be the plan-approval prompt
-    if (menu?.options.some((o) => o.input)) {
+    // session file only with its result), but a feedback row on a claude menu
+    // can only be the plan-approval prompt (grok ask menus carry one too —
+    // their pending tool_call classifies above, so they never reach here)
+    if (agent.agent === 'claude' && menu?.options.some((o) => o.input)) {
       ctx = { kind: 'plan', plan: '', question: menu.question, options: menu.options };
       await attachPlanFile(ctx, screen);
     } else {
@@ -659,7 +476,7 @@ async function blockedContext(paneId) {
     // when nothing parses, callers must not guess digits
     try {
       const screen = await readScreen(paneId);
-      const menu = parseMenuScreen(screen);
+      const menu = parseMenuFor(agent.agent, screen);
       if (menu) {
         ctx.options = menu.options;
         if (ctx.kind === 'plan') ctx.question = menu.question;
@@ -847,14 +664,15 @@ function cleanAgentName(raw) {
 // worktree: { repoCwd, branch?, base?, path? } — create (or open, when `path`
 // names an existing checkout) a worktree-bound workspace and start there.
 //
-// resume: a claude session uuid — spawns with --resume and pins the pane's
-// transcript binding to that file, skipping the title/mtime guesswork (a
-// resumed file is old, so the created-since-process-start filter in
-// claudeFindSession would otherwise reject it until the ai-title lands).
+// resume: a session uuid — spawns with --resume (claude and grok both take
+// it) and pins the pane's transcript binding to that session, skipping the
+// title/mtime guesswork (a resumed file is old, so the
+// created-since-process-start filter in claudeFindSession would otherwise
+// reject it until the ai-title lands).
 async function createChat({ kind, name, cwd, workspaceId, label, args, worktree, resume } = {}) {
   if (!kind || typeof kind !== 'string') throw httpErr(400, 'kind required');
   if (resume !== undefined) {
-    if (kind !== 'claude') throw httpErr(400, 'resume is claude-only');
+    if (kind !== 'claude' && kind !== 'grok') throw httpErr(400, `resume not supported for ${kind}`);
     if (typeof resume !== 'string' || !/^[\w-]+$/.test(resume)) throw httpErr(400, 'resume: session id');
     args = [...(args ?? []), '--resume', resume];
   }
@@ -931,6 +749,20 @@ async function createChat({ kind, name, cwd, workspaceId, label, args, worktree,
   }
   try {
     await waitAgentPromptable(pane.pane_id);
+    // A fresh grok in a directory it hasn't seen before opens a full-screen
+    // "Run Grok Build in a project directory?" picker that swallows any
+    // prompt sent under it. The caller already chose the directory — answer
+    // option 1 (current dir) on their behalf. (option digit selects the radio
+    // row; Enter submits.)
+    if (kind === 'grok') {
+      for (let i = 0; i < 8; i += 1) {
+        if (!isGrokProjectPicker(await readScreen(pane.pane_id))) break;
+        await agentRpc('agent.send_keys', { target: pane.pane_id, keys: ['1'] });
+        await new Promise((r) => setTimeout(r, 400));
+        await agentRpc('agent.send_keys', { target: pane.pane_id, keys: ['Enter'] });
+        await new Promise((r) => setTimeout(r, 600));
+      }
+    }
   } catch (e) {
     pinnedSessions.delete(pane.pane_id);
     try { await rpc('pane.close', { pane_id: pane.pane_id }); } catch {}
@@ -1007,6 +839,9 @@ async function verifyPromptLanded(paneId, text, attempt = 1) {
     // busy agent means it landed — done.
     const norm = (s) => s.replace(/\s+/g, ' ');
     if (lines.some((l) => norm(l).includes(head))) return;
+    // a dialog/menu owns the screen (startup picker, permission prompt whose
+    // status hasn't flipped yet) — retyping would type into it; hands off
+    if (parseMenuFor(kind, screen)) return;
     const a = (await rpc('agent.get', { target: paneId }).catch(() => ({}))).agent ?? {};
     if (a.agent_status && !['idle', 'done', 'unknown'].includes(a.agent_status)) return;
     // composer holds other text (user typing in the TUI?) — hands off
@@ -1266,7 +1101,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && seg[1] === 'sessions' && !seg[2]) {
       const cwd = url.searchParams.get('cwd');
       if (!cwd) throw httpErr(400, 'cwd required');
-      const sessions = await listClaudeSessions(cwd.replace(/^~(?=\/|$)/, os.homedir()));
+      const kind = url.searchParams.get('kind') ?? 'claude';
+      const sessions = await listSessions(kind, cwd.replace(/^~(?=\/|$)/, os.homedir()));
       // a session already bound to a live pane must not be resumed twice —
       // hand the client the pane instead so "resume" becomes "jump to it"
       for (const s of sessions) {
@@ -1339,9 +1175,8 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (req.method === 'GET' && action === 'stream') {
-        const { agent, adapter, session } = await resolveAgent(paneId, { optional: true });
+        const { adapter, session } = await resolveAgent(paneId, { optional: true });
         let offset = Number(url.searchParams.get('offset') ?? 0);
-        let lastStatus = agent.status;
         let ticks = 0;
         let resetSent = false; // the client reloads on reset — say it once
         startSse(res);
@@ -1362,17 +1197,17 @@ const server = http.createServer(async (req, res) => {
           }
           if (session) {
             const r = await readEvents(adapter, session.file, offset);
-            if (r.events.length) {
-              offset = r.offset;
-              res.write(`event: events\ndata: ${JSON.stringify(r.events)}\n\n`);
-            } else {
-              offset = r.offset;
+            if (r.reset) {
+              // the file shrank (rewind/compaction rewrote it) — replaying
+              // from 0 would duplicate the whole transcript; reload instead
+              resetSent = true;
+              res.write('event: reset\ndata: {}\n\n');
+              return;
             }
-          }
-          const cur = roster.agents.find((x) => x.paneId === paneId);
-          if (cur && cur.status !== lastStatus) {
-            lastStatus = cur.status;
-            res.write(`event: status\ndata: ${JSON.stringify({ status: cur.status })}\n\n`);
+            offset = r.offset;
+            if (r.events.length) {
+              res.write(`event: events\ndata: ${JSON.stringify(r.events)}\n\n`);
+            }
           }
         };
         // don't let a slow read overlap the next tick — two concurrent reads
@@ -1443,7 +1278,8 @@ const server = http.createServer(async (req, res) => {
         if (option != null || feedback != null) {
           if (option != null && !Number.isInteger(option)) throw httpErr(400, 'option: integer');
           if (feedback != null && typeof feedback !== 'string') throw httpErr(400, 'feedback: string');
-          const ok = await answerByNav(paneId, { option, feedback });
+          const kind = roster.agents.find((x) => x.paneId === paneId)?.agent;
+          const ok = await answerByNav(paneId, { option, feedback, kind });
           if (!ok) return sendJson(res, 409, { error: 'screen changed', screen: await readScreen(paneId) });
           return sendJson(res, 200, { ok: true });
         }

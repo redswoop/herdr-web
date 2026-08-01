@@ -27,18 +27,38 @@ split this forces:
 
 Corollaries that keep biting people who forget them:
 
-- Claude Code doesn't flush a `tool_use` to its jsonl until the tool
-  *resolves*. Pending permission prompts are invisible in the file — that's
+- Claude Code doesn't reliably flush a `tool_use` to its jsonl until the tool
+  *resolves*. Pending permission prompts can be invisible in the file — that's
   why the screen-parser tier of blocked-context classification is load-bearing,
-  not a fallback.
+  not a fallback. (Grok is better here: its `updates.jsonl` streams the
+  pending `tool_call` at permission-request time, so the file tier covers it.)
 - Local TUI dialogs (`/model`, `/resume`, …) never appear in the session file
   while open. The web UI mirrors the live screen for those (ScreenMirror) and
   treats the command's record finally landing in the file as the dismiss
   signal.
-- More generally, a message/tool block reaches the file only when it
-  *completes* — long turns stream on the terminal minutes before the
-  transcript can show them. LiveTail (the "live screen" strip while working)
-  is the mitigation, not a nicety.
+- For claude, a message/tool block reaches the file only when it *completes* —
+  long turns stream on the terminal minutes before the transcript can show
+  them. LiveTail (the "live screen" strip while working) is the mitigation,
+  not a nicety. Grok's `updates.jsonl` is written per-block during the turn
+  (thought/message/tool records land as they finish), so its transcript
+  trails much less.
+- Grok's `updates.jsonl` mixes TWO envelope method names — `session/update`
+  (chat + tool updates) and `_x.ai/session/update` (turn_completed with
+  usage, background tasks, recaps). Discriminate on the payload shape
+  (`params.update.sessionUpdate`), never the method string.
+- The two TUIs draw DIFFERENT menu grammars: claude `❯ 1. Label` cursor
+  menus, grok `1 (●) Label  Description` radio menus with an optional
+  `z (○)` free-text row. Both parsers live in `lib/screen.js` and normalize
+  to one MenuOption shape. On grok a bare digit selects-and-submits
+  (permission prompts) or selects (ask menus — `answerGrokMenu` follows with
+  Enter only if the menu is still up). Claude answers go through cursor
+  navigation (`answerByNav`) because digits type into free-text rows.
+- A fresh grok in a directory it hasn't seen opens a full-screen project
+  picker that swallows any prompt sent under it — `createChat` auto-answers
+  it with option 1 (current dir). This hits every worktree spawn.
+- Grok never sees a backtab: the raw CSI Z trick (claude's shift+tab) types
+  literal `[Z` into grok's composer. Permission-mode read/set stays
+  claude-only.
 - Answers are verified: `POST …/answer` sends keys only if the screen still
   shows the `expect` text (409 otherwise). Never send blind keystrokes at a
   menu that may have moved.
@@ -65,9 +85,10 @@ Push (VAPID + aes128gcm) is hand-rolled on `node:crypto` rather than pulling
 
 | file | job |
 |---|---|
-| `server.js` | HTTP routes (`/api/*`, README has the table), SSE fan-out, static serving, token/cookie auth |
+| `server.js` | HTTP routes (`/api/*`, README has the table), SSE fan-out, static serving, token/cookie auth, keystroke choreography (answer/rewind/mode/spawn) |
 | `lib/herdr.js` | herdr unix-socket client |
-| `lib/adapters.js` | per-agent session-file discovery + translation to normalized events; pane→session correlation |
+| `lib/adapters.js` | per-agent session-file discovery + translation to normalized events; pane→session correlation; `classifyBlocked` |
+| `lib/screen.js` | pure screen-text parsers: claude ❯ menus, grok radio menus, rewind panel, mode footer, composer text, salvage trimming — fixture-tested |
 | `lib/notify.js` | blocked-notification lifecycle: debounce, coalesce into one slot, retract on resolve |
 | `lib/webpush.js` | RFC 8291/8292/8188 crypto, validated against the RFC test vectors |
 
@@ -174,14 +195,22 @@ applied uniformly:
   `herdr.fileHist.<pane>`, `herdr.split.<id>` (resizable-split layouts),
   `herdr.lastKind` (agent kind for one-click spawns), `herdr.homeView`
   (phone home surface: list | cards), `herdr.liveTail` (live TUI tail
-  open | closed while an agent works).
-  Add new ones to this list.
+  open | closed while an agent works), `herdr.textDraft.<pane>` and
+  `herdr.attDraft.<pane>` (composer draft text/attachments — survive iOS
+  PWA eviction). Add new ones to this list.
 - SSE cannot report a 401, so auth is probed with a plain fetch first
   (`useRoster`) — keep that pattern for new streams.
 
 ## Testing & verification
 
-- Server: `node --test test/*.test.mjs` from the repo root.
+- Server: `node --test test/*.test.mjs` from the repo root. Screen grammars
+  (`test/screen.test.mjs`) and adapter translation (`test/adapters.test.mjs`)
+  are fixture-tested against VERBATIM pane captures / session records — when
+  a TUI update changes a grammar, capture the new screen and update the
+  fixture, don't guess.
+- `test/md.test.mjs` covers the web markdown renderer by transpiling
+  `web/src/md.ts` through the esbuild vendored under `web/node_modules`
+  (skips cleanly when web deps aren't installed).
 - UI: `npm run check` (types) is the gate; there's no component test rig yet.
   For visual verification, the daemon at :7683 serves the last build — a
   headless chromium screenshot against a real pane URL works and has been the
