@@ -7,6 +7,7 @@ import type { Agent } from '../types';
 import { BlockedCard } from './BlockedCard';
 import { Composer } from './Composer';
 import { FileViewer } from './FileViewer';
+import { LiveTail } from './LiveTail';
 import { ScreenMirror } from './ScreenMirror';
 import { Transcript } from './Transcript';
 import { Split, SplitHandle, SplitPane } from './ui/Split';
@@ -275,6 +276,10 @@ export function AgentView({
       />
 
       {showBlockedCard && ctx && <BlockedCard ctx={ctx} onAnswer={onAnswer} />}
+
+      {/* session files only get content when a block completes — while the
+          agent works, the live screen is the only real-time view */}
+      {working && !dialog && !blocked && <LiveTail paneId={paneId} />}
 
       {dialog && (
         <ScreenMirror paneId={paneId} poke={poke} onClose={closeDialog} onGone={onDialogGone} />

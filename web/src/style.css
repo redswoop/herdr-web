@@ -279,6 +279,21 @@ button:disabled { cursor: default; }
 .chip.working { background: color-mix(in srgb, var(--working) 20%, transparent); color: var(--working); }
 .chip.done { background: color-mix(in srgb, var(--done) 20%, transparent); color: var(--done); }
 
+/* ---------- live TUI tail (working, pre-flush content) ---------- */
+.live-tail { flex: none; border-top: 1px solid var(--hairline); }
+.live-tail-head {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; text-align: left;
+  padding: 7px 16px;
+  font-size: 12px; font-weight: 650; color: var(--sub);
+  transition: background 0.12s, color 0.12s;
+}
+.live-tail-head:hover { background: var(--surface-2); color: var(--text); }
+.live-tail-title { flex: none; color: var(--working); }
+.live-tail-head .sub { flex: 1; font-weight: 400; }
+.live-tail-chev { flex: none; font-size: 10px; }
+.live-tail-screen { max-height: 34dvh; border-bottom: 0; }
+
 /* ---------- blocked banner + screen peek ---------- */
 .blocked-banner {
   flex: none; display: flex; align-items: center; gap: 8px;
