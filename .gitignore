@@ -3,3 +3,7 @@ nohup.out
 *.log
 PLAN.md
 /public/
+
+# expo
+mobile/.expo/
+**/.expo/

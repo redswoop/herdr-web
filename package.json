@@ -1,0 +1,16 @@
+{
+  "name": "herdr",
+  "private": true,
+  "workspaces": [
+    "web",
+    "mobile",
+    "shared"
+  ],
+  "scripts": {
+    "check": "npm run check -w @herdr/shared && npm run check -w herdr-web-ui",
+    "test": "npm run test -w @herdr/shared",
+    "dev:web": "npm run dev -w herdr-web-ui",
+    "dev:mobile": "npm run start -w herdr-mobile",
+    "build:web": "npm run build -w herdr-web-ui"
+  }
+}

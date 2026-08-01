@@ -8,8 +8,9 @@
     "check": "tsc --noEmit"
   },
   "dependencies": {
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
+    "@herdr/shared": "*",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
     "react-resizable-panels": "^4.12.2"
   },
   "devDependencies": {

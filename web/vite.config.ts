@@ -7,9 +7,12 @@ export default defineConfig({
   plugins: [react()],
   publicDir: 'static',
   build: { outDir: '../public', emptyOutDir: true },
+  optimizeDeps: { exclude: ['@herdr/shared'] },
   server: {
+    port: 5174,
     // dev is reached by LAN/tailnet hostname, not localhost
     allowedHosts: ['stormer', '.ts.net'],
+    fs: { allow: ['..'] },
     proxy: { '/api': 'http://localhost:7683' },
   },
 });

@@ -1,0 +1,51 @@
+{
+  "expo": {
+    "name": "herdr",
+    "slug": "herdr",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "herdr",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0e0e13"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "dev.herdr.mobile",
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        },
+        "NSPhotoLibraryUsageDescription": "Attach images to agent prompts"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0e0e13"
+      },
+      "package": "dev.herdr.mobile"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-image",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Attach images to agent prompts"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

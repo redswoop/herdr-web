@@ -1,0 +1,31 @@
+{
+  "name": "@herdr/shared",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./platform": "./src/platform.ts",
+    "./api": "./src/api.ts",
+    "./types": "./src/types.ts",
+    "./hooks/*": "./src/hooks/*.ts",
+    "./md/*": "./src/md/*.ts",
+    "./*": "./src/*"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "react": "19.2.3",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}
