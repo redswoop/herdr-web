@@ -20,7 +20,7 @@ export default function RootLayout() {
               headerShadowVisible: false,
             }}
           >
-            <Stack.Screen name="index" options={{ title: 'herdr' }} />
+            <Stack.Screen name="index" options={{ title: 'Capra' }} />
             <Stack.Screen name="settings" options={{ title: 'settings', presentation: 'modal' }} />
             <Stack.Screen
               name="new-chat"

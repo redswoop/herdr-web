@@ -1,4 +1,4 @@
-# herdr brand assets
+# Capra brand assets
 
 | File | Use |
 |---|---|

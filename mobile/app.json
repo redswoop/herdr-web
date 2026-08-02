@@ -1,10 +1,11 @@
 {
   "expo": {
-    "name": "herdr",
-    "slug": "herdr",
+    "name": "Capra",
+    "slug": "capra",
+    "owner": "redswoops-team",
     "version": "1.0.0",
     "orientation": "portrait",
-    "scheme": "herdr",
+    "scheme": "capra",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "icon": "./assets/icon.png",
@@ -15,7 +16,8 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "dev.herdr.mobile",
+      "bundleIdentifier": "dev.redswoop.capra",
+      "buildNumber": "1",
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
@@ -29,7 +31,8 @@
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#0e0e13"
       },
-      "package": "dev.herdr.mobile"
+      "package": "dev.redswoop.capra",
+      "versionCode": 1
     },
     "web": {
       "bundler": "metro",
@@ -51,6 +54,12 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "00c7c8f9-45a2-4b6e-b3ba-17bd2dc8378f"
+      }
     }
   }
 }
+

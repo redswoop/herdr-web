@@ -127,7 +127,7 @@ export function Overview({
           <Image
             source={require('../../assets/brand/sheep-mark.png')}
             style={styles.mark}
-            accessibilityLabel="herdr"
+            accessibilityLabel="Capra"
           />
           <Text style={styles.title}>the herd</Text>
         </View>

@@ -1,5 +1,5 @@
 {
-  "name": "herdr-mobile",
+  "name": "capra",
   "private": true,
   "version": "0.0.0",
   "main": "expo-router/entry",
@@ -9,7 +9,10 @@
     "ios": "bash scripts/ios-prebuild.sh && expo run:ios",
     "ios:sim": "bash scripts/ios-prebuild.sh && expo run:ios --device",
     "web": "expo start --web",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "eas:build:ios": "npx eas-cli@latest build --platform ios --profile production",
+    "eas:submit:ios": "npx eas-cli@latest submit --platform ios --profile production --latest",
+    "eas:configure": "npx eas-cli@latest build:configure"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",

@@ -147,7 +147,7 @@ export default function RosterScreen() {
         <Image
           source={require('../assets/brand/empty-sheep.png')}
           style={styles.gateArt}
-          accessibilityLabel="herdr sheep"
+          accessibilityLabel="Capra"
         />
         <Text style={styles.gateTitle}>
           {authNeeded ? 'this herd is fenced' : 'connect to herdr'}
@@ -253,7 +253,7 @@ export default function RosterScreen() {
               <Image
                 source={require('../assets/brand/empty-sheep.png')}
                 style={styles.emptyArt}
-                accessibilityLabel="herdr sheep"
+                accessibilityLabel="Capra"
               />
               <Text style={styles.empty}>
                 {roster.herdrDown ? 'herdr server unreachable' : 'no agents detected'}

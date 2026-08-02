@@ -102,7 +102,7 @@ export function initNativePlatform(opts: { baseUrl: string; token: string | null
       return foreground && AppState.currentState === 'active';
     },
     notifyError(msg) {
-      Alert.alert('herdr', msg);
+      Alert.alert('Capra', msg);
     },
   };
 

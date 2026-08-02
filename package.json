@@ -14,7 +14,7 @@
     "test:e2e:ui": "playwright test -c e2e/playwright.config.mjs --ui",
     "test:all": "npm run test:unit && npm run test:e2e",
     "dev:web": "npm run dev -w herdr-web-ui",
-    "dev:mobile": "npm run start -w herdr-mobile",
+    "dev:mobile": "npm run start -w capra",
     "build:web": "npm run build -w herdr-web-ui"
   },
   "devDependencies": {
