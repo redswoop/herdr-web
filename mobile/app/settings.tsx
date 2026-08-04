@@ -8,10 +8,16 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { useBoot } from '../src/boot';
 import { loadSettings, saveSettings } from '../src/settings-store';
 import { colors, radius } from '../src/theme';
+
+const APP_VERSION = Constants.expoConfig?.version ?? '?';
+const BUILD_NUMBER =
+  Constants.expoConfig?.ios?.buildNumber ??
+  String(Constants.expoConfig?.android?.versionCode ?? '');
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -106,6 +112,10 @@ export default function SettingsScreen() {
           <Text style={styles.btnText}>save & probe</Text>
         )}
       </Pressable>
+      <Text style={styles.version}>
+        Capra {APP_VERSION}
+        {BUILD_NUMBER ? ` (${BUILD_NUMBER})` : ''}
+      </Text>
     </View>
   );
 }
@@ -144,4 +154,10 @@ const styles = StyleSheet.create({
   },
   btnDisabled: { opacity: 0.5 },
   btnText: { color: colors.accentInk, fontWeight: '700', fontSize: 16 },
+  version: {
+    marginTop: 32,
+    color: colors.sub,
+    fontSize: 12,
+    textAlign: 'center',
+  },
 });

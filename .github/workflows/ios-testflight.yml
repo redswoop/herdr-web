@@ -1,0 +1,75 @@
+# Push → EAS cloud iOS build → TestFlight.
+# Runner is Linux; compile + upload happen on Expo's infrastructure.
+#
+# One-time setup:
+#   1. Create an Expo access token: https://expo.dev/settings/access-tokens
+#   2. Repo secret EXPO_TOKEN = that token
+#      (Settings → Secrets and variables → Actions)
+#   3. Apple submit credentials already configured in EAS (you've shipped before).
+#      If CI fails on submit auth, run once interactively:
+#        cd mobile && npx eas-cli credentials --platform ios
+#      and set up an App Store Connect API key for EAS Submit.
+#
+name: iOS TestFlight
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - 'shared/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/ios-testflight.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ios-testflight-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-submit:
+    name: EAS build + TestFlight
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          packager: npm
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      # Workspaces: install from monorepo root so @herdr/shared resolves.
+      # EAS re-installs on its builders; this is only for the preflight typecheck.
+      - name: Install dependencies
+        working-directory: .
+        run: npm ci
+
+      - name: Typecheck shared + mobile
+        working-directory: .
+        run: |
+          npm run check -w @herdr/shared
+          npm run check -w capra
+
+      # --auto-submit uses the "production" submit profile in eas.json (ascAppId).
+      # EAS uploads the git tree (mobile + shared monorepo), builds on macOS cloud,
+      # then uploads the .ipa to App Store Connect → TestFlight.
+      - name: Build iOS and submit to TestFlight
+        run: >
+          eas build
+          --platform ios
+          --profile production
+          --non-interactive
+          --auto-submit

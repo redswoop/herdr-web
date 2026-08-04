@@ -11,6 +11,7 @@
     "web": "expo start --web",
     "check": "tsc --noEmit",
     "eas:build:ios": "npx eas-cli@latest build --platform ios --profile production",
+    "eas:build:ios:submit": "npx eas-cli@latest build --platform ios --profile production --auto-submit",
     "eas:submit:ios": "npx eas-cli@latest submit --platform ios --profile production --latest",
     "eas:configure": "npx eas-cli@latest build:configure"
   },
