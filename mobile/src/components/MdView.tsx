@@ -10,7 +10,7 @@ function Inlines({
   onOpenFile?: (path: string) => void;
 }) {
   return (
-    <Text style={styles.base}>
+    <Text selectable style={styles.base}>
       {nodes.map((n, i) => {
         switch (n.type) {
           case 'text':
@@ -67,7 +67,7 @@ function BlockView({
   if (block.type === 'code') {
     return (
       <ScrollView horizontal style={styles.codeBlock} nestedScrollEnabled>
-        <Text style={styles.codeBlockText}>{block.text}</Text>
+        <Text selectable style={styles.codeBlockText}>{block.text}</Text>
       </ScrollView>
     );
   }

@@ -152,7 +152,11 @@ function Details({ label, body }: { label: string; body: string }) {
       <Pressable onPress={() => setOpen((o) => !o)}>
         <Text style={styles.auxSum}>{label}</Text>
       </Pressable>
-      {open && <Text style={styles.pre}>{body}</Text>}
+      {open && (
+        <Text selectable style={styles.pre}>
+          {body}
+        </Text>
+      )}
     </View>
   );
 }
@@ -221,7 +225,11 @@ function StepRow({ step, onOpenFile }: { step: Step; onOpenFile: (path: string) 
             {firstLine(step.text)}
           </Text>
         </Pressable>
-        {open && <Text style={styles.pre}>{clip(step.text)}</Text>}
+        {open && (
+          <Text selectable style={styles.pre}>
+            {clip(step.text)}
+          </Text>
+        )}
       </View>
     );
   }
@@ -242,11 +250,17 @@ function StepRow({ step, onOpenFile }: { step: Step; onOpenFile: (path: string) 
       </Pressable>
       {open && (
         <View>
-          {!!step.args && <Text style={styles.pre}>{clip(step.args)}</Text>}
+          {!!step.args && (
+            <Text selectable style={styles.pre}>
+              {clip(step.args)}
+            </Text>
+          )}
           {step.result !== null && (
             <>
               <Text style={styles.detailLabel}>result</Text>
-              <Text style={styles.pre}>{clip(step.result)}</Text>
+              <Text selectable style={styles.pre}>
+                {clip(step.result)}
+              </Text>
             </>
           )}
         </View>
@@ -276,8 +290,16 @@ function CommandPill({
           {label}
         </Text>
       </Pressable>
-      {open && !!out && <Text style={styles.pre}>{clip(out)}</Text>}
-      {!!err && <Text style={[styles.pre, styles.cmdErr]}>{clip(err)}</Text>}
+      {open && !!out && (
+        <Text selectable style={styles.pre}>
+          {clip(out)}
+        </Text>
+      )}
+      {!!err && (
+        <Text selectable style={[styles.pre, styles.cmdErr]}>
+          {clip(err)}
+        </Text>
+      )}
     </View>
   );
 }
@@ -311,18 +333,20 @@ function MineBubble({
   onInterrupt: () => void;
   onOpenFile?: (path: string) => void;
 }) {
+  // View (not Pressable) so message text stays selectable; hold-to-stop lives
+  // on the status line only.
   return (
-    <Pressable
-      style={[styles.mine, cancellable && styles.mineCancellable]}
-      onLongPress={cancellable ? onInterrupt : undefined}
-      accessibilityHint={cancellable ? 'Long press to stop' : undefined}
-    >
+    <View style={[styles.mine, cancellable && styles.mineCancellable]}>
       <MdView src={mine.text} onOpenFile={onOpenFile} />
-      <Text style={styles.mineStatus}>
+      <Text
+        style={styles.mineStatus}
+        onLongPress={cancellable ? onInterrupt : undefined}
+        accessibilityHint={cancellable ? 'Long press to stop' : undefined}
+      >
         {cancellable ? 'hold to stop · ' : ''}
         {MINE_STATUS[mine.state] ?? ''}
       </Text>
-    </Pressable>
+    </View>
   );
 }
 

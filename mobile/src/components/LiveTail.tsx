@@ -65,7 +65,7 @@ export function LiveTail({ paneId }: { paneId: string }) {
       </Pressable>
       {open && text !== null && (
         <ScrollView ref={scrollRef} style={styles.body} nestedScrollEnabled>
-          <Text style={styles.pre}>{text}</Text>
+          <Text selectable style={styles.pre}>{text}</Text>
         </ScrollView>
       )}
     </View>
