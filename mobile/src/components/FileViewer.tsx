@@ -17,6 +17,7 @@ import { fileInfoUrl, fileRawUrl } from '../api-urls';
 import { colors, radius } from '../theme';
 import { Icon } from './Icon';
 import { MdView } from './MdView';
+import { SegText } from './SegText';
 
 function fmtSize(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -169,9 +170,7 @@ export function FileViewer({
               }
             />
           ) : (
-            <Text style={styles.pre} selectable>
-              {info.content}
-            </Text>
+            <SegText style={styles.pre} selectable text={info.content ?? ''} />
           ))}
 
         {info?.truncated && (

@@ -27,6 +27,7 @@ import {
 import { colors } from '../theme';
 import { Icon } from './Icon';
 import { MdView } from './MdView';
+import { SegText } from './SegText';
 
 export function Transcript({
   items,
@@ -152,11 +153,7 @@ function Details({ label, body }: { label: string; body: string }) {
       <Pressable onPress={() => setOpen((o) => !o)}>
         <Text style={styles.auxSum}>{label}</Text>
       </Pressable>
-      {open && (
-        <Text selectable style={styles.pre}>
-          {body}
-        </Text>
-      )}
+      {open && <SegText selectable style={styles.pre} text={body} />}
     </View>
   );
 }
@@ -225,11 +222,7 @@ function StepRow({ step, onOpenFile }: { step: Step; onOpenFile: (path: string) 
             {firstLine(step.text)}
           </Text>
         </Pressable>
-        {open && (
-          <Text selectable style={styles.pre}>
-            {clip(step.text)}
-          </Text>
-        )}
+        {open && <SegText selectable style={styles.pre} text={clip(step.text)} />}
       </View>
     );
   }
@@ -250,17 +243,11 @@ function StepRow({ step, onOpenFile }: { step: Step; onOpenFile: (path: string) 
       </Pressable>
       {open && (
         <View>
-          {!!step.args && (
-            <Text selectable style={styles.pre}>
-              {clip(step.args)}
-            </Text>
-          )}
+          {!!step.args && <SegText selectable style={styles.pre} text={clip(step.args)} />}
           {step.result !== null && (
             <>
               <Text style={styles.detailLabel}>result</Text>
-              <Text selectable style={styles.pre}>
-                {clip(step.result)}
-              </Text>
+              <SegText selectable style={styles.pre} text={clip(step.result)} />
             </>
           )}
         </View>
@@ -290,16 +277,8 @@ function CommandPill({
           {label}
         </Text>
       </Pressable>
-      {open && !!out && (
-        <Text selectable style={styles.pre}>
-          {clip(out)}
-        </Text>
-      )}
-      {!!err && (
-        <Text selectable style={[styles.pre, styles.cmdErr]}>
-          {clip(err)}
-        </Text>
-      )}
+      {open && !!out && <SegText selectable style={styles.pre} text={clip(out)} />}
+      {!!err && <SegText selectable style={[styles.pre, styles.cmdErr]} text={clip(err)} />}
     </View>
   );
 }

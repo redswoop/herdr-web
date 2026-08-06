@@ -1,8 +1,29 @@
 import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { parseMd, type Block, type Inline } from '@herdr/shared';
 import { colors } from '../theme';
+import { splitInlineSegs, splitPlain } from './SegText';
 
+// Long paragraphs are split into stacked <Text> segments (see SegText.tsx) —
+// one unbounded <Text> past the iOS layer size limit draws as an empty box.
 function Inlines({
+  nodes,
+  onOpenFile,
+}: {
+  nodes: Inline[];
+  onOpenFile?: (path: string) => void;
+}) {
+  const segs = splitInlineSegs(nodes);
+  if (segs.length === 1) return <InlineSeg nodes={segs[0]} onOpenFile={onOpenFile} />;
+  return (
+    <View>
+      {segs.map((seg, i) => (
+        <InlineSeg key={i} nodes={seg} onOpenFile={onOpenFile} />
+      ))}
+    </View>
+  );
+}
+
+function InlineSeg({
   nodes,
   onOpenFile,
 }: {
@@ -67,7 +88,11 @@ function BlockView({
   if (block.type === 'code') {
     return (
       <ScrollView horizontal style={styles.codeBlock} nestedScrollEnabled>
-        <Text selectable style={styles.codeBlockText}>{block.text}</Text>
+        <View>
+          {splitPlain(block.text).map((s, i) => (
+            <Text key={i} selectable style={styles.codeBlockText}>{s}</Text>
+          ))}
+        </View>
       </ScrollView>
     );
   }
