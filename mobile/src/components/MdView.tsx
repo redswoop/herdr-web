@@ -24,6 +24,11 @@ function Inlines({
   );
 }
 
+// selectable is OFF in transcript text as of the black-box investigation:
+// the empty-bubble rendering matches selectable Text exactly (backgrounds and
+// non-selectable siblings draw; selectable glyphs don't), and selectable
+// swaps in a different iOS renderer with known blank-rendering bugs under
+// RN's new architecture. Copy lives on long-press at the bubble level.
 function InlineSeg({
   nodes,
   onOpenFile,
@@ -32,7 +37,7 @@ function InlineSeg({
   onOpenFile?: (path: string) => void;
 }) {
   return (
-    <Text selectable style={styles.base}>
+    <Text style={styles.base}>
       {nodes.map((n, i) => {
         switch (n.type) {
           case 'text':
@@ -93,7 +98,7 @@ function BlockView({
       <ScrollView horizontal style={styles.codeBlock} nestedScrollEnabled>
         <View>
           {splitPlain(wrapLongLines(block.text)).map((s, i) => (
-            <Text key={i} selectable style={styles.codeBlockText}>{s}</Text>
+            <Text key={i} style={styles.codeBlockText}>{s}</Text>
           ))}
         </View>
       </ScrollView>

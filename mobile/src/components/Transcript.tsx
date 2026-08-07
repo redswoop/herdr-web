@@ -6,6 +6,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import {
   AUX_LABEL,
   EPOCH_MS,
@@ -130,18 +131,26 @@ const EventNode = memo(function EventNode({
   if (ev.kind === 'interrupted') {
     return <Text style={styles.interrupt}>⏹ interrupted</Text>;
   }
+  // long-press copies the whole message — replaces per-glyph selection, which
+  // is disabled while the selectable/Fabric black-box bug is in play (MdView)
   if (ev.kind === 'user') {
     return (
-      <View style={[styles.msg, styles.user]}>
+      <Pressable
+        style={({ pressed }) => [styles.msg, styles.user, pressed && styles.copyPress]}
+        onLongPress={() => Clipboard.setStringAsync(ev.text)}
+      >
         <MdView src={ev.text} onOpenFile={onOpenFile} />
-      </View>
+      </Pressable>
     );
   }
   if (ev.kind === 'assistant') {
     return (
-      <View style={[styles.msg, styles.assistant]}>
+      <Pressable
+        style={({ pressed }) => [styles.msg, styles.assistant, pressed && styles.copyPress]}
+        onLongPress={() => Clipboard.setStringAsync(ev.text)}
+      >
         <MdView src={ev.text} onOpenFile={onOpenFile} />
-      </View>
+      </Pressable>
     );
   }
   return (
@@ -156,7 +165,7 @@ function Details({ label, body }: { label: string; body: string }) {
       <Pressable onPress={() => setOpen((o) => !o)}>
         <Text style={styles.auxSum}>{label}</Text>
       </Pressable>
-      {open && <SegText selectable style={styles.pre} text={body} />}
+      {open && <SegText style={styles.pre} text={body} />}
     </View>
   );
 }
@@ -225,7 +234,7 @@ function StepRow({ step, onOpenFile }: { step: Step; onOpenFile: (path: string) 
             {firstLine(step.text)}
           </Text>
         </Pressable>
-        {open && <SegText selectable style={styles.pre} text={clip(step.text)} />}
+        {open && <SegText style={styles.pre} text={clip(step.text)} />}
       </View>
     );
   }
@@ -246,11 +255,11 @@ function StepRow({ step, onOpenFile }: { step: Step; onOpenFile: (path: string) 
       </Pressable>
       {open && (
         <View>
-          {!!step.args && <SegText selectable style={styles.pre} text={clip(step.args)} />}
+          {!!step.args && <SegText style={styles.pre} text={clip(step.args)} />}
           {step.result !== null && (
             <>
               <Text style={styles.detailLabel}>result</Text>
-              <SegText selectable style={styles.pre} text={clip(step.result)} />
+              <SegText style={styles.pre} text={clip(step.result)} />
             </>
           )}
         </View>
@@ -280,8 +289,8 @@ function CommandPill({
           {label}
         </Text>
       </Pressable>
-      {open && !!out && <SegText selectable style={styles.pre} text={clip(out)} />}
-      {!!err && <SegText selectable style={[styles.pre, styles.cmdErr]} text={clip(err)} />}
+      {open && !!out && <SegText style={styles.pre} text={clip(out)} />}
+      {!!err && <SegText style={[styles.pre, styles.cmdErr]} text={clip(err)} />}
     </View>
   );
 }
@@ -316,9 +325,17 @@ const MineBubble = memo(function MineBubble({
   onOpenFile?: (path: string) => void;
 }) {
   // View (not Pressable) so message text stays selectable; hold-to-stop lives
-  // on the status line only.
+  // on the status line only; bubble-body long-press copies (the status Text
+  // captures its own long-press first, so stop and copy don't collide).
   return (
-    <View style={[styles.mine, cancellable && styles.mineCancellable]}>
+    <Pressable
+      style={({ pressed }) => [
+        styles.mine,
+        cancellable && styles.mineCancellable,
+        pressed && styles.copyPress,
+      ]}
+      onLongPress={() => Clipboard.setStringAsync(mine.text)}
+    >
       <MdView src={mine.text} onOpenFile={onOpenFile} />
       <Text
         style={styles.mineStatus}
@@ -328,7 +345,7 @@ const MineBubble = memo(function MineBubble({
         {cancellable ? 'hold to stop · ' : ''}
         {MINE_STATUS[mine.state] ?? ''}
       </Text>
-    </View>
+    </Pressable>
   );
 });
 
@@ -338,6 +355,7 @@ const styles = StyleSheet.create({
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   empty: { color: colors.sub, textAlign: 'center' },
   msg: { borderRadius: 14, padding: 12, maxWidth: '92%' },
+  copyPress: { opacity: 0.6 }, // long-press feedback: copying, not selecting
   user: { alignSelf: 'flex-end', backgroundColor: colors.surface3 },
   assistant: { alignSelf: 'flex-start', backgroundColor: colors.surface },
   interrupt: {

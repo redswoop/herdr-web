@@ -115,6 +115,8 @@ export default function SettingsScreen() {
       <Text style={styles.version}>
         Capra {APP_VERSION}
         {BUILD_NUMBER ? ` (${BUILD_NUMBER})` : ''}
+        {' · '}
+        {String(Constants.expoConfig?.extra?.gitSha ?? '?')}
       </Text>
     </View>
   );
