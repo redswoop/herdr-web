@@ -27,8 +27,16 @@ try {
   ({ md, pathish } = await import(
     `data:text/javascript;base64,${Buffer.from(outputFiles[0].text).toString('base64')}`
   ));
-} catch {
-  test('md suite skipped — node_modules not installed', { skip: true }, () => {});
+} catch (e) {
+  // Fail LOUDLY: a green-skip here once hid the entire suite behind a broken
+  // import. Machines that genuinely lack node_modules can opt out explicitly.
+  if (process.env.HERDR_TEST_ALLOW_MD_SKIP) {
+    test('md suite skipped — HERDR_TEST_ALLOW_MD_SKIP set', { skip: true }, () => {});
+  } else {
+    test('md suite failed to load its esbuild bundle', () => {
+      throw new Error(`run npm install, or set HERDR_TEST_ALLOW_MD_SKIP=1: ${e?.message ?? e}`);
+    });
+  }
 }
 const t = (name, fn) => test(name, { skip: !md }, fn);
 

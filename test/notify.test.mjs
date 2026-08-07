@@ -2,7 +2,7 @@
 // push service, a generated P-256 pair plays the browser subscription, and the
 // test decrypts what the coordinator sends — proving encryption, VAPID, the
 // debounce/coalesce/retract lifecycle, and question enrichment all work.
-import { test, before, after } from 'node:test';
+import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import crypto from 'node:crypto';
@@ -55,10 +55,32 @@ function decrypt(body) {
   return JSON.parse(pt.subarray(0, -1).toString()); // strip 0x02 pad
 }
 
-const tick = (ms = 60) => new Promise((r) => setTimeout(r, ms));
+const tick = (ms = 150) => new Promise((r) => setTimeout(r, ms));
+
+// Poll for arrival instead of sleeping a fixed budget — the fixed sleeps were
+// tight against the 25ms debounce + crypto + localhost HTTP on a loaded box.
+async function waitFor(cond, ms = 3000) {
+  const t0 = Date.now();
+  while (!cond()) {
+    if (Date.now() - t0 > ms) throw new Error('waitFor: condition never held');
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
+
+// Each test asserts against ONLY its own deliveries and its own store —
+// received[] is shared module state, and PushStore.init() reloads the subs
+// file, silently resurrecting earlier tests' subscriptions.
+beforeEach(() => {
+  received.length = 0;
+});
+async function freshStore() {
+  const store = await new PushStore().init();
+  for (const ep of [...store.subs.keys()]) await store.remove(ep);
+  return store;
+}
 
 test('coordinator: debounce, enrich, coalesce, retract — full round trip', async () => {
-  const store = await new PushStore().init();
+  const store = await freshStore();
   await store.add({
     endpoint: `http://127.0.0.1:${port}/sub1`,
     keys: { p256dh: b64u.enc(ua.getPublicKey()), auth: b64u.enc(authSecret) },
@@ -87,7 +109,7 @@ test('coordinator: debounce, enrich, coalesce, retract — full round trip', asy
 
   // a real block: fires after the window, enriched with actions
   co.onTransition({ paneId: 'w1:p1', agent: 'claude', cwd: '/x' }, 'blocked');
-  await tick();
+  await waitFor(() => received.length >= 1);
   assert.equal(received.length, 1);
   let msg = decrypt(received[0].body);
   assert.equal(msg.title, 'claude needs you');
@@ -102,7 +124,7 @@ test('coordinator: debounce, enrich, coalesce, retract — full round trip', asy
 
   // second agent blocks: coalesces into one summary
   co.onTransition({ paneId: 'w1:p2', agent: 'grok', cwd: '/y' }, 'blocked');
-  await tick();
+  await waitFor(() => received.length >= 2);
   msg = decrypt(received[1].body);
   assert.equal(msg.title, '2 agents need you');
   assert.equal(msg.body, 'claude, grok');
@@ -110,13 +132,11 @@ test('coordinator: debounce, enrich, coalesce, retract — full round trip', asy
   // both resolve: retraction clears the notification
   co.onTransition({ paneId: 'w1:p1', agent: 'claude', cwd: '/x' }, 'working');
   co.onTransition({ paneId: 'w1:p2', agent: 'grok', cwd: '/y' }, 'working');
-  await tick();
-  const last = decrypt(received.at(-1).body);
-  assert.equal(last.type, 'clear');
+  await waitFor(() => received.length >= 3 && decrypt(received.at(-1).body).type === 'clear');
 });
 
 test('permission without parsed options gets no answer buttons', async () => {
-  const store = await new PushStore().init();
+  const store = await freshStore();
   await store.add({
     endpoint: `http://127.0.0.1:${port}/sub2`,
     keys: { p256dh: b64u.enc(ua.getPublicKey()), auth: b64u.enc(authSecret) },
@@ -124,14 +144,15 @@ test('permission without parsed options gets no answer buttons', async () => {
   // screen parse failed → guessing digits could answer wrong; tap-to-open only
   const co = new Coordinator(store, async () => ({ kind: 'permission', tool: 'Bash', detail: '' }), 5);
   co.onTransition({ paneId: 'w1:p9', agent: 'claude', cwd: '/x' }, 'blocked');
-  await tick();
-  const msg = decrypt(received.at(-1).body);
+  await waitFor(() => received.length >= 1);
+  assert.equal(received.length, 1, 'exactly this test\'s subscription must receive it');
+  const msg = decrypt(received[0].body);
   assert.match(msg.body, /Bash/);
   assert.equal(msg.actions, undefined);
 });
 
 test('store: prunes a 410 subscription', async () => {
-  const store = await new PushStore().init();
+  const store = await freshStore();
   const gone = http.createServer((_, res) => res.writeHead(410).end());
   await new Promise((r) => gone.listen(0, '127.0.0.1', r));
   await store.add({

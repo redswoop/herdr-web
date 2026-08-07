@@ -69,6 +69,8 @@ const pane = (paneId, cwd) => ({
   revision: 1,
 });
 
+const prompts = []; // agent.prompt params recorded by the fake daemon
+
 function startDaemon(sock) {
   const srv = net.createServer((conn) => {
     let buf = '';
@@ -96,6 +98,10 @@ function startDaemon(sock) {
         }
         case 'agent.read':
           reply({ read: { text: 'idle screen\n' } });
+          break;
+        case 'agent.prompt':
+          prompts.push(msg.params);
+          reply({ ok: true });
           break;
         case 'events.subscribe':
           conn.write(`${JSON.stringify({ id: msg.id, result: { ok: true } })}\n`);
@@ -261,6 +267,28 @@ test('e2e: roster reflects the healed bindings', async () => {
   assert.equal(by.get('w1:pC')?.hasTranscript, false);
 });
 
+test('e2e: multi-byte UTF-8 survives a request-body chunk boundary', async () => {
+  // Regression: readBody used to toString() per chunk, turning a UTF-8
+  // sequence split across TCP chunks into U+FFFDs that JSON.parse accepts.
+  const text = `wide 🐐 chars é ünd ok `.repeat(4000); // ~100KB encoded
+  const body = Buffer.from(JSON.stringify({ text }));
+  let split = Math.floor(body.length / 2);
+  while ((body[split] & 0xc0) !== 0x80) split += 1; // land on a continuation byte
+  const status = await new Promise((resolve, reject) => {
+    const req = http.request(`${BASE}/api/agent/${enc('w1:pB')}/prompt`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+    }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
+    req.on('error', reject);
+    req.write(body.subarray(0, split));
+    setTimeout(() => { req.write(body.subarray(split)); req.end(); }, 50);
+  });
+  assert.equal(status, 200);
+  const got = prompts.find((p) => p.target === 'w1:pB');
+  assert.ok(got, 'daemon should have received the prompt');
+  assert.equal(got.text, text, 'prompt must arrive byte-identical, no U+FFFD mangling');
+});
+
 test('e2e: stream delivers a reply appended after connect', async () => {
   const t = await api(`agent/${enc('w1:pA')}/transcript`);
   const wait = sseWait(
@@ -276,4 +304,21 @@ test('e2e: stream delivers a reply appended after connect', async () => {
   const frame = await wait;
   const ev = frame.data.find((e) => e.kind === 'assistant');
   assert.equal(ev.text, 'late reply with `code`');
+});
+
+test('e2e: stream emits reset when the session file shrinks underneath it', async () => {
+  // rewind/compaction rewrites updates.jsonl smaller; the tail poll must tell
+  // the client to reload rather than emit garbage from a stale offset.
+  const t = await api(`agent/${enc('w1:pB')}/transcript`);
+  const wait = sseWait(
+    `agent/${enc('w1:pB')}/stream?offset=${t.offset}`,
+    (f) => f.event === 'reset',
+  );
+  await new Promise((r) => setTimeout(r, 300));
+  await fsp.writeFile(
+    path.join(home, '.grok', 'sessions', enc(cwdB), 'sess-b', 'updates.jsonl'),
+    updLine('sess-b', chunk('user_message_chunk', 'short')),
+  );
+  const frame = await wait;
+  assert.equal(frame.event, 'reset');
 });

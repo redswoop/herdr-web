@@ -355,3 +355,58 @@ test('grokScanSessions: binds the unclaimed dir created near process start', asy
 
   await fsp.rm(base, { recursive: true, force: true });
 });
+
+test('grokScanSessions: /clear long after launch still binds (created-after-start fallback)', async () => {
+  // The ±5min window around process start misses a session dir that /clear
+  // created 20 minutes in — but a clobbered registry plus that /clear used to
+  // re-blank the pane. Created-after-start is fair game; created-before is not.
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'herdr-grok-scan2-'));
+  const t0 = Date.now() - 30 * 60_000; // process started 30 min ago
+  await mkSession(base, 'stale-yesterday', { createdAt: t0 - 86_400_000, updates: '{"x":1}\n' });
+  await mkSession(base, 'cleared-into', { createdAt: t0 + 20 * 60_000, updates: '{"x":1}\n' });
+
+  const hit = await grokScanSessions(base, { claimed: new Set(), startedAt: t0 });
+  assert.equal(hit?.sessionId, 'cleared-into', 'must bind the post-launch session, not null');
+
+  // with only the stale session on disk, still refuse
+  const onlyStale = await grokScanSessions(base, {
+    claimed: new Set(['cleared-into']), startedAt: t0,
+  });
+  assert.equal(onlyStale, null);
+
+  await fsp.rm(base, { recursive: true, force: true });
+});
+
+// ---------- grok tool results that ship only rawOutput ----------
+
+test('grok tool_call_update falls back to rawOutput when content is absent', () => {
+  const done = (extra) => upd({
+    sessionUpdate: 'tool_call_update', status: 'completed', toolCallId: 'c1', ...extra,
+  });
+  // file/dir tools: {type, Content:{content}}
+  let [r] = grok.translate(done({
+    rawOutput: { type: 'ListDir', Content: { content: '- /home/x/\n  - a.js\n' } },
+  }));
+  assert.equal(r.text, '- /home/x/\n  - a.js\n');
+  // task tools: {type, Result:{output}}
+  [r] = grok.translate(done({
+    rawOutput: { type: 'TaskOutput', Result: { task_id: 't', output: 'build ok', exit_code: 0 } },
+  }));
+  assert.equal(r.text, 'build ok');
+  // todo tool: {type, TodosUpdated:{summary_for_prompt}}
+  [r] = grok.translate(done({
+    rawOutput: { type: 'Todo', TodosUpdated: { summary_for_prompt: '- [pending] x', todos: [] } },
+  }));
+  assert.equal(r.text, '- [pending] x');
+  // unknown shape: stringified, not blank
+  [r] = grok.translate(done({
+    rawOutput: { action: { type: 'search', query: 'q' }, id: 'a1', status: 'done' },
+  }));
+  assert.ok(r.text.includes('"search"'));
+  // content present still wins
+  [r] = grok.translate(done({
+    content: [{ type: 'content', content: { type: 'text', text: 'from content' } }],
+    rawOutput: { type: 'ListDir', Content: { content: 'from raw' } },
+  }));
+  assert.equal(r.text, 'from content');
+});

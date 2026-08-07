@@ -14,6 +14,12 @@ import {
 } from './lib/screen.js';
 import { PushStore, Coordinator } from './lib/notify.js';
 
+// A stray rejection (e.g. a background refresh path that missed a catch) must
+// not kill a daemon whose whole job is staying up — log loudly and carry on.
+process.on('unhandledRejection', (err) => {
+  console.error('[herdr-web] unhandled rejection:', err);
+});
+
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
 const args = process.argv.slice(2);
@@ -142,7 +148,11 @@ async function doRefreshRoster() {
     roster = { agents: [], workspaces: [], tabs: [], herdrDown: true, error: String(e.message ?? e), updatedAt: Date.now(), build: BUILD, bootedAt: BOOTED_AT };
   }
   const payload = `event: roster\ndata: ${JSON.stringify(roster)}\n\n`;
-  for (const res of rosterClients) res.write(payload);
+  for (const res of rosterClients) {
+    // A write throwing on a torn-down response would reject this promise,
+    // which no caller (setInterval, event debounce) catches.
+    try { res.write(payload); } catch { rosterClients.delete(res); }
+  }
 }
 
 let refreshTimer = null;
@@ -278,8 +288,12 @@ async function answerByNav(paneId, { option, feedback, kind }) {
   const targetN = option ?? inputOpt?.n;
   if (!menu.options.some((o) => o.n === targetN)) return null;
   const keys = [];
-  // typed text keeps focus in the input row — clear it or Enter commits junk
-  if (inputOpt?.selected) for (let i = 0; i < 100; i += 1) keys.push('Backspace');
+  // typed text keeps focus in the input row — clear it or Enter commits junk.
+  // Size the clear from the observed row content, not a fixed cap.
+  if (inputOpt?.selected) {
+    const n = Math.max(100, [...(inputOpt.label ?? '')].length + 20);
+    for (let i = 0; i < n; i += 1) keys.push('Backspace');
+  }
   const sel = (menu.options.find((o) => o.selected) ?? menu.options[0]).n;
   for (let i = 0; i < Math.abs(targetN - sel); i += 1) keys.push(targetN > sel ? 'Down' : 'Up');
   if (keys.length) {
@@ -289,7 +303,8 @@ async function answerByNav(paneId, { option, feedback, kind }) {
     if (!menu?.options.find((o) => o.n === targetN)?.selected) return null;
   }
   if (feedback != null) {
-    const chars = feedback.replace(/\s+/g, ' ').trim().split('')
+    // spread, not split(''): split would break astral chars into lone surrogates
+    const chars = [...feedback.replace(/\s+/g, ' ').trim()]
       .map((c) => (c === ' ' ? 'space' : c));
     if (chars.length) {
       await send(chars);
@@ -393,9 +408,12 @@ async function rewindOp(paneId, { op, index, option }) {
     await settle(900);
     const draft = composerText(await readScreen(paneId));
     if (draft) {
+      // clear count sized from the draft itself — a fixed cap strands the tail
+      // of a long restored message in the TUI composer
+      const n = Math.max(300, [...draft].length + 40);
       await agentRpc('agent.send_keys', {
         target: paneId,
-        keys: Array.from({ length: 300 }, () => 'Backspace'),
+        keys: Array.from({ length: n }, () => 'Backspace'),
       });
     }
     return { ok: true, draft: draft || null };
@@ -547,7 +565,11 @@ async function decodeClaudeProjectDir(encoded) {
     }
     let comp = '';
     for (let j = i; j < parts.length && !found; j += 1) {
-      comp = comp ? `${comp}-${parts[j]}` : parts[j];
+      // strict slice-join: a `--` run yields an empty part, and the old
+      // `comp ? … : parts[j]` treated that as "not started yet", making a
+      // component with a leading dash (-home-…) undecodable
+      comp = j === i ? parts[j] : `${comp}-${parts[j]}`;
+      if (!comp) continue; // no empty path components; '' only arises mid-accumulation
       const cand = path.join(base, comp);
       try {
         if ((await fsp.stat(cand)).isDirectory()) await walk(cand, j + 1);
@@ -987,7 +1009,25 @@ const UPLOAD_EXT = {
   'application/octet-stream': '.bin',
 };
 
+// Pastes are ephemeral but the files never were: without a sweep the dir
+// grows without bound on a box that doesn't reboot. A day is plenty — the
+// referencing prompt has long been consumed by then.
+const UPLOAD_TTL_MS = 24 * 60 * 60 * 1000;
+async function sweepUploads() {
+  let names;
+  try { names = await fsp.readdir(UPLOAD_DIR); } catch { return; }
+  const cutoff = Date.now() - UPLOAD_TTL_MS;
+  for (const name of names) {
+    const file = path.join(UPLOAD_DIR, name);
+    try {
+      if ((await fsp.stat(file)).mtimeMs < cutoff) await fsp.unlink(file);
+    } catch { /* raced another sweep or vanished — fine */ }
+  }
+}
+sweepUploads();
+
 async function saveUpload(req) {
+  sweepUploads(); // fire-and-forget; a paste is a rare enough trigger
   const ext = UPLOAD_EXT[(req.headers['content-type'] ?? '').split(';')[0].trim()];
   if (!ext) throw httpErr(415, `content-type must be one of: ${Object.keys(UPLOAD_EXT).join(', ')}`);
   const chunks = [];
@@ -1021,11 +1061,17 @@ function sendJson(res, status, obj) {
 }
 
 async function readBody(req) {
-  let body = '';
+  // Concat buffers before decoding: per-chunk toString() mangles a multi-byte
+  // UTF-8 sequence that straddles a chunk boundary into U+FFFDs — and since
+  // U+FFFD is legal JSON, the corruption sails through parse to the agent.
+  const chunks = [];
+  let size = 0;
   for await (const chunk of req) {
-    body += chunk;
-    if (body.length > 1_000_000) throw httpErr(413, 'body too large');
+    size += chunk.length;
+    if (size > 1_000_000) throw httpErr(413, 'body too large');
+    chunks.push(chunk);
   }
+  const body = Buffer.concat(chunks).toString('utf8');
   return body ? JSON.parse(body) : {};
 }
 
