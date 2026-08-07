@@ -19,6 +19,16 @@ function clone(x) {
   return JSON.parse(JSON.stringify(x));
 }
 
+// Deferred mutations (status flips, delayed events) must die with the state
+// they were scheduled against: a 100ms "go idle" timer from test N firing
+// after test N+1's /__mock/reset silently corrupts the fresh roster — the
+// exact cross-test flake this guards against.
+let epoch = 0;
+function later(fn, ms) {
+  const e = epoch;
+  setTimeout(() => { if (e === epoch) fn(); }, ms);
+}
+
 /** @type {import('../../shared/src/types.ts').Roster} */
 let roster = clone(readJson('roster.json'));
 /** @type {Record<string, object[]>} */
@@ -160,6 +170,7 @@ function appendEvents(paneId, events) {
 }
 
 function resetState() {
+  epoch += 1; // orphan every pending later() from the previous test
   roster = clone(readJson('roster.json'));
   transcripts['w1:p1'] = clone(readJson('transcript-w1p1.json'));
   transcripts['w1:p2'] = clone(readJson('transcript-w1p2.json'));
@@ -412,7 +423,7 @@ const server = http.createServer(async (req, res) => {
       if (text.trim().startsWith('/')) {
         setAgentStatus(paneId, 'working');
         // land command event after a short delay so dialog arm can observe
-        setTimeout(() => {
+        later(() => {
           appendEvents(paneId, [
             { kind: 'command', name: text.trim().split(/\s+/)[0], text: text.trim().slice(text.trim().split(/\s+/)[0].length).trim() },
           ]);
@@ -422,12 +433,15 @@ const server = http.createServer(async (req, res) => {
       }
       setAgentStatus(paneId, 'working');
       // confirm as session-file user event shortly after
-      setTimeout(() => {
+      later(() => {
         appendEvents(paneId, [
           { kind: 'user', text, ts: new Date().toISOString(), msgId: `u-${Date.now()}` },
         ]);
       }, 50);
-      setTimeout(() => {
+      // '[no-reply]' prompts stay working forever — interrupt specs need a
+      // deterministic cancellable window, not a 200ms race
+      if (text.includes('[no-reply]')) return sendJson(res, 200, { ok: true });
+      later(() => {
         appendEvents(paneId, [
           {
             kind: 'assistant',
@@ -450,7 +464,7 @@ const server = http.createServer(async (req, res) => {
       }
       blocked[paneId] = { kind: 'none' };
       setAgentStatus(paneId, 'working');
-      setTimeout(() => setAgentStatus(paneId, 'idle'), 100);
+      later(() => setAgentStatus(paneId, 'idle'), 100);
       return sendJson(res, 200, { ok: true });
     }
 

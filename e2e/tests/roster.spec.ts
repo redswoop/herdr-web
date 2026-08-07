@@ -31,18 +31,22 @@ test.describe('roster', () => {
 
   test('collapse group and persist across reload', async ({ page }) => {
     await openApp(page);
-    // workspace mode: collapse first group
-    const groupHead = page.locator('.group-head').first();
-    await groupHead.click();
-    // agents inside first group should hide (fix-auth is in w1)
-    // after collapse, session buttons under that group gone — check localStorage key format
-    const closed = await page.evaluate(() => localStorage.getItem('herdr.groupsClosed'));
-    expect(closed).toBeTruthy();
-    expect(closed!).toMatch(/workspace:/);
+    // scope to the session rail — wide mode also shows fix-auth as an
+    // overview card, which collapsing the rail group must not (and does not) hide
+    const rail = page.getByRole('navigation');
+    const fixAuth = rail.getByRole('button', { name: /fix-auth/i }).first();
+    await expect(fixAuth).toBeVisible();
+    // assert the UI actually collapses, not just the storage side-effect —
+    // the old localStorage-only check survived a broken collapse
+    await rail.locator('.group-head').first().click();
+    await expect(fixAuth).toBeHidden();
     await page.reload();
     await expect(page.getByRole('heading', { name: /herd/i }).first()).toBeVisible();
-    const closed2 = await page.evaluate(() => localStorage.getItem('herdr.groupsClosed'));
-    expect(closed2).toBe(closed);
+    // the collapse persisted: still hidden after reload
+    await expect(rail.getByRole('button', { name: /fix-auth/i })).toBeHidden();
+    // and expanding brings it back
+    await rail.locator('.group-head').first().click();
+    await expect(rail.getByRole('button', { name: /fix-auth/i }).first()).toBeVisible();
   });
 
   test('herdrDown shows unreachable empty state', async ({ page }) => {

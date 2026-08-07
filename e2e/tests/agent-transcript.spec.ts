@@ -34,6 +34,28 @@ test.describe('agent transcript', () => {
     });
   });
 
+  test('clicking the prompt bubble body does NOT interrupt; the status line does', async ({ page }) => {
+    // regression (71567d8 parity): selecting text in your own last prompt used
+    // to fire the whole-bubble click handler and Ctrl-C the agent
+    await openAgent(page, 'w1:p1');
+    const ta = page.locator('textarea').first();
+    await ta.fill('long running question [no-reply]');
+    await page.getByRole('button', { name: 'send' }).click();
+    const bubble = page.locator('.msg.user.cancellable').first();
+    await expect(bubble).toBeVisible();
+
+    // click the bubble body (the markdown span) — must not interrupt
+    await bubble.locator('span').first().click();
+    let log = await mockLog();
+    expect(log.prompts.some((p: any) => p.interrupt)).toBeFalsy();
+
+    // click the status line — this is the interrupt affordance
+    await bubble.locator('.sent-status').click();
+    await expect
+      .poll(async () => (await mockLog()).prompts.some((p: any) => p.interrupt), { timeout: 8_000 })
+      .toBeTruthy();
+  });
+
   test('file path link opens file viewer', async ({ page }) => {
     await openAgent(page, 'w1:p1');
     // assistant text has pathish link

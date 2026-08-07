@@ -1,6 +1,7 @@
 {
   "name": "herdr",
   "private": true,
+  "type": "module",
   "workspaces": [
     "web",
     "mobile",
@@ -8,8 +9,8 @@
   ],
   "scripts": {
     "check": "npm run check -w @herdr/shared && npm run check -w herdr-web-ui",
-    "test": "npm run test -w @herdr/shared && npm run test:server",
-    "test:unit": "npm run test -w @herdr/shared",
+    "test": "npm run test:unit && npm run test:server",
+    "test:unit": "npm run test -w @herdr/shared && npm run test -w capra",
     "test:server": "node --test test/*.test.mjs",
     "test:e2e": "playwright test -c e2e/playwright.config.mjs",
     "test:e2e:ui": "playwright test -c e2e/playwright.config.mjs --ui",
