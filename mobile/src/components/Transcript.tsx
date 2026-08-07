@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import {
   FlatList,
   Pressable,
@@ -117,7 +117,10 @@ function WorkingPill() {
   );
 }
 
-function EventNode({
+// memo'd: `ev` objects are stable references across SSE batches (applyEvents
+// copies the array, not the events) and onOpenFile is useCallback'd upstream —
+// so streaming re-renders skip every already-rendered row.
+const EventNode = memo(function EventNode({
   ev,
   onOpenFile,
 }: {
@@ -144,7 +147,7 @@ function EventNode({
   return (
     <Details label={AUX_LABEL[ev.kind] ?? ev.kind} body={clip(ev.text)} />
   );
-}
+});
 
 function Details({ label, body }: { label: string; body: string }) {
   const [open, setOpen] = useState(false);
@@ -283,7 +286,7 @@ function CommandPill({
   );
 }
 
-function TurnMeta({
+const TurnMeta = memo(function TurnMeta({
   dur,
   tok,
   ctx,
@@ -299,9 +302,9 @@ function TurnMeta({
   ].filter(Boolean);
   if (!parts.length) return null;
   return <Text style={styles.turnMeta}>{parts.join(' · ')}</Text>;
-}
+});
 
-function MineBubble({
+const MineBubble = memo(function MineBubble({
   mine,
   cancellable,
   onInterrupt,
@@ -327,7 +330,7 @@ function MineBubble({
       </Text>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   list: { flex: 1 },

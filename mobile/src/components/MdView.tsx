@@ -1,3 +1,4 @@
+import { memo, useMemo } from 'react';
 import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { parseMd, type Block, type Inline } from '@herdr/shared';
 import { colors } from '../theme';
@@ -123,14 +124,18 @@ function BlockView({
   return <Inlines nodes={block.inlines} onOpenFile={onOpenFile} />;
 }
 
-export function MdView({
+// memo + useMemo are load-bearing here: every SSE batch re-renders the whole
+// mounted list, and re-running parseMd on every visible bubble several times
+// a second drops frames exactly while the user is typing. `src` is a stable
+// string, so memo hits even though parent node objects are rebuilt per batch.
+export const MdView = memo(function MdView({
   src,
   onOpenFile,
 }: {
   src: string;
   onOpenFile?: (path: string) => void;
 }) {
-  const blocks = parseMd(src);
+  const blocks = useMemo(() => parseMd(src), [src]);
   return (
     <View style={styles.wrap}>
       {blocks.map((b, i) => (
@@ -140,7 +145,7 @@ export function MdView({
       ))}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   wrap: { gap: 6 },
