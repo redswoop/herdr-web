@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { useURL } from 'expo-linking';
 import { hydrateKv, initNativePlatform } from './platform.native';
-import { adoptUrlSettings, loadSettings } from './settings-store';
+import { adoptDeepLink, adoptUrlSettings, loadSettings } from './settings-store';
 import { colors } from './theme';
 
 interface BootCtx {
@@ -35,6 +36,18 @@ export function BootProvider({ children }: { children: ReactNode }) {
     initNativePlatform({ baseUrl: s.baseUrl, token: s.token || null });
     setGen((g) => g + 1);
   }, []);
+
+  // capra://settings?server=…&token=… — QR onboarding / prod↔canary switch.
+  // useURL covers both the cold-start URL and links tapped while running;
+  // gated on ready so adoption always lands on hydrated storage. adoptDeepLink
+  // returns false for unchanged values, so re-fires of the same URL are no-ops.
+  const url = useURL();
+  useEffect(() => {
+    if (!ready || !url) return;
+    adoptDeepLink(url).then((changed) => {
+      if (changed) remount();
+    });
+  }, [ready, url, remount]);
 
   if (!ready) {
     return (

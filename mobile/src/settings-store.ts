@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import * as ExpoLinking from 'expo-linking';
 import * as SecureStore from 'expo-secure-store';
 
 const URL_KEY = 'herdr.serverUrl';
@@ -29,10 +30,37 @@ const store =
       };
 
 /**
+ * Native only: adopt `capra://settings?server=…&token=…` — the QR /
+ * "open in Capra" onboarding, and the prod↔canary switch. Either param may
+ * appear alone (server-only links re-point an already-enrolled phone).
+ * Returns true when anything changed so the caller can remount against the
+ * new API config. Web has its own ?server= flow in adoptUrlSettings.
+ */
+export async function adoptDeepLink(url: string): Promise<boolean> {
+  if (Platform.OS === 'web') return false;
+  let params: Record<string, unknown>;
+  try {
+    params = ExpoLinking.parse(url).queryParams ?? {};
+  } catch {
+    return false;
+  }
+  const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  const server = str(params.server);
+  const token = str(params.token);
+  if (!server && !token) return false;
+
+  const cur = await loadSettings();
+  const next = { baseUrl: server ?? cur.baseUrl, token: token ?? cur.token };
+  if (next.baseUrl === cur.baseUrl && next.token === cur.token) return false;
+  await saveSettings(next);
+  return true;
+}
+
+/**
  * Web only: seed settings from `?server=…&token=…` so the RNW audition is a
  * single clickable link instead of a hand-typed settings screen. Consumed
  * once — the params are stripped from the URL so a reload/share doesn't carry
- * the token around. No-op on native (deep links are a P3 concern).
+ * the token around.
  */
 export async function adoptUrlSettings(): Promise<void> {
   if (Platform.OS !== 'web') return;

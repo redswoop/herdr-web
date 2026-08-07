@@ -20,6 +20,7 @@
     "build:web": "npm run build -w herdr-web-ui"
   },
   "devDependencies": {
-    "@playwright/test": "^1.62.1"
+    "@playwright/test": "^1.62.1",
+    "qrcode-terminal": "^0.12.0"
   }
 }
