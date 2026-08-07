@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { adapterFor, classifyBlocked, readEvents } from '../lib/adapters.js';
+import { adapterFor, classifyBlocked, grokScanSessions, readEvents } from '../lib/adapters.js';
 
 const grok = adapterFor('grok');
 const claude = adapterFor('claude');
@@ -296,4 +296,62 @@ test('readEvents: unparseable lines are skipped, not fatal', async () => {
   const r = await readEvents(echoAdapter, file, 0);
   assert.deepEqual(r.events.map((e) => e.text), ['a', 'b']);
   await fsp.rm(dir, { recursive: true, force: true });
+});
+
+// ---------- grok session correlation fallback ----------
+
+test('grok user chunks: harness-injected <system-reminder> turns are dropped', () => {
+  assert.deepEqual(grok.translate(upd({
+    sessionUpdate: 'user_message_chunk',
+    content: { type: 'text', text: '<system-reminder>\nBackground task "call-1" finished\n</system-reminder>' },
+  })), []);
+});
+
+// Mirrors the real failure: grok rewrites active_sessions.json wholesale on
+// every launch, so a concurrent session's entry vanishes while its process
+// (and session dir) live on. The scan must bind the pane to its dir anyway.
+const mkSession = async (base, id, { createdAt, updates = '', chat = '' } = {}) => {
+  const dir = path.join(base, id);
+  await fsp.mkdir(dir, { recursive: true });
+  await fsp.writeFile(path.join(dir, 'summary.json'), JSON.stringify({
+    info: { id }, created_at: new Date(createdAt).toISOString(),
+  }));
+  if (updates) await fsp.writeFile(path.join(dir, 'updates.jsonl'), updates);
+  if (chat) await fsp.writeFile(path.join(dir, 'chat_history.jsonl'), chat);
+  return dir;
+};
+
+test('grokScanSessions: binds the unclaimed dir created near process start', async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'herdr-grok-scan-'));
+  const t0 = Date.now();
+  await mkSession(base, 'old-one', { createdAt: t0 - 86_400_000, updates: '{"x":1}\n' });
+  await mkSession(base, 'claimed-one', { createdAt: t0 - 30_000, updates: '{"x":1}\n' });
+  await mkSession(base, 'mine', { createdAt: t0 - 60_000, chat: '{"type":"system"}\n' });
+
+  // near-start window: only 'mine' qualifies (claimed excluded, old-one far)
+  const hit = await grokScanSessions(base, {
+    claimed: new Set(['claimed-one']),
+    startedAt: t0,
+  });
+  assert.equal(hit.sessionId, 'mine');
+  assert.ok(hit.file.endsWith('chat_history.jsonl')); // fresh session, no updates yet
+
+  // known start but nothing near it → refuse rather than bind an old session
+  const miss = await grokScanSessions(base, {
+    claimed: new Set(['claimed-one', 'mine']),
+    startedAt: t0,
+  });
+  assert.equal(miss, null);
+
+  // unknown start → best effort: most recently written transcript
+  const best = await grokScanSessions(base, { claimed: new Set() });
+  assert.ok(best.sessionId);
+
+  // a dir without summary.json never binds
+  await fsp.mkdir(path.join(base, 'no-summary'), { recursive: true });
+  await fsp.writeFile(path.join(base, 'no-summary', 'updates.jsonl'), '{"x":1}\n');
+  const scan = await grokScanSessions(base, { claimed: new Set(), startedAt: t0 + 86_400_000 });
+  assert.equal(scan, null);
+
+  await fsp.rm(base, { recursive: true, force: true });
 });

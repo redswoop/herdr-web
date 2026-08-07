@@ -222,7 +222,11 @@ async function findSessionFor({ paneId, agent, cwd, title }) {
   if (!adapter || !cwd) return null;
   const hints = { title: title ?? '', sessionId: pinnedSessions.get(paneId) };
   if (agent === 'claude') hints.startedAfter = (await paneProcess(paneId, agent)).startedAt;
-  if (agent === 'grok') hints.pid = (await paneProcess(paneId, agent)).pid;
+  if (agent === 'grok') {
+    const p = await paneProcess(paneId, agent);
+    hints.pid = p.pid;
+    hints.startedAt = p.startedAt;
+  }
   try {
     return await adapter.find(cwd, hints);
   } catch {
