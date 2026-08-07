@@ -1,144 +1,25 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  AUX_LABEL,
+  EPOCH_MS,
+  HERDING,
+  MINE_STATUS,
+  buildNodes,
+  clip,
+  firstLine,
+  fmtDur,
+  fmtTok,
+  stepFile,
+  stepSummary,
+  type Node,
+  type Step,
+} from '@herdr/shared';
 import { esc, md } from '../md';
 import type { Item, Mine, TEvent } from '../types';
 
-const AUX_LABEL: Record<string, string> = {
-  tool_result: '📤 result',
-  note: 'ℹ️ note',
-  salvage: '⏹ salvaged from screen',
-};
-
-/** timestamps below this are local monotonic counters, not epoch ms */
-const EPOCH_MS = 1e12;
-
-type Step =
-  | { type: 'thought'; key: number; text: string }
-  | { type: 'tool'; key: number; name: string; id?: string; input: unknown; args: string; result: string | null }
-  | { type: 'result'; key: number; text: string };
-
-type Node =
-  | { type: 'item'; key: string; item: Item }
-  | { type: 'group'; key: string; steps: Step[]; startAt: number; endAt: number }
-  | { type: 'meta'; key: string; dur: number | null; tok: number; ctx: number | null }
-  | { type: 'command'; key: string; name: string; args: string; out: string; err: string };
-
-/**
- * Collapse each run of thought/tool_use/tool_result events into one activity
- * group (results paired to their calls by id), and append a stats footer
- * (elapsed · tokens · context) after each finished turn. Turn = user prompt
- * up to the next one; stats only render when the session file carries real
- * timestamps/usage (claude does, grok doesn't).
- */
-function buildNodes(items: Item[], working: boolean): Node[] {
-  const nodes: Node[] = [];
-  let group: { key: string; steps: Step[]; startAt: number; endAt: number } | null = null;
-  let turn: {
-    key: string;
-    startAt: number;
-    endAt: number;
-    out: Map<string, number>;
-    ctx: number | null;
-    sawWork: boolean;
-  } | null = null;
-
-  const flushGroup = () => {
-    if (group) nodes.push({ type: 'group', ...group });
-    group = null;
-  };
-  const flushTurn = () => {
-    if (!turn) return;
-    const dur =
-      turn.startAt > EPOCH_MS && turn.endAt > turn.startAt ? turn.endAt - turn.startAt : null;
-    let tok = 0;
-    turn.out.forEach((n) => (tok += n));
-    if (turn.sawWork && ((dur !== null && dur >= 1000) || tok > 0)) {
-      nodes.push({ type: 'meta', key: `t${turn.key}`, dur, tok, ctx: turn.ctx });
-    }
-    turn = null;
-  };
-
-  for (const it of items) {
-    const ev = it.type === 'event' ? it.ev : null;
-    const isPrompt = it.type === 'mine' || ev?.kind === 'user';
-
-    if (isPrompt) {
-      flushGroup();
-      flushTurn();
-      turn = {
-        key: it.type === 'mine' ? `m${it.mine.key}` : `e${(it as { key: number }).key}`,
-        startAt: it.at,
-        endAt: it.at,
-        out: new Map(),
-        ctx: null,
-        sawWork: false,
-      };
-      nodes.push({ type: 'item', key: turn.key, item: it });
-      continue;
-    }
-
-    // ev is non-null from here (mine was handled above)
-    const e = ev as TEvent;
-    const key = (it as { key: number }).key;
-
-    // slash commands sit outside the turn: no sawWork, no stats
-    if (e.kind === 'command' || e.kind === 'command_out' || e.kind === 'command_err') {
-      flushGroup();
-      if (e.kind === 'command') {
-        nodes.push({ type: 'command', key: `c${key}`, name: e.name ?? '', args: e.text, out: '', err: '' });
-      } else {
-        let prev = nodes[nodes.length - 1];
-        if (prev?.type !== 'command') {
-          prev = { type: 'command', key: `c${key}`, name: '', args: '', out: '', err: '' };
-          nodes.push(prev);
-        }
-        const field = e.kind === 'command_out' ? 'out' : 'err';
-        prev[field] += (prev[field] ? '\n' : '') + e.text;
-      }
-      continue;
-    }
-
-    if (turn) {
-      if (it.at > EPOCH_MS && it.at > turn.endAt) turn.endAt = it.at;
-      if (e.usage) {
-        const id = e.msgId ?? `k${key}`;
-        turn.out.set(id, Math.max(turn.out.get(id) ?? 0, e.usage.out));
-        turn.ctx = e.usage.ctx;
-      }
-      if (e.kind !== 'interrupted' && e.kind !== 'usage') turn.sawWork = true;
-    }
-
-    // pure accounting (grok's per-turn token totals) — nothing to render
-    if (e.kind === 'usage') continue;
-
-    if (e.kind === 'thought' || e.kind === 'tool_use' || e.kind === 'tool_result') {
-      if (e.kind === 'tool_result' && e.id && group) {
-        const call = group.steps.find(
-          (s): s is Step & { type: 'tool' } => s.type === 'tool' && s.id === e.id && s.result === null,
-        );
-        if (call) {
-          call.result = e.text;
-          group.endAt = Math.max(group.endAt, it.at);
-          continue;
-        }
-      }
-      if (!group) group = { key: `g${key}`, steps: [], startAt: it.at, endAt: it.at };
-      group.endAt = Math.max(group.endAt, it.at);
-      if (e.kind === 'thought') group.steps.push({ type: 'thought', key, text: e.text });
-      else if (e.kind === 'tool_use') {
-        group.steps.push({
-          type: 'tool', key, name: e.name ?? 'tool', id: e.id, input: e.input, args: e.text, result: null,
-        });
-      } else group.steps.push({ type: 'result', key, text: e.text });
-      continue;
-    }
-
-    flushGroup();
-    nodes.push({ type: 'item', key: `e${key}`, item: it });
-  }
-  flushGroup();
-  if (!working) flushTurn();
-  return nodes;
-}
+// The transcript view-model (buildNodes, step summaries, labels) lives in
+// @herdr/shared — mobile renders the exact same nodes. Add tool knowledge
+// there, not here.
 
 export function Transcript({
   items,
@@ -237,17 +118,6 @@ export function Transcript({
 
 /* ---------- working pill ---------- */
 
-const HERDING = [
-  'herding',
-  'mustering',
-  'rounding up',
-  'counting sheep',
-  'nudging strays',
-  'whistling the dog',
-  'minding the flock',
-  'opening the gate',
-];
-
 /** Instant feedback on submit: fills the spot where the live activity group
  *  will appear once the first session-file records land, so the handoff reads
  *  as the same pill picking up real progress. */
@@ -296,7 +166,7 @@ const EventNode = memo(function EventNode({ ev }: { ev: TEvent }) {
 
 /* ---------- activity group ---------- */
 
-function ActivityGroup({
+const ActivityGroup = memo(function ActivityGroup({
   node,
   live,
   onOpenFile,
@@ -353,7 +223,7 @@ function ActivityGroup({
       )}
     </div>
   );
-}
+});
 
 function StepRow({ step, onOpenFile }: { step: Step; onOpenFile: (path: string) => void }) {
   const [open, setOpen] = useState(false);
@@ -424,7 +294,17 @@ function StepRow({ step, onOpenFile }: { step: Step; onOpenFile: (path: string) 
 
 /** A slash command run in the TUI (`/model`, `/compact`, …); stdout expands
  *  on tap, errors render expanded — yellow bold, like claude itself. */
-function CommandPill({ name, args, out, err }: { name: string; args: string; out: string; err: string }) {
+const CommandPill = memo(function CommandPill({
+  name,
+  args,
+  out,
+  err,
+}: {
+  name: string;
+  args: string;
+  out: string;
+  err: string;
+}) {
   const [open, setOpen] = useState(false);
   const label = [name || 'command output', args].filter(Boolean).join(' ');
   return (
@@ -442,9 +322,17 @@ function CommandPill({ name, args, out, err }: { name: string; args: string; out
       {err && <pre className="cmd-err" dangerouslySetInnerHTML={{ __html: esc(clip(err)) }} />}
     </div>
   );
-}
+});
 
-function TurnMeta({ dur, tok, ctx }: { dur: number | null; tok: number; ctx: number | null }) {
+const TurnMeta = memo(function TurnMeta({
+  dur,
+  tok,
+  ctx,
+}: {
+  dur: number | null;
+  tok: number;
+  ctx: number | null;
+}) {
   const parts = [
     dur !== null ? fmtDur(dur) : null,
     tok > 0 ? `${fmtTok(tok)} tokens` : null,
@@ -452,120 +340,11 @@ function TurnMeta({ dur, tok, ctx }: { dur: number | null; tok: number; ctx: num
   ].filter(Boolean);
   if (!parts.length) return null;
   return <div className="turn-meta">{parts.join(' · ')}</div>;
-}
-
-/* ---------- helpers ---------- */
-
-function clip(text: string): string {
-  return text.length > 20_000 ? `${text.slice(0, 20_000)}\n… [truncated]` : text;
-}
-
-function firstLine(text: string): string {
-  const l = text.trimStart();
-  const nl = l.indexOf('\n');
-  return nl === -1 ? l : l.slice(0, nl);
-}
-
-/** last two path segments — enough to recognize a file in a step row */
-function lastSegs(p: string): string {
-  return p.split('/').filter(Boolean).slice(-2).join('/');
-}
-
-/** the file a tool call touched, when it's unambiguous — powers tap-to-view.
- *  Covers claude tool names (CamelCase) and grok's (snake_case). */
-function stepFile(name: string, input: unknown): string | null {
-  const i = (input ?? {}) as Record<string, unknown>;
-  const s = (v: unknown) => (typeof v === 'string' ? v : '');
-  switch (name) {
-    case 'Read':
-    case 'Write':
-    case 'Edit':
-    case 'NotebookEdit':
-    case 'read_file':
-    case 'write':
-    case 'search_replace':
-      return s(i.file_path) || s(i.path) || s(i.notebook_path) || s(i.target_file) || null;
-    default:
-      return null;
-  }
-}
-
-/** one-line gist of a tool call — the command, the file, the pattern */
-function stepSummary(name: string, input: unknown, args: string): string {
-  const i = (input ?? {}) as Record<string, unknown>;
-  const s = (v: unknown) => (typeof v === 'string' ? v : '');
-  switch (name) {
-    case 'Bash':
-    case 'run_terminal_command':
-      return firstLine(s(i.command)) || s(i.description);
-    case 'Read':
-    case 'Write':
-    case 'Edit':
-    case 'NotebookEdit':
-    case 'read_file':
-    case 'write':
-    case 'search_replace':
-      return lastSegs(s(i.file_path) || s(i.path) || s(i.notebook_path) || s(i.target_file));
-    case 'Grep':
-    case 'Glob':
-    case 'grep': {
-      const where = lastSegs(s(i.path) || s(i.glob));
-      return [s(i.pattern), where].filter(Boolean).join(' in ');
-    }
-    case 'list_dir':
-      return lastSegs(s(i.target_directory));
-    case 'Agent':
-    case 'Task':
-    case 'spawn_subagent':
-      return s(i.description) || firstLine(s(i.prompt)).slice(0, 100);
-    case 'WebFetch':
-    case 'web_fetch':
-      return s(i.url);
-    case 'WebSearch':
-      return s(i.query);
-    case 'Skill':
-      return [s(i.skill), s(i.args)].filter(Boolean).join(' ');
-    case 'TodoWrite':
-    case 'todo_write':
-      return 'update todo list';
-    case 'AskUserQuestion':
-    case 'ask_user_question': {
-      const qs = i.questions;
-      const q = Array.isArray(qs) ? (qs[0] as { question?: string })?.question : '';
-      return s(q) || 'ask a question';
-    }
-    default: {
-      const first = Object.values(i).find((v) => typeof v === 'string' && v.trim());
-      return first ? firstLine(first as string) : firstLine(args);
-    }
-  }
-}
-
-function fmtDur(ms: number): string {
-  const sec = Math.round(ms / 1000);
-  if (sec < 60) return `${sec}s`;
-  const m = Math.floor(sec / 60);
-  if (m < 60) return `${m}m ${String(sec % 60).padStart(2, '0')}s`;
-  return `${Math.floor(m / 60)}h ${m % 60}m`;
-}
-
-function fmtTok(n: number): string {
-  if (n < 1000) return `${n}`;
-  if (n < 10_000) return `${(n / 1000).toFixed(1)}k`;
-  return `${Math.round(n / 1000)}k`;
-}
+});
 
 /* ---------- prompt bubble ---------- */
 
-const MINE_STATUS: Record<Mine['state'], string> = {
-  sending: '· sending',
-  sent: '✓ sent',
-  confirmed: '✓',
-  stopping: '⏹ interrupting…',
-  stopped: '⏹ interrupted',
-};
-
-function MineBubble({
+const MineBubble = memo(function MineBubble({
   mine,
   cancellable,
   onInterrupt,
@@ -574,13 +353,14 @@ function MineBubble({
   cancellable: boolean;
   onInterrupt: () => void;
 }) {
+  // interrupt lives on the status line ONLY: a click anywhere else in the
+  // bubble is text selection, not intent (same fix as mobile, 71567d8)
   return (
-    <div
-      className={`msg user ${cancellable ? 'cancellable' : ''}`}
-      onClick={cancellable ? onInterrupt : undefined}
-    >
+    <div className={`msg user ${cancellable ? 'cancellable' : ''}`}>
       <span dangerouslySetInnerHTML={{ __html: md(mine.text) }} />
-      <div className="sent-status">{MINE_STATUS[mine.state]}</div>
+      <div className="sent-status" onClick={cancellable ? onInterrupt : undefined}>
+        {MINE_STATUS[mine.state]}
+      </div>
     </div>
   );
-}
+});

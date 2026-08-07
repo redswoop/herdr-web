@@ -33,6 +33,21 @@ describe('parseMd + md()', () => {
     expect(html).toContain('data-file="/home/armen/foo.ts"');
   });
 
+  it('escapes quotes in bare-URL hrefs (attribute-injection regression)', () => {
+    // the bare-URL matcher admits `"` — unescaped, this injects a live
+    // onfocus handler into the transcript's origin
+    const html = md('bare https://a.com/"onfocus="alert(1)" x');
+    expect(html).not.toContain('"onfocus="');
+    // shed() trims the trailing quote; everything kept must arrive escaped
+    expect(html).toContain('href="https://a.com/&quot;onfocus=&quot;alert(1)"');
+  });
+
+  it('escapes quotes in [text](url) hrefs', () => {
+    const html = md('[click](https://a.com/?q="onmouseover="x")');
+    expect(html).not.toContain('"onmouseover="');
+    expect(html).toContain('&quot;onmouseover=&quot;');
+  });
+
   it('renders GFM tables', () => {
     const src = '| a | b |\n| --- | --- |\n| 1 | 2 |';
     const html = md(src);

@@ -5,8 +5,11 @@ export function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 }
 
+// esc(href) is load-bearing: the bare-URL matcher admits `"` so an unescaped
+// href lets agent-fetched content inject live attributes (onfocus=…) into our
+// origin. The scheme is regex-pinned upstream; the quotes are on us.
 const anchor = (href: string, text: string) =>
-  `<a href="${href}" target="_blank" rel="noopener noreferrer">${esc(text)}</a>`;
+  `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(text)}</a>`;
 
 const fileAnchor = (p: string, text: string) => `<a data-file="${esc(p)}">${esc(text)}</a>`;
 

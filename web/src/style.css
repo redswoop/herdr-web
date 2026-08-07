@@ -462,8 +462,8 @@ button.mode-chip.busy { opacity: 0.5; }
   font-size: 11px; color: var(--sub); margin-top: 5px; text-align: right;
   transition: color 0.2s;
 }
-.msg.user.cancellable { cursor: pointer; }
-.msg.user.cancellable .sent-status { color: var(--working); }
+/* interrupt target is the status line only — the bubble body stays selectable */
+.msg.user.cancellable .sent-status { color: var(--working); cursor: pointer; }
 .msg.user.cancellable .sent-status::after { content: " — tap to stop"; }
 
 /* ---------- activity group (collapsed tool/thought runs) ---------- */
