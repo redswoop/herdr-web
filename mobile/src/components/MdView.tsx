@@ -2,7 +2,7 @@ import { memo, useMemo } from 'react';
 import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { parseMd, type Block, type Inline } from '@herdr/shared';
 import { colors } from '../theme';
-import { splitInlineSegs, splitPlain } from './SegText';
+import { splitInlineSegs, splitPlain, wrapLongLines } from './segment';
 
 // Long paragraphs are split into stacked <Text> segments (see SegText.tsx) —
 // one unbounded <Text> past the iOS layer size limit draws as an empty box.
@@ -87,10 +87,12 @@ function BlockView({
   onOpenFile?: (path: string) => void;
 }) {
   if (block.type === 'code') {
+    // horizontal scroll = no wrapping = Text as wide as the longest line, and
+    // the iOS layer cap applies to width too — hard-wrap oversized lines first
     return (
       <ScrollView horizontal style={styles.codeBlock} nestedScrollEnabled>
         <View>
-          {splitPlain(block.text).map((s, i) => (
+          {splitPlain(wrapLongLines(block.text)).map((s, i) => (
             <Text key={i} selectable style={styles.codeBlockText}>{s}</Text>
           ))}
         </View>

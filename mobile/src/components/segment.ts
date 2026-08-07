@@ -16,6 +16,26 @@ export const SEG_CHARS = 2000;
 // but blew past 8192px as body text.)
 export const HARD_CHARS = 2000;
 
+// The layer cap applies to WIDTH too: in a non-wrapping context (fenced code
+// inside a horizontal ScrollView) a Text is as wide as its longest line, and
+// ~380 chars of 12pt monospace already exceeds 8192px @3x. 240 leaves margin.
+export const MAX_LINE_CHARS = 240;
+
+/** Hard-wrap any line longer than max — for Text rendered without wrapping.
+ *  A forced continuation line beats a black box. */
+export function wrapLongLines(text: string, max = MAX_LINE_CHARS): string {
+  if (!text.split('\n').some((l) => l.length > max)) return text;
+  return text
+    .split('\n')
+    .map((line) => {
+      if (line.length <= max) return line;
+      const parts: string[] = [];
+      for (let i = 0; i < line.length; i += max) parts.push(line.slice(i, i + max));
+      return parts.join('\n');
+    })
+    .join('\n');
+}
+
 export function splitPlain(text: string): string[] {
   const out: string[] = [];
   let start = 0;

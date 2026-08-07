@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Inline } from '@herdr/shared';
-import { HARD_CHARS, SEG_CHARS, splitInlineSegs, splitPlain } from '../src/components/segment';
+import {
+  HARD_CHARS,
+  MAX_LINE_CHARS,
+  SEG_CHARS,
+  splitInlineSegs,
+  splitPlain,
+  wrapLongLines,
+} from '../src/components/segment';
 
 // The iOS black-box bug (commit 3cd4c57): any <Text> taller than the ~8192px
 // layer cap silently renders as an empty box. These tests pin the invariant
@@ -26,6 +33,32 @@ describe('splitPlain', () => {
     const segs = splitPlain(text);
     for (const s of segs) expect(s.length).toBeLessThanOrEqual(HARD_CHARS);
     expect(segs.join('')).toBe(text); // lossless mid-line
+  });
+});
+
+describe('wrapLongLines', () => {
+  // WIDTH regression: fenced code renders in a horizontal ScrollView, so a
+  // Text is as wide as its longest line — ~380 chars of 12pt mono @3x already
+  // exceeds the 8192px layer cap. Every emitted line must stay under the max.
+  it('leaves normal code alone (fast path)', () => {
+    const text = 'const x = 1;\nconst y = 2;';
+    expect(wrapLongLines(text)).toBe(text);
+  });
+
+  it('hard-wraps a minified single-line blob', () => {
+    const text = '{"k":' + '"v",'.repeat(500) + '}';
+    const out = wrapLongLines(text);
+    for (const line of out.split('\n')) expect(line.length).toBeLessThanOrEqual(MAX_LINE_CHARS);
+    expect(out.replace(/\n/g, '')).toBe(text); // lossless
+  });
+
+  it('wraps only the oversized lines in mixed content', () => {
+    const long = 'x'.repeat(3 * MAX_LINE_CHARS);
+    const out = wrapLongLines(`short\n${long}\nalso short`);
+    const lines = out.split('\n');
+    expect(lines[0]).toBe('short');
+    expect(lines.at(-1)).toBe('also short');
+    for (const line of lines) expect(line.length).toBeLessThanOrEqual(MAX_LINE_CHARS);
   });
 });
 
