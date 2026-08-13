@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { rpc, subscribe } from './lib/herdr.js';
 import { adapterFor, readEvents, listSessions, classifyBlocked } from './lib/adapters.js';
 import {
-  parseMenuScreen, parseMenuFor, isGrokProjectPicker, parseRewindScreen,
+  parseMenuScreen, parseMenuFor, isGrokProjectPicker, isGrokModalOverlay, parseRewindScreen,
   composerText, typedComposerText, parseMode, MODES, trimSalvage,
 } from './lib/screen.js';
 import { PushStore, Coordinator } from './lib/notify.js';
@@ -839,13 +839,31 @@ async function waitAgentPromptable(paneId, { timeoutMs = 15_000 } = {}) {
   throw new Error(`agent never became promptable${detail ? ` (${detail})` : ''}`);
 }
 
-// agent.prompt acking does not mean the text arrived. Two known failures:
+// Grok's fullscreen viewer overlays swallow injected prompts (see
+// isGrokModalOverlay). Close one before typing. Escape goes ONLY when the
+// footer signature is on screen, so a busy agent can never be interrupted by
+// mistake; loops because a `/` we typed earlier may have opened the viewer's
+// own search box, which takes the first Esc.
+async function dismissOverlay(paneId, kind) {
+  if (kind !== 'grok') return;
+  try {
+    for (let i = 0; i < 3; i += 1) {
+      if (!isGrokModalOverlay(await readScreen(paneId))) return;
+      console.warn(`fullscreen overlay owns ${paneId} — sending Escape`);
+      await agentRpc('agent.send_keys', { target: paneId, keys: ['Escape'] });
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  } catch {}
+}
+
+// agent.prompt acking does not mean the text arrived. Three known failures:
 // claude occasionally eats the trailing Enter (text stranded on the
-// composer), and grok drops the whole burst when the prompt races the TUI's
+// composer), grok drops the whole burst when the prompt races the TUI's
 // input loop right after launch — interactive_ready is already true but the
-// launch splash still owns the screen and the keys go nowhere. Peek at the
-// screen shortly after and heal both: nudge Enter when stranded, retype when
-// vanished. Screen grammar this relies on: grok's composer is boxed
+// launch splash still owns the screen and the keys go nowhere — and grok's
+// fullscreen viewer swallows the text entirely while it's open. Peek at the
+// screen shortly after and heal all three: nudge Enter when stranded, retype
+// when vanished, Escape the overlay first when one owns the pane. Screen grammar this relies on: grok's composer is boxed
 // (`│ ❯ …`), its sent-message echo is a bare `❯ …`; claude's composer is a
 // bare `❯ …` and its echo uses `>`. Retype ONLY while the pane still looks
 // untouched (empty composer + agent not busy) so a slow-rendering send or a
@@ -878,6 +896,9 @@ async function verifyPromptLanded(paneId, text, attempt = 1) {
     // a dialog/menu owns the screen (startup picker, permission prompt whose
     // status hasn't flipped yet) — retyping would type into it; hands off
     if (parseMenuFor(kind, screen)) return;
+    // grok's fullscreen viewer swallowed the keys — close it before the
+    // retype below can feed it more hotkey characters
+    if (kind === 'grok' && isGrokModalOverlay(screen)) await dismissOverlay(paneId, kind);
     const a = (await rpc('agent.get', { target: paneId }).catch(() => ({}))).agent ?? {};
     if (a.agent_status && !['idle', 'done', 'unknown'].includes(a.agent_status)) return;
     // composer holds other text (user typing in the TUI?) — hands off
@@ -1365,6 +1386,8 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'POST' && action === 'prompt') {
         const { text } = await readBody(req);
         if (!text?.trim()) throw httpErr(400, 'empty prompt');
+        // a fullscreen viewer left open on the pane would eat the prompt
+        await dismissOverlay(paneId, roster.agents.find((x) => x.paneId === paneId)?.agent);
         await agentRpc('agent.prompt', { target: paneId, text });
         verifyPromptLanded(paneId, text); // fire-and-forget — don't hold the response
         return sendJson(res, 200, { ok: true });

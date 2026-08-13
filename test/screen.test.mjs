@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parseMenuScreen, parseGrokMenuScreen, parseMenuFor, isGrokProjectPicker,
+  parseMenuScreen, parseGrokMenuScreen, parseMenuFor, isGrokProjectPicker, isGrokModalOverlay,
   parseRewindScreen, parseMode, composerText, typedComposerText, trimSalvage,
 } from '../lib/screen.js';
 
@@ -160,6 +160,35 @@ test('grok TUI without a menu does not parse', () => {
   Shift+Tab:mode  │  Ctrl+.:shortcuts
 `;
   assert.equal(parseGrokMenuScreen(idle), null);
+  assert.equal(isGrokModalOverlay(idle), false);
+});
+
+// Grok's fullscreen message viewer (hit live 2026-08-07): modal, owns the
+// pane, injected prompts land in it instead of the composer. Footer shape
+// per the live capture; the [x] close marker sits top-right.
+test('grok fullscreen viewer overlay is detected by its footer', () => {
+  const viewer = `
+  Messages                                                        [x]
+  ────────────────────────────────────────────────────────────────────
+  ❯ user: run the batch again with seed 42
+    assistant: Kicking it off now — 4 items queued.
+  ────────────────────────────────────────────────────────────────────
+  Esc:close │ /:search │ f:filter │ v:select │ w:wrap │ r:raw
+`;
+  assert.equal(isGrokModalOverlay(viewer), true);
+  // a transcript that merely QUOTES the footer string mid-screen must not
+  // trip the detector — only the bottom chrome rows count
+  const quoted = `
+    assistant: the viewer footer says "Esc:close │ /:search" while open.
+    More reply text continues here.
+    And a few more lines of prose to push the quote out of the
+    footer window entirely, well clear of the bottom rows.
+  ╭──────────────────────────────╮
+  │ ❯                            │
+  ╰──────────────────────────────╯
+  Shift+Tab:mode  │  Ctrl+.:shortcuts
+`;
+  assert.equal(isGrokModalOverlay(quoted), false);
 });
 
 // ---------- rewind panel ----------
