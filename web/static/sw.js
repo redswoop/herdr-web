@@ -1,8 +1,20 @@
 /* herdr-web service worker: app-shell cache + Web Push + notification actions. */
 // Vite emits hashed asset names, so only the stable entries are precached;
 // everything else lands in the cache on first fetch (network-first below).
-const CACHE = 'hw-v2';
+// Bump when fetch routing changes so activate drops stale cached shells.
+const CACHE = 'hw-v3';
 const SHELL = ['/', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png'];
+// Other Funnel paths on this host (comfy-grok bunny, MCP, …). Only herdr's
+// own /api/ was exempt before — so /bunny/api/* was intercepted, Range/video
+// broke on Safari, and phones that had opened herdr saw bunny "fail to load".
+const FOREIGN_PREFIXES = ['/bunny', '/comfy-mcp', '/cg', '/media'];
+
+function isForeignPath(pathname) {
+  for (const p of FOREIGN_PREFIXES) {
+    if (pathname === p || pathname.startsWith(p + '/')) return true;
+  }
+  return false;
+}
 
 self.addEventListener('install', (e) => {
   // per-item, not addAll: addAll is atomic, and one 404'd icon would fail the
@@ -22,7 +34,9 @@ self.addEventListener('activate', (e) => {
 // never cached — stale roster/transcript is worse than an error.
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
-  if (e.request.method !== 'GET' || url.pathname.startsWith('/api/')) return;
+  if (e.request.method !== 'GET') return;
+  // Pass through: herdr API + sibling Funnel apps on this origin
+  if (url.pathname.startsWith('/api/') || isForeignPath(url.pathname)) return;
   e.respondWith((async () => {
     try {
       const res = await fetch(e.request);
