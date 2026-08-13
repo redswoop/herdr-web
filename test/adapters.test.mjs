@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { adapterFor, classifyBlocked, grokScanSessions, readEvents } from '../lib/adapters.js';
+import { adapterFor, classifyBlocked, grokScanSessions, pickActiveByPid, readEvents } from '../lib/adapters.js';
 
 const grok = adapterFor('grok');
 const claude = adapterFor('claude');
@@ -306,6 +306,21 @@ test('grok user chunks: harness-injected <system-reminder> turns are dropped', (
     content: { type: 'text', text: '<system-reminder>\nBackground task "call-1" finished\n</system-reminder>' },
   })), []);
 });
+
+// Live failure 2026-08-12: same grok PID had both the pre-/clear empty shell
+// (opened_at days earlier) and the real chat; Array.find stuck on the shell
+// and the web UI showed "fresh session" over a full Emmy Yoga transcript.
+test('pickActiveByPid: newest opened_at wins when /clear leaves multiple rows', () => {
+  const active = [
+    { session_id: 'stale', pid: 8214, cwd: '/x', opened_at: '2026-08-09T23:41:57Z' },
+    { session_id: 'other', pid: 9999, cwd: '/x', opened_at: '2026-08-12T06:00:00Z' },
+    { session_id: 'fresh', pid: 8214, cwd: '/x', opened_at: '2026-08-12T05:26:05Z' },
+  ];
+  assert.equal(pickActiveByPid(active, 8214)?.session_id, 'fresh');
+  assert.equal(pickActiveByPid(active, 9999)?.session_id, 'other');
+  assert.equal(pickActiveByPid(active, 1), null);
+});
+
 
 // Mirrors the real failure: grok rewrites active_sessions.json wholesale on
 // every launch, so a concurrent session's entry vanishes while its process
