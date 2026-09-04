@@ -16,10 +16,25 @@ import {
 } from '@herdr/shared';
 import { esc, md } from '../md';
 import type { Item, Mine, TEvent } from '../types';
+import { copyText } from '../util';
 
 // The transcript view-model (buildNodes, step summaries, labels) lives in
 // @herdr/shared — mobile renders the exact same nodes. Add tool knowledge
 // there, not here.
+
+function selectionOutside(el: Element): boolean {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || !sel.toString()) return false;
+  const a = sel.anchorNode;
+  const f = sel.focusNode;
+  if (!a || !f) return false;
+  return !el.contains(a) || !el.contains(f);
+}
+
+function flashCopied(el: HTMLElement) {
+  el.classList.add('copied');
+  window.setTimeout(() => el.classList.remove('copied'), 700);
+}
 
 export function Transcript({
   items,
@@ -42,13 +57,32 @@ export function Transcript({
   const follow = useRef(true);
 
   // md() emits href-less <a data-file> for path-looking text — one delegated
-  // handler beats wiring callbacks through dangerouslySetInnerHTML
+  // handler beats wiring callbacks through dangerouslySetInnerHTML.
+  // Same pass: tap a code/strong/pre chip to copy it (passwords, tokens, fences).
   const onClick = (e: React.MouseEvent) => {
-    const a = (e.target as HTMLElement).closest('a[data-file]') as HTMLElement | null;
+    const t = e.target as HTMLElement;
+    const a = t.closest('a[data-file]') as HTMLElement | null;
+    const chip = t.closest('.msg code, .msg strong, .msg pre') as HTMLElement | null;
+
     if (a?.dataset.file) {
+      // drag-select ending on a path must copy, not open the file viewer
+      if (window.getSelection()?.toString()) return;
       e.preventDefault();
       onOpenFile(a.dataset.file);
+      return;
     }
+    if (!chip || !ref.current?.contains(chip)) return;
+    if (selectionOutside(chip)) return;
+    // fenced block: the inner <code> is not the chip — copy the whole pre
+    const el =
+      chip.tagName === 'CODE' && chip.parentElement?.tagName === 'PRE' ? chip.parentElement : chip;
+    const text = (el.innerText ?? '').replace(/\n$/, '');
+    if (!text) return;
+    e.preventDefault();
+    window.getSelection()?.removeAllRanges();
+    void copyText(text).then((ok) => {
+      if (ok) flashCopied(el);
+    });
   };
 
   useLayoutEffect(() => {

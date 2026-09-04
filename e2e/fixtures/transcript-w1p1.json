@@ -26,7 +26,7 @@
   },
   {
     "kind": "assistant",
-    "text": "Here are the auth files:\n\n- `src/auth/login.ts`\n- `src/auth/session.ts`\n\nSee also /home/armen/src/app/README.md for setup.",
+    "text": "Here are the auth files:\n\n- `src/auth/login.ts`\n- `src/auth/session.ts`\n\nSee also /home/armen/src/app/README.md for setup.\n\nPassword is **hunter2**. Token: `s3cret-token`.\n\n```\nexport KEY=abc123\n```",
     "ts": "2024-06-01T12:00:04.000Z",
     "msgId": "a1",
     "usage": { "out": 42, "ctx": 12000 }

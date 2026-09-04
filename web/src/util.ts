@@ -31,3 +31,26 @@ export const STATUS_WORD: Record<string, string> = {
   done: 'done',
   unknown: '?',
 };
+
+/** User-gesture copy. Clipboard API first; execCommand fallback for older iOS. */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      return document.execCommand('copy');
+    } catch {
+      return false;
+    } finally {
+      ta.remove();
+    }
+  }
+}

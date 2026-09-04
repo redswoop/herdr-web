@@ -56,6 +56,55 @@ test.describe('agent transcript', () => {
       .toBeTruthy();
   });
 
+  test('transcript message text is selectable', async ({ page }) => {
+    await openAgent(page, 'w1:p1');
+    const msg = page.locator('.msg.assistant').first();
+    await expect(msg).toBeVisible();
+    const userSelect = await msg.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return s.getPropertyValue('user-select') || s.getPropertyValue('-webkit-user-select');
+    });
+    expect(userSelect).toMatch(/text|auto/);
+
+    const text = await msg.innerText();
+    expect(text.length).toBeGreaterThan(0);
+    const selected = await msg.evaluate((el) => {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+      return sel?.toString() ?? '';
+    });
+    expect(selected.trim().length).toBeGreaterThan(0);
+  });
+
+  test('tap copies inline code, bold, and fenced blocks', async ({ page }) => {
+    await openAgent(page, 'w1:p1');
+    await page.evaluate(() => {
+      (window as unknown as { __copied: string }).__copied = '';
+      navigator.clipboard.writeText = async (t: string) => {
+        (window as unknown as { __copied: string }).__copied = t;
+      };
+    });
+    const msg = page.locator('.msg.assistant').first();
+
+    await msg.locator('strong').filter({ hasText: 'hunter2' }).click();
+    expect(await page.evaluate(() => (window as unknown as { __copied: string }).__copied)).toBe(
+      'hunter2',
+    );
+
+    await msg.locator('code').filter({ hasText: 's3cret-token' }).click();
+    expect(await page.evaluate(() => (window as unknown as { __copied: string }).__copied)).toBe(
+      's3cret-token',
+    );
+
+    await msg.locator('pre').click();
+    expect(await page.evaluate(() => (window as unknown as { __copied: string }).__copied)).toMatch(
+      /export KEY=abc123/,
+    );
+  });
+
   test('file path link opens file viewer', async ({ page }) => {
     await openAgent(page, 'w1:p1');
     // assistant text has pathish link
