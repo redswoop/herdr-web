@@ -13,7 +13,7 @@ import path from 'node:path';
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'herdr-sock-'));
 const SOCK = path.join(dir, 'h.sock');
 process.env.HERDR_SOCK = SOCK;
-const { rpc, subscribe, HerdrError } = await import('../lib/herdr.js');
+const { rpc, subscribe, HerdrError, isPromptable } = await import('../lib/herdr.js');
 
 // One scripted behavior per connection, consumed FIFO.
 const behaviors = [];
@@ -37,6 +37,16 @@ function onRequest(sock, fn) {
     if (nl !== -1) fn(JSON.parse(buf.slice(0, nl)));
   });
 }
+
+test('isPromptable: herdr 0.8 omits interactive_ready on fresh idle', () => {
+  assert.equal(isPromptable({ agent: 'claude', agent_status: 'idle' }), true);
+  assert.equal(isPromptable({ agent: 'claude', agent_status: 'done', interactive_ready: true }), true);
+  assert.equal(isPromptable({ agent: 'claude', agent_status: 'working' }), true);
+  assert.equal(isPromptable({ agent: 'claude', agent_status: 'blocked' }), true);
+  assert.equal(isPromptable({ agent: 'claude', agent_status: 'unknown' }), false);
+  assert.equal(isPromptable({ agent_status: 'idle' }), false);
+  assert.equal(isPromptable(null), false);
+});
 
 test('rpc resolves on a normal reply', async () => {
   behaviors.push((sock) => onRequest(sock, (req) => {

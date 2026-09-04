@@ -6,7 +6,7 @@ import { constants as fsConstants } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { rpc, subscribe } from './lib/herdr.js';
+import { rpc, subscribe, isPromptable } from './lib/herdr.js';
 import { adapterFor, readEvents, listSessions, classifyBlocked } from './lib/adapters.js';
 import {
   parseMenuScreen, parseMenuFor, isGrokProjectPicker, isGrokModalOverlay, parseRewindScreen,
@@ -800,6 +800,7 @@ async function createChat({ kind, name, cwd, workspaceId, label, args, worktree,
       }
     }
   } catch (e) {
+    console.error(`createChat ${kind} ${pane.pane_id}: ${e.message ?? e}`);
     pinnedSessions.delete(pane.pane_id);
     try { await rpc('pane.close', { pane_id: pane.pane_id }); } catch {}
     throw httpErr(502, `couldn't start ${kind}: ${e.message ?? e}`);
@@ -817,9 +818,10 @@ async function createChat({ kind, name, cwd, workspaceId, label, args, worktree,
   return { paneId: pane.pane_id, tabId: tab?.tab_id ?? null, workspaceId: ws };
 }
 
-// agent.start returns with launch_pending still set; agent.prompt fails with
-// "not an active named agent" until interactive_ready becomes true (~3s).
-// Poll agent.get for that bit so createChat doesn't hand back a pane the
+// agent.start returns before detection settles; agent.prompt fails with
+// "not an active named agent" until the pane has an agent + a real status.
+// (herdr 0.8+ no longer sets interactive_ready on a fresh idle launch — see
+// isPromptable.) Poll agent.get so createChat doesn't hand back a pane the
 // client can't talk to yet.
 async function waitAgentPromptable(paneId, { timeoutMs = 15_000 } = {}) {
   const deadline = Date.now() + timeoutMs;
@@ -828,14 +830,14 @@ async function waitAgentPromptable(paneId, { timeoutMs = 15_000 } = {}) {
     try {
       const r = await rpc('agent.get', { target: paneId });
       const a = r.agent ?? r;
-      if (a?.interactive_ready) return a;
       last = a;
+      if (isPromptable(a)) return a;
     } catch (e) {
       last = e;
     }
     await new Promise((r) => setTimeout(r, 250));
   }
-  const detail = last?.message ?? (last ? `status=${last.agent_status} launch_pending=${last.launch_pending}` : '');
+  const detail = last?.message ?? (last ? `status=${last.agent_status} ready=${last.interactive_ready}` : '');
   throw new Error(`agent never became promptable${detail ? ` (${detail})` : ''}`);
 }
 
