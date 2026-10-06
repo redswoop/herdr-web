@@ -73,8 +73,8 @@ export function AgentView({
     accept: acceptMode,
   } = useAgentMode(paneId, agent?.agent, status);
   const [modeOpen, setModeOpen] = useState(false);
-  const [screen, setScreen] = useState<string | null>(null);
-  // live TUI mirror opened by hand from the blocked card (multi-select `done`)
+  // live TUI mirror opened by hand: the blocked banner's "view screen", or
+  // the blocked card's multi-select `done`
   const [mirror, setMirror] = useState(false);
   // /rewind panel state, screen-parsed server-side; null = card closed
   const [rewind, setRewind] = useState<RewindState | null>(null);
@@ -130,7 +130,6 @@ export function AgentView({
   useEffect(() => {
     if (!blocked) {
       setKeysForced(false);
-      setScreen(null);
       setMirror(false);
     }
   }, [blocked]);
@@ -368,33 +367,21 @@ export function AgentView({
     return true;
   };
 
-  // `done` on a multi-select: taps toggle boxes the card can't see, so let it
-  // pull up the real screen (and drop the static peek — one screen is enough)
-  const toggleMirror = useCallback(() => {
-    setMirror((m) => {
-      if (!m) setScreen(null);
-      return !m;
-    });
-  }, []);
-
-  const peekScreen = async () => {
-    if (screen !== null) {
-      setScreen(null);
-      return;
-    }
-    try {
-      const r = await fetch(agentPath(paneId, 'screen'));
-      if (!r.ok) throw new Error(await errorOf(r));
-      const { text } = await r.json();
-      setScreen((text ?? '').replace(/\n{3,}/g, '\n\n').trimEnd());
-    } catch (e) {
-      alert(String((e as Error).message ?? e));
-    }
-  };
+  // The blocked screen is always the LIVE mirror (bottom-anchored, repaints
+  // on every strip key) — a one-shot capture showed the top of the pane, so a
+  // prompt drawn under the shell's launch banner was off-screen and the keys
+  // looked dead. Also what `done` on a multi-select pulls up: taps toggle
+  // boxes the card can't see.
+  const toggleMirror = useCallback(() => setMirror((m) => !m), []);
 
   const showBlockedCard = blocked && !keysForced && ctx != null && ctx.kind !== 'none' && ctx.kind !== 'unknown';
   const showKeys =
     keysPinned || dialog !== null || mirror || (blocked && (keysForced || ctx?.kind === 'unknown'));
+  // grok's plan overlay is driven by a/s/q — none of which are on the default
+  // pad, and Esc does not dismiss it. Keep them on the strip whenever this
+  // card is up so a 409 fallback isn't another dead end.
+  const extraKeys: [string, string][] =
+    agent?.agent === 'grok' && ctx?.kind === 'plan' ? [['a', 'a'], ['s', 's'], ['q', 'q']] : [];
   const wide = useMediaQuery(WIDE);
 
   const main = (
@@ -461,12 +448,11 @@ export function AgentView({
       {blocked && (
         <div className="blocked-banner">
           <span className="banner-text">agent is waiting on you</span>
-          <button className="ghost" onClick={peekScreen}>
-            {screen !== null ? 'hide screen' : 'view screen'}
+          <button className="ghost" onClick={toggleMirror}>
+            {mirror ? 'hide screen' : 'view screen'}
           </button>
         </div>
       )}
-      {screen !== null && <pre className="screen">{screen}</pre>}
 
       <Transcript
         items={items}
@@ -526,6 +512,7 @@ export function AgentView({
         cooldown={cooldown}
         restoredDraft={rewindDraft ?? restoredDraft}
         showKeys={showKeys}
+        extraKeys={extraKeys}
         onSend={sendFromComposer}
         onInterrupt={interrupt}
         onToggleKeys={() => setKeysPinned((p) => !p)}

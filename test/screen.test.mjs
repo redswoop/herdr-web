@@ -4,7 +4,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parseMenuScreen, parseGrokMenuScreen, parseMenuFor, isGrokProjectPicker, isGrokModalOverlay,
+  parseMenuScreen, parseCursorMenuScreen, parseGrokMenuScreen, parseMenuFor, isGrokProjectPicker, isGrokModalOverlay,
+  isGrokPlanApproval, parseGrokPlanApproval,
   parseRewindScreen, parseMode, composerText, typedComposerText, trimSalvage,
 } from '../lib/screen.js';
 
@@ -50,6 +51,48 @@ test('claude plan prompt free-text row is flagged input', () => {
   assert.ok(m);
   assert.equal(m.options[2].input, true);
   assert.equal(m.options[2].description, '');
+});
+
+// Verbatim pane capture, claude v2.1.283 (2026-09): question 2 of a tabbed
+// AskUserQuestion, after digit taps landed in the free-text row.
+const CLAUDE_ASK_TYPED = `
+────────────────────────────────────────────────────────────────────
+←  ☒ Cousin door  ☐ Symptom  ✔ Submit  →
+
+What is he seeing when it fails?
+
+  1. Can't reach the box at all
+     Page times out or the hostname doesn't resolve.
+  2. Reaches it, gets refused
+     A 403, 'no CG account', or a login prompt he can't pass.
+  3. Old URL stopped working
+     He's using a link from before the move.
+  4. Don't know yet
+     He just said it's broken.
+❯ 5. 55636
+────────────────────────────────────────────────────────────────────
+  6. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · ctrl+g to edit in VS Code · Esc to cancel
+`;
+
+test('claude ask menu flags the free-text row whatever was typed in it', () => {
+  const m = parseMenuScreen(CLAUDE_ASK_TYPED);
+  assert.ok(m);
+  assert.equal(m.form, 'ask');
+  assert.equal(m.question, 'What is he seeing when it fails?');
+  assert.deepEqual(m.options.filter((o) => o.input).map((o) => o.n), [5]);
+  assert.equal(m.options[4].selected, true);
+  assert.equal(m.options[5].label, 'Chat about this');
+  const placeholder = parseMenuScreen(CLAUDE_ASK_TYPED.replace('❯ 5. 55636', '  5. Type something.')
+    .replace('  4. Don', '❯ 4. Don'));
+  assert.deepEqual(placeholder.options.filter((o) => o.input).map((o) => o.n), [5]);
+});
+
+test('plain menus carry no form and no input row', () => {
+  const m = parseMenuScreen(CLAUDE_PERMISSION);
+  assert.equal(m.form, undefined);
+  assert.ok(!m.options.some((o) => o.input));
 });
 
 test('numbered list in prose is not a menu (no cursor)', () => {
@@ -191,6 +234,59 @@ test('grok fullscreen viewer overlay is detected by its footer', () => {
   assert.equal(isGrokModalOverlay(quoted), false);
 });
 
+// Grok plan-approval overlay — verbatim pane capture, grok 4.6 (2026-09).
+// Letter-key action bar, not a radio menu; Esc does not dismiss.
+const GROK_PLAN_APPROVAL = `
+  ╭─ plan.md ──────────────────────────────────────────────────────── [↗] ╮
+  │  1 Nuclear Minecraft                                                                    █│
+  │    ● L1 a                                                                               █│
+  │  2                                                                                      █│
+  │  3 A datapack + resource pack, not a resource pack alone.                               █│
+  │  9 1. Mine uranium, plutonium, lead, radium.                                             │
+  │ 10 2. Raw radioactive stuff hurts you unless you're in full lead armor.                  │
+  │──────────────────────────────────────────────────────────────────────────────────────────│
+  │              a approve w/ comments  |  s request changes  |  c comment 1 ●  |  q quit plan │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────╯
+    ◆ Waiting on plan approval
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯ Build anything                                                                         │
+  ╰──────────────────────────────────────────────────────────────── Grok 4.6 (high) · plan approval ─╯
+
+  c:comment  │  y:copy plan  │  s:send  │  q:quit plan  │  v:select  │  Tab:prompt
+`;
+
+test('grok plan approval overlay parses a/s/q options, not a radio menu', () => {
+  assert.equal(isGrokPlanApproval(GROK_PLAN_APPROVAL), true);
+  assert.equal(parseGrokMenuScreen(GROK_PLAN_APPROVAL), null);
+  const p = parseGrokPlanApproval(GROK_PLAN_APPROVAL);
+  assert.ok(p);
+  assert.equal(p.kind, 'plan');
+  assert.equal(p.dialect, 'grok');
+  assert.equal(p.comments, 1);
+  assert.equal(p.options[0].n, 1);
+  assert.match(p.options[0].label, /approve with comments/i);
+  assert.equal(p.options[1].input, true);
+  assert.equal(p.options[2].n, 3);
+  assert.match(p.options[2].label, /quit/i);
+});
+
+test('grok plan approval without pending comments is plain approve', () => {
+  const screen = `
+    ◆ Waiting on plan approval
+    a approve  |  s request changes  |  c comment  |  q quit plan
+    Grok 4.6 (high) · plan approval
+    q:quit plan  │  Tab:prompt
+  `;
+  const p = parseGrokPlanApproval(screen);
+  assert.ok(p);
+  assert.equal(p.comments, 0);
+  assert.match(p.options[0].label, /approve and start building/i);
+  assert.equal(isGrokPlanApproval(GROK_PERMISSION), false);
+  assert.equal(parseGrokPlanApproval(GROK_PERMISSION), null);
+  assert.equal(isGrokPlanApproval(GROK_ASK), false);
+});
+
 // ---------- rewind panel ----------
 
 const REWIND_LIST = `
@@ -309,4 +405,50 @@ test('trimSalvage cuts chrome, prompt echo, and grok scrollbar cells', () => {
 
 test('trimSalvage returns null for pure chrome', () => {
   assert.equal(trimSalvage('╭───╮\n│ ❯ │\n╰───╯\n', null), null);
+});
+
+// Verbatim pane capture, claude v2.1.288 (2026-10): the folder-trust prompt
+// on a fresh spawn, drawn under the shell's launch line.
+const CLAUDE_TRUST = `
+🎯  herdr-web-trust-probe   main 󰋗 1  15:40
+❯ claude
+
+────────────────────────────────────────────────────────────────────
+ Accessing workspace:
+
+ /home/armen/.cache/herdr-web-trust-probe
+
+ Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source project, or work from your team). If not, take a moment to review what's in
+ this folder first.
+
+ Claude Code'll be able to read, edit, and execute files here.
+
+ Security guide
+
+ ❯ No, exit
+   Yes, I trust this folder
+
+ Enter to confirm · Esc to cancel
+`;
+
+test('claude folder-trust prompt parses as a nav-only cursor menu', () => {
+  const m = parseMenuScreen(CLAUDE_TRUST);
+  assert.ok(m);
+  assert.equal(m.nav, true);
+  assert.deepEqual(m.options.map((o) => [o.n, o.label, o.selected]), [
+    [1, 'No, exit', true],
+    [2, 'Yes, I trust this folder', false],
+  ]);
+  assert.equal(m.question, 'Accessing workspace: /home/armen/.cache/herdr-web-trust-probe');
+  assert.match(m.detail, /review what's in this folder first\./);
+  assert.doesNotMatch(m.detail, /claude$/m); // the shell line above the rule stays out
+});
+
+test('cursor menu needs the confirm footer at the bottom of the screen', () => {
+  // an idle composer is a bare ❯ too
+  assert.equal(parseCursorMenuScreen('some reply\n\n❯ draft text\n  ⏵⏵ auto mode on\n'), null);
+  // footer scrolled into history, composer below it
+  assert.equal(parseCursorMenuScreen(`${CLAUDE_TRUST}\n❯ \n  ? for shortcuts\n`), null);
+  // numbered menus keep their own grammar (no nav flag)
+  assert.equal(parseMenuScreen(CLAUDE_PERMISSION).nav, undefined);
 });

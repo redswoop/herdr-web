@@ -55,6 +55,9 @@ export function Transcript({
 }) {
   const ref = useRef<HTMLElement>(null);
   const follow = useRef(true);
+  // mirrors follow.current for render, plus "stuff landed while you were up there"
+  const [away, setAway] = useState(false);
+  const [unseen, setUnseen] = useState(false);
 
   // md() emits href-less <a data-file> for path-looking text — one delegated
   // handler beats wiring callbacks through dangerouslySetInnerHTML.
@@ -89,12 +92,22 @@ export function Transcript({
 
   useLayoutEffect(() => {
     const el = ref.current;
-    if (el && follow.current) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    if (follow.current) el.scrollTop = el.scrollHeight;
+    else setUnseen(true);
   }, [items, working]);
 
   const onScroll = () => {
     const el = ref.current;
-    if (el) follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (!el) return;
+    follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    setAway(!follow.current);
+    if (follow.current) setUnseen(false);
+  };
+
+  const toBottom = () => {
+    const el = ref.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   };
 
   // the SSE tick and the working pill's 3s cycle re-render this constantly —
@@ -148,6 +161,22 @@ export function Transcript({
         );
       })}
       {showPill && <WorkingPill />}
+      {away && (
+        <div className="to-bottom-anchor">
+          <button
+            className={`to-bottom ${unseen ? 'unseen' : ''}`}
+            aria-label="scroll to bottom"
+            onClick={(e) => {
+              e.stopPropagation();
+              toBottom();
+            }}
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 5v14M5 12l7 7 7-7" />
+            </svg>
+          </button>
+        </div>
+      )}
     </main>
   );
 }

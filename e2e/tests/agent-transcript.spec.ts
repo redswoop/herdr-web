@@ -22,6 +22,28 @@ test.describe('agent transcript', () => {
     expect(log.prompts.some((p: any) => p.text === 'hello from e2e')).toBeTruthy();
   });
 
+  test('scroll-to-bottom button appears when scrolled up and jumps back', async ({ page }) => {
+    await openAgent(page, 'w1:p1');
+    const btn = page.getByRole('button', { name: 'scroll to bottom' });
+    // a tall prompt guarantees overflow whatever the fixture length
+    const ta = page.locator('textarea').first();
+    await ta.fill(Array.from({ length: 60 }, (_, i) => `tall line ${i}`).join('\n\n'));
+    await page.getByRole('button', { name: 'send' }).click();
+    await expect(page.getByText(/mock reply to: tall line 0/i)).toBeVisible({ timeout: 10_000 });
+    await expect(btn).toBeHidden(); // following the tail
+
+    const main = page.locator('main.transcript');
+    await main.evaluate((el) => (el.scrollTop = 0));
+    await expect(btn).toBeVisible();
+    await expect(btn).toBeInViewport();
+
+    await btn.click();
+    await expect
+      .poll(() => main.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
+      .toBeLessThan(5);
+    await expect(btn).toBeHidden();
+  });
+
   test('stop interrupt while working', async ({ page }) => {
     await openAgent(page, 'w1:p2');
     // agent is working — stop button should be available (no draft)

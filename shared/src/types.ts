@@ -254,6 +254,11 @@ export type BlockedCtx =
       question: string;
       detail: string;
       options: MenuOption[];
+      /** 'ask' = AskUserQuestion drawn on screen; it has a free-text row */
+      form?: 'ask';
+      /** unnumbered cursor menu (claude's folder-trust prompt): digits do
+       *  nothing — answer with {option}, never keys */
+      nav?: true;
     }
   | {
       kind: 'plan';
@@ -262,4 +267,8 @@ export type BlockedCtx =
       plan: string;
       question?: string;
       options?: MenuOption[];
+      /** grok's plan.md preview (a/s/q); absent = claude's numbered menu */
+      dialect?: 'claude' | 'grok';
+      /** pending inline comments on grok's preview (approve-with-comments) */
+      comments?: number;
     };

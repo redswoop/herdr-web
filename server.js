@@ -9,7 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { rpc, subscribe, isPromptable } from './lib/herdr.js';
 import { adapterFor, readEvents, listSessions, classifyBlocked } from './lib/adapters.js';
 import {
-  parseMenuScreen, parseMenuFor, isGrokProjectPicker, isGrokModalOverlay, parseRewindScreen,
+  parseMenuScreen, parseMenuFor, isGrokProjectPicker, isGrokModalOverlay,
+  isGrokPlanApproval, parseGrokPlanApproval, parseRewindScreen,
   composerText, typedComposerText, parseMode, MODES, trimSalvage,
 } from './lib/screen.js';
 import { PushStore, Coordinator } from './lib/notify.js';
@@ -86,6 +87,15 @@ async function doRefreshRoster() {
         title: a.terminal_title_stripped ?? '',
       });
       const repoRoot = await gitRootOf(a.cwd);
+      // grok's plan-approval overlay keeps herdr at "working" (exit_plan_mode
+      // stays Pending). Surface it as blocked so the card/push/key-pad fire.
+      let status = a.agent_status;
+      if (a.agent === 'grok' && status === 'working' && session) {
+        const title = a.terminal_title_stripped ?? a.terminal_title ?? '';
+        if (await grokPlanWaiting(session) || /Plan:\s*Exit/i.test(title)) {
+          status = 'blocked';
+        }
+      }
       return {
         paneId: a.pane_id,
         workspaceId: a.workspace_id,
@@ -94,7 +104,7 @@ async function doRefreshRoster() {
         displayAgent: a.display_agent ?? null,
         label: a.name ?? null,
         title: a.terminal_title_stripped ?? a.terminal_title ?? '',
-        status: a.agent_status,
+        status,
         cwd: a.cwd,
         repoRoot,
         focused: !!a.focused,
@@ -276,9 +286,14 @@ async function readScreenAnsi(paneId) {
 // became "4443" in the feedback box. `feedback` types into the free-text row
 // and submits (reject-with-feedback). Returns true, or null when the screen no
 // longer holds a matching menu — the caller 409s.
-const PLAN_INPUT_PLACEHOLDER = 'Tell Claude what to change';
+const INPUT_PLACEHOLDER = /^(Tell Claude what to change|Type something\.?)$/;
 async function answerByNav(paneId, { option, feedback, kind }) {
-  if (kind === 'grok') return answerGrokMenu(paneId, { option });
+  if (kind === 'grok') {
+    if (isGrokPlanApproval(await readScreen(paneId))) {
+      return answerGrokPlan(paneId, { option, feedback });
+    }
+    return answerGrokMenu(paneId, { option });
+  }
   const read = async () => parseMenuScreen(await readScreen(paneId));
   const settle = () => new Promise((r) => setTimeout(r, 300));
   const send = (keys) => agentRpc('agent.send_keys', { target: paneId, keys });
@@ -312,7 +327,7 @@ async function answerByNav(paneId, { option, feedback, kind }) {
       // keystrokes can race the row-focus and get dropped wholesale — an
       // untouched placeholder means nothing landed, so don't Enter on it
       const row = (await read())?.options.find((o) => o.n === targetN);
-      if (!row || row.label === PLAN_INPUT_PLACEHOLDER) return null;
+      if (!row || INPUT_PLACEHOLDER.test(row.label)) return null;
     }
   }
   await send(['Enter']);
@@ -336,6 +351,37 @@ async function answerGrokMenu(paneId, { option }) {
   if (menu?.options.find((o) => o.n === option)?.selected) {
     await agentRpc('agent.send_keys', { target: paneId, keys: ['Enter'] });
   }
+  return true;
+}
+
+// Grok plan.md preview: letter keys, not digits. Esc parks focus on the
+// preview (from the prompt or an in-progress comment) — it does not quit.
+// 1 → a (approve), 3 → q (quit); feedback types into the prompt via s.
+const GROK_PLAN_KEYS = { 1: 'a', 3: 'q' };
+async function answerGrokPlan(paneId, { option, feedback }) {
+  const settle = () => new Promise((r) => setTimeout(r, 300));
+  const send = (keys) => agentRpc('agent.send_keys', { target: paneId, keys });
+  const stillUp = async () => isGrokPlanApproval(await readScreen(paneId));
+  if (!(await stillUp())) return null;
+  await send(['Escape']);
+  await settle();
+  if (!(await stillUp())) return null;
+  if (feedback != null) {
+    await send(['s']);
+    await settle();
+    if (!(await stillUp())) return null;
+    const chars = [...feedback.replace(/\s+/g, ' ').trim()]
+      .map((c) => (c === ' ' ? 'space' : c));
+    if (chars.length) {
+      await send(chars);
+      await settle();
+    }
+    await send(['Enter']);
+    return true;
+  }
+  const key = GROK_PLAN_KEYS[option];
+  if (!key) return null;
+  await send([key]);
   return true;
 }
 
@@ -478,6 +524,26 @@ async function attachPlanFile(ctx, screen) {
   } catch {}
 }
 
+// grok writes the plan to the session dir, not a path advertised on screen.
+async function attachGrokPlanFile(ctx, session) {
+  if (ctx.plan || !session?.file) return;
+  try {
+    ctx.plan = (await fsp.readFile(path.join(path.dirname(session.file), 'plan.md'), 'utf8')).slice(0, 20_000);
+  } catch {}
+}
+
+// ~/.grok/sessions/<cwd>/<id>/plan_mode.json — the cheap roster signal that
+// grok is sitting on the approval overlay while herdr still says "working".
+async function grokPlanWaiting(session) {
+  if (!session?.file) return false;
+  try {
+    const j = JSON.parse(await fsp.readFile(path.join(path.dirname(session.file), 'plan_mode.json'), 'utf8'));
+    return j.awaiting_plan_approval === true;
+  } catch {
+    return false;
+  }
+}
+
 // What is the agent blocked ON? Session file first (pending tool_use), then
 // the visible screen parsed for a numbered menu. Shared by the API route and
 // the push coordinator (the notification body carries the question).
@@ -485,35 +551,66 @@ async function blockedContext(paneId) {
   const { agent, adapter, session } = await resolveAgent(paneId, { optional: true });
   // live status, not the roster cache — the cache can lag the event
   const live = await rpc('agent.get', { target: paneId });
-  if (live.agent?.agent_status !== 'blocked') return { kind: 'none' };
+  const herdrBlocked = live.agent?.agent_status === 'blocked';
+  if (!herdrBlocked) {
+    // grok plan approval: herdr stays working while the TUI waits on a/s/q
+    if (agent.agent === 'grok' && live.agent?.agent_status === 'working') {
+      try {
+        const grokPlan = parseGrokPlanApproval(await readScreen(paneId));
+        if (grokPlan) {
+          await attachGrokPlanFile(grokPlan, session);
+          return grokPlan;
+        }
+      } catch {}
+    }
+    return { kind: 'none' };
+  }
   // no session file yet (fresh session) → straight to the screen parser
   const { events } = session ? await readEvents(adapter, session.file, 0) : { events: [] };
   let ctx = classifyBlocked(events);
   if (ctx.kind === 'unknown') {
     const screen = await readScreen(paneId);
-    const menu = parseMenuFor(agent.agent, screen);
-    // no pending tool_use to name the tool (claude flushes ExitPlanMode to the
-    // session file only with its result), but a feedback row on a claude menu
-    // can only be the plan-approval prompt (grok ask menus carry one too —
-    // their pending tool_call classifies above, so they never reach here)
-    if (agent.agent === 'claude' && menu?.options.some((o) => o.input)) {
-      ctx = { kind: 'plan', plan: '', question: menu.question, options: menu.options };
-      await attachPlanFile(ctx, screen);
+    const grokPlan = agent.agent === 'grok' ? parseGrokPlanApproval(screen) : null;
+    if (grokPlan) {
+      ctx = grokPlan;
+      await attachGrokPlanFile(ctx, session);
     } else {
-      ctx = menu ?? { kind: 'unknown' };
+      const menu = parseMenuFor(agent.agent, screen);
+      // no pending tool_use to name the tool (claude flushes ExitPlanMode to the
+      // session file only with its result), but a feedback row on a claude menu
+      // can only be the plan-approval prompt (grok ask menus carry one too —
+      // their pending tool_call classifies above, so they never reach here)
+      if (agent.agent === 'claude' && menu?.form !== 'ask' && menu?.options.some((o) => o.input)) {
+        ctx = { kind: 'plan', plan: '', question: menu.question, options: menu.options };
+        await attachPlanFile(ctx, screen);
+      } else {
+        ctx = menu ?? { kind: 'unknown' };
+      }
     }
   } else if (ctx.kind === 'permission' || ctx.kind === 'plan') {
     // permission prompts aren't uniform (Yes/No vs Yes/Yes-always/No…) — read
     // the real options off the screen so an answer can't hit the wrong number;
-    // when nothing parses, callers must not guess digits
+    // when nothing parses, callers must not guess digits. grok plan approval
+    // is a letter-key overlay, not a radio menu.
     try {
       const screen = await readScreen(paneId);
-      const menu = parseMenuFor(agent.agent, screen);
-      if (menu) {
-        ctx.options = menu.options;
-        if (ctx.kind === 'plan') ctx.question = menu.question;
+      const grokPlan = agent.agent === 'grok' ? parseGrokPlanApproval(screen) : null;
+      if (grokPlan) {
+        ctx.options = grokPlan.options;
+        ctx.question = grokPlan.question;
+        ctx.dialect = 'grok';
+        if (grokPlan.comments) ctx.comments = grokPlan.comments;
+      } else {
+        const menu = parseMenuFor(agent.agent, screen);
+        if (menu) {
+          ctx.options = menu.options;
+          if (ctx.kind === 'plan') ctx.question = menu.question;
+        }
       }
-      if (ctx.kind === 'plan' && !ctx.plan) await attachPlanFile(ctx, screen);
+      if (ctx.kind === 'plan' && !ctx.plan) {
+        await attachPlanFile(ctx, screen);
+        await attachGrokPlanFile(ctx, session);
+      }
     } catch {}
   }
   return ctx;
@@ -1380,6 +1477,15 @@ const server = http.createServer(async (req, res) => {
           if (!screen.includes(expect)) {
             return sendJson(res, 409, { error: 'screen changed', screen });
           }
+        }
+        // unnumbered cursor menus (claude's folder-trust prompt) ignore digits
+        // — a client build that predates menu.nav still sends one; steer it
+        // through cursor nav instead of dropping the tap on the floor
+        if (keys.length === 1 && /^[1-9]$/.test(keys[0])
+          && parseMenuScreen(await readScreen(paneId))?.nav) {
+          const ok = await answerByNav(paneId, { option: +keys[0] });
+          if (!ok) return sendJson(res, 409, { error: 'screen changed', screen: await readScreen(paneId) });
+          return sendJson(res, 200, { ok: true });
         }
         await agentRpc('agent.send_keys', { target: paneId, keys });
         return sendJson(res, 200, { ok: true });

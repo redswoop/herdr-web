@@ -112,6 +112,7 @@ export function Composer({
   cooldown,
   restoredDraft,
   showKeys,
+  extraKeys,
   onSend,
   onInterrupt,
   onToggleKeys,
@@ -122,6 +123,7 @@ export function Composer({
   cooldown: boolean;
   restoredDraft: RestoredDraft | null;
   showKeys: boolean;
+  extraKeys?: readonly [string, string][];
   onSend: (text: string) => Promise<void>;
   onInterrupt: () => void;
   onToggleKeys: () => void;
@@ -351,7 +353,7 @@ export function Composer({
 
       {showKeys && (
         <View style={styles.keys}>
-          {KEYS.map(([label, key]) => (
+          {[...KEYS, ...(extraKeys ?? [])].map(([label, key]) => (
             <Pressable key={key} style={styles.keyBtn} onPress={() => sendKeys(key)}>
               <Text style={styles.keyLabel}>{label}</Text>
             </Pressable>

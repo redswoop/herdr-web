@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
-import type { BlockedCtx } from '@herdr/shared';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import type { AnswerBody, BlockedCtx } from '@herdr/shared';
 import { colors, radius } from '../theme';
 import { Icon } from './Icon';
 
@@ -9,14 +9,15 @@ export function BlockedCard({
   onAnswer,
 }: {
   ctx: BlockedCtx;
-  onAnswer: (keys: string[], expect: string | null) => Promise<boolean>;
+  onAnswer: (body: AnswerBody) => Promise<boolean>;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
+  const [fb, setFb] = useState('');
 
-  const answer = async (id: string, keys: string[], expect: string | null) => {
+  const answer = async (id: string, body: AnswerBody) => {
     setBusy(id);
     try {
-      await onAnswer(keys, expect);
+      return await onAnswer(body);
     } finally {
       setBusy(null);
     }
@@ -37,7 +38,7 @@ export function BlockedCard({
         busy === id && styles.busy,
       ]}
       disabled={busy !== null}
-      onPress={() => answer(id, keys, expect ?? null)}
+      onPress={() => answer(id, { keys, expect: expect ?? null })}
     >
       {busy === id ? (
         <ActivityIndicator color={colors.text} />
@@ -73,17 +74,133 @@ export function BlockedCard({
   }
 
   if (ctx.kind === 'menu') {
+    // A free-text row swallows digits once ❯ sits on it, so a menu that has
+    // one answers by cursor nav and gets a real text field for that row.
+    const hasInput = ctx.options.some((o) => o.input);
+    // …and an unnumbered cursor menu (folder-trust prompt) has no digits at all
+    const byNav = hasInput || !!ctx.nav;
     return (
       <View style={styles.card}>
         <View style={styles.question}>
           {!!ctx.detail && <Text style={styles.detail}>{ctx.detail}</Text>}
           <Text style={styles.qText}>{ctx.question || ctx.header || 'choose an option'}</Text>
-          {ctx.options.map((o) =>
-            opt(String(o.n), `${o.selected ? '❯ ' : ''}${o.label}`, [String(o.n)], {
-              desc: o.description,
-              expect: o.label.slice(0, 30),
-            }),
+          {ctx.options
+            .filter((o) => !o.input)
+            .map((o) =>
+              byNav ? (
+                <Pressable
+                  key={String(o.n)}
+                  style={[styles.option, busy === String(o.n) && styles.busy]}
+                  disabled={busy !== null}
+                  onPress={() => answer(String(o.n), { option: o.n })}
+                >
+                  {busy === String(o.n) ? (
+                    <ActivityIndicator color={colors.text} />
+                  ) : (
+                    <>
+                      <Text style={styles.optLabel}>{`${o.selected ? '❯ ' : ''}${o.label}`}</Text>
+                      {!!o.description && <Text style={styles.optDesc}>{o.description}</Text>}
+                    </>
+                  )}
+                </Pressable>
+              ) : (
+                opt(String(o.n), `${o.selected ? '❯ ' : ''}${o.label}`, [String(o.n)], {
+                  desc: o.description,
+                  expect: o.label.slice(0, 30),
+                })
+              ),
+            )}
+          {hasInput && (
+            <>
+              <TextInput
+                style={styles.fb}
+                placeholder="type your own answer…"
+                placeholderTextColor={colors.sub}
+                value={fb}
+                editable={busy === null}
+                multiline
+                onChangeText={setFb}
+              />
+              <Pressable
+                style={[styles.option, busy === 'fb' && styles.busy]}
+                disabled={busy !== null || !fb.trim()}
+                onPress={async () => {
+                  if (await answer('fb', { feedback: fb.trim() })) setFb('');
+                }}
+              >
+                {busy === 'fb' ? (
+                  <ActivityIndicator color={colors.text} />
+                ) : (
+                  <Text style={styles.optLabel}>send answer</Text>
+                )}
+              </Pressable>
+            </>
           )}
+        </View>
+      </View>
+    );
+  }
+
+  if (ctx.kind === 'plan') {
+    const grok = ctx.dialect === 'grok';
+    const choices = (ctx.options ?? []).filter((o) => !o.input);
+    const clsOf = (label: string) =>
+      /^(yes|approve)/i.test(label) ? 'confirm' : /^(no|quit)/i.test(label) ? 'deny' : '';
+    return (
+      <View style={styles.card}>
+        <View style={styles.question}>
+          <Text style={styles.qText}>
+            {ctx.question || (grok ? 'Grok has a plan — proceed?' : 'Claude has a plan — proceed?')}
+          </Text>
+          {!!ctx.plan && (
+            <Text style={styles.detail} numberOfLines={24}>
+              {ctx.plan}
+            </Text>
+          )}
+          {choices.map((o) => (
+            <Pressable
+              key={String(o.n)}
+              style={[
+                styles.option,
+                clsOf(o.label) === 'confirm' && styles.confirm,
+                clsOf(o.label) === 'deny' && styles.deny,
+                busy === String(o.n) && styles.busy,
+              ]}
+              disabled={busy !== null}
+              onPress={() => answer(String(o.n), { option: o.n })}
+            >
+              {busy === String(o.n) ? (
+                <ActivityIndicator color={colors.text} />
+              ) : (
+                <>
+                  <Text style={styles.optLabel}>{o.label}</Text>
+                  {!!o.description && <Text style={styles.optDesc}>{o.description}</Text>}
+                </>
+              )}
+            </Pressable>
+          ))}
+          <TextInput
+            style={styles.fb}
+            placeholder={grok ? 'tell grok what to change…' : 'tell claude what to change…'}
+            placeholderTextColor={colors.sub}
+            value={fb}
+            editable={busy === null}
+            multiline
+            onChangeText={setFb}
+          />
+          <Pressable
+            style={[styles.option, styles.deny, busy === 'fb' && styles.busy]}
+            disabled={busy !== null || !fb.trim()}
+            onPress={async () => {
+              if (await answer('fb', { feedback: fb.trim() })) setFb('');
+            }}
+          >
+            {busy === 'fb' ? (
+              <ActivityIndicator color={colors.text} />
+            ) : (
+              <Text style={styles.optLabel}>send feedback (keeps planning)</Text>
+            )}
+          </Pressable>
         </View>
       </View>
     );
@@ -156,4 +273,12 @@ const styles = StyleSheet.create({
   busy: { opacity: 0.6 },
   optLabel: { color: colors.text, fontSize: 15, fontWeight: '600' },
   optDesc: { color: colors.sub, fontSize: 12, marginTop: 2 },
+  fb: {
+    backgroundColor: colors.surface2,
+    color: colors.text,
+    borderRadius: radius.md,
+    padding: 10,
+    minHeight: 48,
+    fontSize: 14,
+  },
 });

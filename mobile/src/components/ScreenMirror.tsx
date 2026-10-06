@@ -5,18 +5,21 @@ import { colors } from '../theme';
 
 /**
  * Live mirror of the pane while a local TUI dialog is up (/model, /resume, …).
- * Dismisses when normal composer chrome returns.
+ * Dismisses when normal composer chrome returns. `pinned` = opened by hand
+ * (the blocked banner's "view screen"): never self-dismisses, no salvage.
  */
 export function ScreenMirror({
   paneId,
   poke,
+  pinned = false,
   onClose,
   onGone,
 }: {
   paneId: string;
   poke: number;
+  pinned?: boolean;
   onClose: () => void;
-  onGone: (finalScreen: string) => void;
+  onGone?: (finalScreen: string) => void;
 }) {
   const [text, setText] = useState<string | null>(null);
   const chromeRuns = useRef(0);
@@ -31,10 +34,10 @@ export function ScreenMirror({
       if (!r.ok) return;
       const { text: raw } = (await r.json()) as { text?: string };
       if (closedRef.current) return;
-      if (chromeVisible(raw ?? '')) {
+      if (!pinned && chromeVisible(raw ?? '')) {
         if (++chromeRuns.current >= 2) {
           closedRef.current = true;
-          onGone(raw ?? '');
+          onGone?.(raw ?? '');
           return;
         }
       } else {
@@ -72,7 +75,9 @@ export function ScreenMirror({
   return (
     <View style={styles.wrap}>
       <View style={styles.banner}>
-        <Text style={styles.bannerText}>local dialog — use keys below</Text>
+        <Text style={styles.bannerText}>
+          {pinned ? 'live TUI screen — use keys below' : 'local dialog — use keys below'}
+        </Text>
         <Pressable onPress={onClose} hitSlop={8}>
           <Text style={styles.hide}>hide</Text>
         </Pressable>

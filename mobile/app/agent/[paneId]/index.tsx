@@ -2,7 +2,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import {
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -20,6 +19,7 @@ import {
   useAgentSession,
   useBlockedContext,
   useRoster,
+  type AnswerBody,
 } from '@herdr/shared';
 import { BlockedCard } from '../../../src/components/BlockedCard';
 import { Composer } from '../../../src/components/Composer';
@@ -44,7 +44,10 @@ export default function AgentScreen() {
 
   const [keysPinned, setKeysPinned] = useState(false);
   const [keysForced, setKeysForced] = useState(false);
-  const [screen, setScreen] = useState<string | null>(null);
+  // live TUI mirror opened from the blocked banner — bottom-anchored and
+  // repainted per key tap (a one-shot capture showed the top of the pane, so
+  // a prompt under the shell's launch banner was off-screen)
+  const [mirror, setMirror] = useState(false);
   const [dialog, setDialog] = useState<{ sinceKey: number } | null>(null);
   const [poke, setPoke] = useState(0);
   const armRef = useRef<{ timer: ReturnType<typeof setTimeout>; sinceKey: number } | null>(null);
@@ -70,23 +73,11 @@ export default function AgentScreen() {
   useEffect(() => {
     if (status !== 'blocked') {
       setKeysForced(false);
-      setScreen(null);
+      setMirror(false);
     }
   }, [status]);
 
-  const peekScreen = async () => {
-    if (screen !== null) {
-      setScreen(null);
-      return;
-    }
-    try {
-      const r = await get(agentPath(paneId, 'screen'));
-      const { text } = (await r.json()) as { text?: string };
-      setScreen((text ?? '').replace(/\n{3,}/g, '\n\n').trimEnd());
-    } catch (e) {
-      getPlatform().notifyError(String((e as Error).message ?? e));
-    }
-  };
+  useEffect(() => setMirror(false), [paneId]);
 
   const closeDialog = useCallback(() => {
     if (armRef.current) {
@@ -178,8 +169,8 @@ export default function AgentScreen() {
     return null;
   }, [items, working]);
 
-  const onAnswer = async (keys: string[], expect: string | null) => {
-    const r = await post(agentPath(paneId, 'answer'), { keys, expect });
+  const onAnswer = async (body: AnswerBody) => {
+    const r = await post(agentPath(paneId, 'answer'), body);
     if (r.status === 409) {
       setKeysForced(true);
       getPlatform().notifyError('The screen changed — showing raw keys instead.');
@@ -189,6 +180,7 @@ export default function AgentScreen() {
       getPlatform().notifyError(await errorOf(r));
       return false;
     }
+    setPoke((p) => p + 1);
     setTimeout(refresh, 600);
     return true;
   };
@@ -207,22 +199,19 @@ export default function AgentScreen() {
   const showBlockedCard =
     blocked && !keysForced && ctx != null && ctx.kind !== 'none' && ctx.kind !== 'unknown';
   const showKeys =
-    keysPinned || dialog !== null || (blocked && (keysForced || ctx?.kind === 'unknown'));
+    keysPinned || dialog !== null || mirror || (blocked && (keysForced || ctx?.kind === 'unknown'));
+  const extraKeys: [string, string][] =
+    agent?.agent === 'grok' && ctx?.kind === 'plan' ? [['a', 'a'], ['s', 's'], ['q', 'q']] : [];
 
   return (
     <KeyboardAvoidingView style={styles.root} behavior="padding" keyboardVerticalOffset={insets.top + 44}>
       {blocked && (
         <View style={styles.blockedBanner}>
           <Text style={styles.blockedText}>agent is waiting on you</Text>
-          <Pressable onPress={peekScreen} hitSlop={8}>
-            <Text style={styles.peekBtn}>{screen !== null ? 'hide screen' : 'view screen'}</Text>
+          <Pressable onPress={() => setMirror((m) => !m)} hitSlop={8}>
+            <Text style={styles.peekBtn}>{mirror ? 'hide screen' : 'view screen'}</Text>
           </Pressable>
         </View>
-      )}
-      {screen !== null && (
-        <ScrollView style={styles.screenPeek} nestedScrollEnabled>
-          <Text style={styles.screenPre}>{screen}</Text>
-        </ScrollView>
       )}
       {!!agent?.cwd && (
         <Text style={styles.cwd} numberOfLines={1}>
@@ -240,11 +229,12 @@ export default function AgentScreen() {
       />
       {showBlockedCard && ctx && <BlockedCard ctx={ctx} onAnswer={onAnswer} />}
       {working && !dialog && !blocked && <LiveTail paneId={paneId} />}
-      {dialog && (
+      {(dialog || mirror) && (
         <ScreenMirror
           paneId={paneId}
           poke={poke}
-          onClose={closeDialog}
+          pinned={!dialog}
+          onClose={dialog ? closeDialog : () => setMirror(false)}
           onGone={onDialogGone}
         />
       )}
@@ -254,6 +244,7 @@ export default function AgentScreen() {
         cooldown={cooldown}
         restoredDraft={restoredDraft}
         showKeys={showKeys}
+        extraKeys={extraKeys}
         onSend={sendFromComposer}
         onInterrupt={interrupt}
         onToggleKeys={() => setKeysPinned((p) => !p)}
@@ -283,20 +274,6 @@ const styles = StyleSheet.create({
   },
   blockedText: { color: colors.blocked, textAlign: 'center', fontWeight: '600', fontSize: 13 },
   peekBtn: { color: colors.accent, fontSize: 13, fontWeight: '600' },
-  screenPeek: {
-    maxHeight: 160,
-    backgroundColor: colors.surface,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.hairline,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  screenPre: {
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    color: colors.sub,
-    fontSize: 11,
-    lineHeight: 15,
-  },
   cwd: {
     color: colors.sub,
     fontSize: 11,

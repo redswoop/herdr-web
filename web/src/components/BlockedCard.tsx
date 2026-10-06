@@ -94,32 +94,66 @@ export function BlockedCard({
   }
 
   if (ctx.kind === 'menu') {
+    // A free-text row swallows digits once ❯ sits on it, so a menu that has
+    // one answers by cursor nav and gets a real text field for that row.
+    const hasInput = ctx.options.some((o) => o.input);
+    // …and an unnumbered cursor menu (folder-trust prompt) has no digits at all
+    const byNav = hasInput || !!ctx.nav;
     return (
       <div className="blocked-card">
         <div className="question">
           {ctx.detail && <pre className="perm-detail">{ctx.detail}</pre>}
           <div className="q-text">{ctx.question || ctx.header || 'choose an option'}</div>
-          {ctx.options.map((o) =>
-            opt(String(o.n), `${o.selected ? '❯ ' : ''}${o.label}`, [String(o.n)], {
-              desc: o.description,
-              expect: o.label.slice(0, 30),
-            }),
+          {ctx.options
+            .filter((o) => !o.input)
+            .map((o) =>
+              byNav
+                ? btn(String(o.n), `${o.selected ? '❯ ' : ''}${o.label}`, { option: o.n }, o.description)
+                : opt(String(o.n), `${o.selected ? '❯ ' : ''}${o.label}`, [String(o.n)], {
+                    desc: o.description,
+                    expect: o.label.slice(0, 30),
+                  }),
+            )}
+          {hasInput && (
+            <>
+              <textarea
+                className="plan-fb"
+                placeholder="type your own answer…"
+                rows={2}
+                value={fb}
+                disabled={busy !== null}
+                onChange={(e) => setFb(e.target.value)}
+              />
+              <button
+                className={`option ${busy === 'fb' ? 'busy' : ''}`}
+                disabled={busy !== null || !fb.trim()}
+                onClick={async () => {
+                  if (await answer('fb', { feedback: fb.trim() })) setFb('');
+                }}
+              >
+                <span className="opt-label">send answer</span>
+              </button>
+            </>
           )}
         </div>
       </div>
     );
   }
 
-  // Plan-mode approval: rows 1..3 select, but the last row is a free-text
-  // feedback field that swallows keystrokes once focused — never send digits.
-  // Options answer via cursor navigation ({option: n}); the textarea rejects
-  // the plan with feedback ({feedback}), which sends claude back to planning.
+  // Plan-mode approval. Claude: rows 1..3 select, but the last row is a
+  // free-text field that swallows keystrokes — never send digits; options
+  // answer via cursor nav ({option: n}). Grok: letter-key overlay (a/s/q);
+  // the same {option}/{feedback} body is mapped server-side. The textarea
+  // rejects the plan with feedback and keeps planning.
   if (ctx.kind === 'plan') {
+    const grok = ctx.dialect === 'grok';
     const choices = (ctx.options ?? []).filter((o) => !o.input);
     return (
       <div className="blocked-card">
         <div className="question">
-          <div className="q-text">📋 {ctx.question || 'Claude has a plan — proceed?'}</div>
+          <div className="q-text">
+            📋 {ctx.question || (grok ? 'Grok has a plan — proceed?' : 'Claude has a plan — proceed?')}
+          </div>
           {ctx.plan && (
             <div className="plan-doc" dangerouslySetInnerHTML={{ __html: md(ctx.plan) }} />
           )}
@@ -129,12 +163,12 @@ export function BlockedCard({
               o.label,
               { option: o.n },
               o.description,
-              /^yes/i.test(o.label) ? 'confirm' : /^no/i.test(o.label) ? 'deny' : '',
+              /^(yes|approve)/i.test(o.label) ? 'confirm' : /^(no|quit)/i.test(o.label) ? 'deny' : '',
             ),
           )}
           <textarea
             className="plan-fb"
-            placeholder="tell claude what to change…"
+            placeholder={grok ? 'tell grok what to change…' : 'tell claude what to change…'}
             rows={2}
             value={fb}
             disabled={busy !== null}

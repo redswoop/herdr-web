@@ -70,6 +70,7 @@ export function Composer({
   cooldown,
   restoredDraft,
   showKeys,
+  extraKeys,
   onSend,
   onInterrupt,
   onToggleKeys,
@@ -80,6 +81,8 @@ export function Composer({
   cooldown: boolean;
   restoredDraft: RestoredDraft | null;
   showKeys: boolean;
+  /** extra pad keys (e.g. grok plan a/s/q) shown after the defaults */
+  extraKeys?: readonly [string, string][];
   onSend: (text: string) => Promise<void>;
   onInterrupt: () => void;
   onToggleKeys: () => void;
@@ -262,7 +265,7 @@ export function Composer({
       )}
       {showKeys && (
         <div className="keysrow">
-          {KEYS.map(([label, key]) => (
+          {[...KEYS, ...(extraKeys ?? [])].map(([label, key]) => (
             <button key={key} onClick={() => sendKeys(key)}>
               {label}
             </button>
