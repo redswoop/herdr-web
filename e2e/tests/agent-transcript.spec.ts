@@ -99,7 +99,35 @@ test.describe('agent transcript', () => {
       's3cret-token',
     );
 
-    await msg.locator('pre').click();
+    await msg.locator('pre').filter({ hasText: 'export KEY' }).click();
+    expect(await page.evaluate(() => (window as unknown as { __copied: string }).__copied)).toMatch(
+      /export KEY=abc123/,
+    );
+  });
+
+  test('URL chips and fenced URLs are real links, not copy targets', async ({ page }) => {
+    await openAgent(page, 'w1:p1');
+    await page.evaluate(() => {
+      (window as unknown as { __copied: string }).__copied = '';
+      navigator.clipboard.writeText = async (t: string) => {
+        (window as unknown as { __copied: string }).__copied = t;
+      };
+    });
+    const msg = page.locator('.msg.assistant').first();
+    const chip = msg.locator('code a[href="http://stormer.example.test:5174/"]');
+    await expect(chip).toHaveAttribute('target', '_blank');
+    const fenced = msg.locator('pre a[href="https://api.example.test/health"]');
+    await expect(fenced).toBeVisible();
+
+    // tapping the link must navigate (new tab), not copy the chip
+    const popup = page.waitForEvent('popup');
+    await chip.click();
+    await (await popup).close();
+    expect(await page.evaluate(() => (window as unknown as { __copied: string }).__copied)).toBe(
+      '',
+    );
+    // ...while the rest of the fence still copies
+    await msg.locator('pre').filter({ hasText: 'export KEY' }).click({ position: { x: 4, y: 4 } });
     expect(await page.evaluate(() => (window as unknown as { __copied: string }).__copied)).toMatch(
       /export KEY=abc123/,
     );

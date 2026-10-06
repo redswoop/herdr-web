@@ -15,7 +15,9 @@
     "name": "Bash",
     "id": "t1",
     "text": "",
-    "input": { "command": "ls src/auth" },
+    "input": {
+      "command": "ls src/auth"
+    },
     "ts": "2024-06-01T12:00:02.000Z"
   },
   {
@@ -26,9 +28,12 @@
   },
   {
     "kind": "assistant",
-    "text": "Here are the auth files:\n\n- `src/auth/login.ts`\n- `src/auth/session.ts`\n\nSee also /home/armen/src/app/README.md for setup.\n\nPassword is **hunter2**. Token: `s3cret-token`.\n\n```\nexport KEY=abc123\n```",
+    "text": "Here are the auth files:\n\n- `src/auth/login.ts`\n- `src/auth/session.ts`\n\nSee also /home/armen/src/app/README.md for setup.\n\nPassword is **hunter2**. Token: `s3cret-token`.\n\n```\nexport KEY=abc123\n```\n\nDev server: `http://stormer.example.test:5174/` and the [docs](https://docs.example.test/x).\n\n```\ncurl https://api.example.test/health\n```",
     "ts": "2024-06-01T12:00:04.000Z",
     "msgId": "a1",
-    "usage": { "out": 42, "ctx": 12000 }
+    "usage": {
+      "out": 42,
+      "ctx": 12000
+    }
   }
 ]

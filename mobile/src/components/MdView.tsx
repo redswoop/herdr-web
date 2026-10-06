@@ -53,7 +53,13 @@ function InlineSeg({
               <Text
                 key={i}
                 style={styles.code}
-                onPress={n.file && onOpenFile ? () => onOpenFile(n.file!) : undefined}
+                onPress={
+                  n.href
+                    ? () => Linking.openURL(n.href!).catch(() => {})
+                    : n.file && onOpenFile
+                      ? () => onOpenFile(n.file!)
+                      : undefined
+                }
               >
                 {n.text}
               </Text>

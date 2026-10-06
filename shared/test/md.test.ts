@@ -48,6 +48,29 @@ describe('parseMd + md()', () => {
     expect(html).toContain('&quot;onmouseover=&quot;');
   });
 
+  it('backticked URLs become links inside the code chip', () => {
+    const html = md('Tailnet URL is `http://stormer.tail93d23c.ts.net:8188/`.');
+    expect(html).toContain(
+      '<code><a href="http://stormer.tail93d23c.ts.net:8188/" target="_blank" rel="noopener noreferrer">http://stormer.tail93d23c.ts.net:8188/</a></code>',
+    );
+    // a path in backticks is still a file link, and a quote in a backticked URL is escaped
+    expect(md('`src/app.ts`')).toContain('data-file="src/app.ts"');
+    expect(md('`https://a.com/"onfocus="x`')).not.toContain('"onfocus="');
+    // not a URL chip: prose with a URL in it stays plain code
+    expect(md('`see http://a.com`')).toBe('<code>see http://a.com</code>');
+  });
+
+  it('linkifies URLs inside fenced blocks, escaping the rest', () => {
+    const html = md('```\ncurl https://api.x.com/v1?q=1) .\n<b>x</b> xmlns="http://w3.org/svg"\n```');
+    // shed() keeps the stray `)` and `.` out of the href; they stay as text
+    expect(html).toContain(
+      '<a href="https://api.x.com/v1?q=1" target="_blank" rel="noopener noreferrer">https://api.x.com/v1?q=1</a>) .',
+    );
+    // markup between URLs is still escaped, and a quoted URL stops at the quote
+    expect(html).toContain('&lt;b&gt;x&lt;/b&gt; xmlns=&quot;<a href="http://w3.org/svg"');
+    expect(html).toContain('</a>&quot;');
+  });
+
   it('renders GFM tables', () => {
     const src = '| a | b |\n| --- | --- |\n| 1 | 2 |';
     const html = md(src);

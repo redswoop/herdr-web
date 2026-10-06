@@ -8,7 +8,7 @@ export type Align = 'left' | 'center' | 'right' | '';
 export type Inline =
   | { type: 'text'; text: string }
   | { type: 'strong'; text: string }
-  | { type: 'code'; text: string; file?: string }
+  | { type: 'code'; text: string; file?: string; href?: string }
   | { type: 'link'; href: string; text: string }
   | { type: 'file'; path: string; text: string };
 
@@ -86,8 +86,17 @@ export function parseInlines(src: string): Inline[] {
     if (m[1] != null) {
       out.push({ type: 'strong', text: m[1] });
     } else if (m[2] != null) {
-      const p = pathish(m[2]);
-      out.push(p ? { type: 'code', text: m[2], file: p } : { type: 'code', text: m[2] });
+      // models wrap URLs in backticks constantly (`http://host:port/`) — keep
+      // the chip styling but make it a real link, not a copy-only run of text
+      const href = /^https?:\/\/\S+$/.test(m[2]) ? m[2] : null;
+      const p = href ? null : pathish(m[2]);
+      out.push(
+        href
+          ? { type: 'code', text: m[2], href }
+          : p
+            ? { type: 'code', text: m[2], file: p }
+            : { type: 'code', text: m[2] },
+      );
     } else if (m[3] != null && m[4] != null) {
       out.push({ type: 'link', href: m[4], text: m[3] });
     } else if (m[5] != null) {

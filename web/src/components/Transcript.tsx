@@ -71,6 +71,8 @@ export function Transcript({
       onOpenFile(a.dataset.file);
       return;
     }
+    // a URL chip (`http://…`) or a link inside a fence: let the browser follow it
+    if (t.closest('a[href]')) return;
     if (!chip || !ref.current?.contains(chip)) return;
     if (selectionOutside(chip)) return;
     // fenced block: the inner <code> is not the chip — copy the whole pre

@@ -1,5 +1,5 @@
 import type { Align, Block, Inline } from './parse';
-import { parseMd } from './parse';
+import { parseMd, shed } from './parse';
 
 export function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -22,6 +22,7 @@ function renderInlines(inlines: Inline[]): string {
         case 'strong':
           return `<strong>${esc(n.text)}</strong>`;
         case 'code':
+          if (n.href) return `<code>${anchor(n.href, n.text)}</code>`;
           return n.file
             ? `<code>${fileAnchor(n.file, n.text)}</code>`
             : `<code>${esc(n.text)}</code>`;
@@ -34,6 +35,22 @@ function renderInlines(inlines: Inline[]): string {
     .join('');
 }
 
+// Fenced blocks are verbatim text, but a URL dropped in one (a list of
+// endpoints, a curl line) should still open on tap. Escape the gaps, anchor
+// the URLs; shed() keeps a trailing `)` or `.` out of the href.
+const FENCE_URL = /https?:\/\/[^\s<>"'`]+/g;
+function linkifyFence(text: string): string {
+  let out = '';
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = FENCE_URL.exec(text))) {
+    const url = shed(m[0]);
+    out += esc(text.slice(last, m.index)) + anchor(url, url) + esc(m[0].slice(url.length));
+    last = m.index + m[0].length;
+  }
+  return out + esc(text.slice(last));
+}
+
 function cellTag(tag: 'th' | 'td', content: string, align: Align): string {
   const a = align ? ` style="text-align:${align}"` : '';
   return `<${tag}${a}>${content}</${tag}>`;
@@ -43,7 +60,7 @@ export function mdToHtml(blocks: Block[]): string {
   return blocks
     .map((b) => {
       if (b.type === 'code') {
-        return `<pre><code>${esc(b.text)}</code></pre>`;
+        return `<pre><code>${linkifyFence(b.text)}</code></pre>`;
       }
       if (b.type === 'table') {
         const thead = `<thead><tr>${b.header
