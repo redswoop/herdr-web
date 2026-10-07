@@ -14,6 +14,9 @@ import { LiveTail } from './LiveTail';
 import { ScreenMirror } from './ScreenMirror';
 import { Transcript } from './Transcript';
 import { Split, SplitHandle, SplitPane } from './ui/Split';
+import { ScenePanel } from '../scene/ScenePanel';
+
+const SCENE_OPEN_KEY = 'herdr.scene.open';
 
 /** lines that are TUI furniture, not command output */
 const TUI_CHROME_RES = [
@@ -86,6 +89,14 @@ export function AgentView({
   const [resumeOpen, setResumeOpen] = useState(false);
   const [keysPinned, setKeysPinned] = useState(false);
   const [keysForced, setKeysForced] = useState(false); // 409 fallback
+  // the plot-driven side panel; desktop only for now, open by default
+  const [sceneOpen, setSceneOpen] = useState(() => localStorage.getItem(SCENE_OPEN_KEY) !== '0');
+  const toggleScene = useCallback(() => {
+    setSceneOpen((o) => {
+      localStorage.setItem(SCENE_OPEN_KEY, o ? '0' : '1');
+      return !o;
+    });
+  }, []);
 
   const openFile = useCallback(
     (p: string) => {
@@ -432,6 +443,17 @@ export function AgentView({
           </button>
         )}
         <span className={`chip ${status ?? ''}`}>{status ?? '—'}</span>
+        {wide && (
+          <button
+            className={`chip scene-chip ${sceneOpen ? 'on' : ''}`}
+            title={sceneOpen ? 'hide scene panel' : 'show scene panel'}
+            aria-label="toggle scene panel"
+            aria-pressed={sceneOpen}
+            onClick={toggleScene}
+          >
+            ◨
+          </button>
+        )}
         {modeOpen && (
           <>
             <div className="pop-backdrop" onClick={() => setModeOpen(false)} />
@@ -549,14 +571,31 @@ export function AgentView({
     />
   );
 
-  // wide + file open → resizable split; otherwise the viewer (if any) is a
-  // fixed full-screen overlay and needs no layout slot
-  if (wide && viewer) {
+  // wide + (file open or scene open) → resizable split; otherwise the viewer
+  // (if any) is a fixed full-screen overlay and needs no layout slot. The
+  // split id encodes which panes are present so each combination keeps its
+  // own persisted layout.
+  // the workspace's scene first (the story), then anything pinned to this pane
+  const wsId = agent?.workspaceId ?? paneId.split(':')[0];
+  const scene = wide && sceneOpen && (
+    <ScenePanel scopes={[`ws:${wsId}`, `pane:${paneId}`]} onClose={toggleScene} />
+  );
+  if (wide && (viewer || scene)) {
     return (
-      <Split id="file" className="view-split">
-        <SplitPane id="transcript" minSize="35%">{main}</SplitPane>
-        <SplitHandle />
-        <SplitPane id="viewer" defaultSize="44%" minSize={300} maxSize="70%">{viewer}</SplitPane>
+      <Split id={`stage-${viewer ? 'v' : ''}${scene ? 's' : ''}`} className="view-split">
+        <SplitPane id="transcript" minSize="30%">{main}</SplitPane>
+        {viewer && (
+          <>
+            <SplitHandle />
+            <SplitPane id="viewer" defaultSize="40%" minSize={300} maxSize="70%">{viewer}</SplitPane>
+          </>
+        )}
+        {scene && (
+          <>
+            <SplitHandle />
+            <SplitPane id="scene" defaultSize={360} minSize={260} maxSize="50%">{scene}</SplitPane>
+          </>
+        )}
       </Split>
     );
   }

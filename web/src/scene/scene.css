@@ -1,0 +1,199 @@
+/* scene: the plot-driven side panel — btop treatment.
+   Monospace, one fact per line, boxes with the title riding the border,
+   color that encodes value (lo → mid → hi) rather than decoration. */
+.scene {
+  --sc-bg: var(--bg);
+  --sc-fg: var(--text);
+  --sc-dim: var(--sub);
+  --sc-line: #2b2b3a;
+  --sc-title: var(--accent);
+  --lo: #7aa2f7;   /* value gradient: cool → warm → hot */
+  --mid: #e0af68;
+  --hi: #f7768e;
+  --ok: var(--done);
+  display: flex; flex-direction: column;
+  height: 100%; min-width: 0;
+  background: var(--sc-bg);
+  color: var(--sc-fg);
+  font-family: var(--mono);
+  font-size: 11.5px; line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+  border-left: 1px solid var(--hairline);
+}
+.split-cell > .scene { border-left: 0; }
+.scene-bar {
+  gap: 8px; padding: 6px 10px; background: var(--sc-bg);
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+  border-bottom: 1px solid var(--sc-line);
+}
+.scene-bar .dot { width: 7px; height: 7px; }
+.scene-title { font-weight: 700; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--sc-title); }
+.scene-count { font-size: 11px; color: var(--sc-dim); flex: 1; }
+/* `.scene button.ghost` outranks the app-wide .ghost (20px, accent) rule */
+.scene button.ghost { font-size: inherit; color: var(--sc-dim); padding: 0; }
+.scene button.scene-clear { font-size: 11px; padding: 2px 6px; }
+.scene button.scene-clear:hover { color: var(--hi); }
+.scene button.scene-close { font-size: 16px; line-height: 1; padding: 0 4px; }
+.scene-chip.on { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--accent); }
+.scene-cards {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: 10px 8px 12px; display: flex; flex-direction: column; gap: 10px;
+}
+.scene-empty { color: var(--sc-dim); padding: 18px 6px; display: flex; flex-direction: column; gap: 10px; }
+.scene-hint {
+  display: block; white-space: pre; overflow-x: auto; font-size: 10.5px; line-height: 1.5;
+  border: 1px solid var(--sc-line); border-radius: 3px; padding: 8px 10px; color: var(--sc-fg); opacity: 0.8;
+}
+
+/* a box: outline only, title riding the top border like btop */
+.scene-card {
+  position: relative; flex: none;
+  border: 1px solid var(--sc-line); border-radius: 3px;
+  margin-top: 6px; padding: 8px 8px 7px;
+  animation: rise 0.15s ease both;
+}
+.scene-card-hd {
+  position: absolute; top: -8px; left: 6px; right: 6px;
+  display: flex; align-items: center; gap: 6px; pointer-events: none;
+  border: 0; padding: 0; height: 15px;
+}
+.scene-card-hd > * { pointer-events: auto; background: var(--sc-bg); line-height: 15px; }
+.scene-card.collapsed { padding: 0; height: 9px; border-bottom: 0; border-left: 0; border-right: 0; }
+.scene button.scene-card-title {
+  flex: 0 1 auto; min-width: 0; text-align: left; padding: 0 4px;
+  font-size: 11.5px; font-weight: 700; color: var(--sc-title);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.scene-card-plugin { margin-left: auto; flex: none; font-size: 10px; color: var(--sc-dim); padding: 0 3px; white-space: nowrap; }
+.scene button.scene-card-x { flex: none; font-size: 13px; line-height: 15px; padding: 0 4px; }
+.scene button.scene-card-x:hover { color: var(--hi); }
+.scene-card-body { padding: 0; font-size: inherit; }
+
+/* rows: label left, value right */
+.sc-rows { display: flex; flex-direction: column; gap: 1px; }
+.sc-row { display: flex; align-items: baseline; gap: 8px; min-width: 0; white-space: nowrap; }
+.sc-row .k { color: var(--sc-dim); flex: none; }
+.sc-row .v { margin-left: auto; color: var(--sc-fg); overflow: hidden; text-overflow: ellipsis; }
+.sc-row .v.strong { font-weight: 700; }
+.sc-row .v.dim { color: var(--sc-dim); }
+.sc-row .v.lo { color: var(--lo); }
+.sc-row .v.mid { color: var(--mid); }
+.sc-row .v.hi { color: var(--hi); }
+.sc-row .v.ok { color: var(--ok); }
+
+/* meter: a diced bar with a positional gradient, like btop's Used: bars */
+.sc-meter { display: grid; grid-template-columns: auto 4ch minmax(40px, 1fr) auto; align-items: center; gap: 6px; white-space: nowrap; }
+.sc-meter .k { color: var(--sc-dim); }
+.sc-meter .pct { text-align: right; color: var(--sc-fg); }
+.sc-meter .val { color: var(--sc-fg); font-weight: 700; }
+.sc-meter.lvl-mid .val, .sc-meter.lvl-mid .pct { color: var(--mid); }
+.sc-meter.lvl-hi .val, .sc-meter.lvl-hi .pct { color: var(--hi); }
+.sc-bar {
+  height: 9px; position: relative;
+  background: var(--sc-line);
+  -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 3px, transparent 3px 4px);
+  mask-image: repeating-linear-gradient(90deg, #000 0 3px, transparent 3px 4px);
+}
+.sc-bar .fill {
+  position: absolute; top: 0; bottom: 0; left: 0; width: var(--pct, 0%);
+  background: linear-gradient(90deg, var(--lo), var(--mid) 60%, var(--hi));
+  transition: width 0.4s ease;
+}
+/* the gradient spans the whole track, not just the filled part */
+.sc-bar .track { position: absolute; inset: 0; background: linear-gradient(90deg, var(--lo), var(--mid) 60%, var(--hi)); }
+.sc-bar .cover { position: absolute; top: 0; bottom: 0; right: 0; left: var(--pct, 0%); background: var(--sc-line); transition: left 0.4s ease; }
+.sc-bar.flat .track { background: var(--ok); }
+
+/* dot graph: columns diced into dots, colored by value */
+.sc-graph { width: 100%; height: 40px; display: block; margin-top: 3px; }
+.sc-graph-head { display: flex; align-items: baseline; gap: 8px; white-space: nowrap; }
+.sc-graph-head .now { font-size: 15px; font-weight: 700; }
+.sc-graph-head .unit { color: var(--sc-dim); }
+.sc-graph-head .range { margin-left: auto; color: var(--sc-dim); font-size: 10.5px; }
+.sc-graph-head .now.lo { color: var(--lo); }
+.sc-graph-head .now.mid { color: var(--mid); }
+.sc-graph-head .now.hi { color: var(--hi); }
+
+/* text / kv / errors */
+.scene-nodata { color: var(--sc-dim); font-style: italic; }
+.scene-text {
+  margin: 0; font-family: inherit; font-size: 11px; line-height: 1.35;
+  white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow-y: auto; color: var(--sc-fg);
+}
+.scene-err { color: var(--hi); }
+.scene-watch { display: flex; flex-direction: column; gap: 4px; }
+.scene-watch-foot { display: flex; gap: 8px; font-size: 10px; color: var(--sc-dim); margin-top: 2px; }
+.scene-cmd { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.7; }
+.scene-watch-status { flex: none; }
+.scene-watch-status.bad { color: var(--hi); }
+.scene-kv { border-collapse: collapse; width: 100%; }
+.scene-kv td { padding: 0; vertical-align: top; }
+.scene-kv td.k { color: var(--sc-dim); padding-right: 10px; white-space: nowrap; }
+.scene-kv td.v { text-align: right; overflow-wrap: anywhere; }
+
+/* summary: markdown, compact */
+.scene-summary { line-height: 1.4; border-left: 2px solid var(--sc-title); padding-left: 8px; font-size: 11.5px; }
+.scene-summary.tone-ok { border-color: var(--ok); }
+.scene-summary.tone-warn { border-color: var(--mid); }
+.scene-summary.tone-bad { border-color: var(--hi); }
+.scene-summary > :first-child { margin-top: 0; }
+.scene-summary > :last-child { margin-bottom: 0; }
+.scene-summary p { margin: 0 0 5px; }
+.scene-summary ul, .scene-summary ol { margin: 0 0 5px; padding-left: 18px; }
+.scene-summary code { background: var(--surface-2); padding: 0 4px; border-radius: 3px; }
+.scene-summary pre { background: var(--surface-2); padding: 6px 8px; border-radius: 3px; overflow-x: auto; font-size: 11px; }
+.scene-summary pre code { background: none; padding: 0; }
+
+/* service-control: one status line, one meta line, bracketed keys */
+.scene-svc { display: flex; flex-direction: column; gap: 2px; --st: var(--idle); }
+.scene-svc.state-ok { --st: var(--ok); }
+.scene-svc.state-bad { --st: var(--hi); }
+.scene-svc.state-warn { --st: var(--mid); }
+.scene-svc.state-missing, .scene-svc.state-unknown { --st: var(--sc-dim); }
+.scene-svc-head { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.scene-svc-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--st); flex: none; align-self: center; }
+.scene-svc.state-warn .scene-svc-dot { animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+.scene-svc-state { font-weight: 700; color: var(--st); }
+.scene-svc-uptime { margin-left: auto; color: var(--sc-dim); }
+.scene-svc-uptime b { color: var(--sc-fg); font-weight: 400; }
+.scene-svc-meta { display: flex; gap: 10px; color: var(--sc-dim); white-space: nowrap; overflow: hidden; }
+.scene-svc-meta code { color: var(--sc-fg); overflow: hidden; text-overflow: ellipsis; }
+.scene-svc-meta .warn { color: var(--mid); }
+.scene-svc-desc { color: var(--sc-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; }
+.scene-svc-actions { display: flex; align-items: baseline; gap: 10px; margin-top: 3px; white-space: nowrap; }
+.sc-key { font-family: inherit; font-size: 11.5px; color: var(--sc-fg); padding: 0; }
+.sc-key::before { content: '['; color: var(--sc-line); }
+.sc-key::after { content: ']'; color: var(--sc-line); }
+.sc-key b { color: var(--sc-title); font-weight: 700; }
+.sc-key.danger b { color: var(--hi); }
+.sc-key:hover { color: var(--sc-title); }
+.sc-key:hover::before, .sc-key:hover::after { color: var(--sc-fg); }
+.sc-key:disabled { opacity: 0.45; }
+.scene-svc-last { color: var(--sc-dim); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.scene-svc-last.bad { color: var(--hi); }
+.scene-svc-log { max-height: 120px; font-size: 10.5px; opacity: 0.85; margin-top: 3px; }
+
+/* ---- neon: for Masud. Hotter palette, glow on anything that carries value. */
+.scene.neon {
+  --sc-bg: #07070c;
+  --sc-line: #26264a;
+  --sc-title: #22e6ff;
+  --lo: #22e6ff;
+  --mid: #ffe600;
+  --hi: #ff2d95;
+  --ok: #39ff14;
+}
+.scene.neon .scene-title,
+.scene.neon .scene-card-title { text-shadow: 0 0 6px color-mix(in srgb, var(--sc-title) 70%, transparent); }
+.scene.neon .sc-graph-head .now,
+.scene.neon .sc-meter .val,
+.scene.neon .scene-svc-state { text-shadow: 0 0 8px currentColor; }
+.scene.neon .scene-card { box-shadow: 0 0 10px -4px color-mix(in srgb, var(--sc-title) 45%, transparent); }
+.scene.neon .sc-bar { filter: drop-shadow(0 0 3px color-mix(in srgb, var(--mid) 55%, transparent)); }
+.scene.neon .sc-graph { filter: drop-shadow(0 0 3px color-mix(in srgb, var(--lo) 60%, transparent)); }
+.scene.neon .scene-svc-dot { box-shadow: 0 0 8px var(--st), 0 0 2px var(--st); }
+.scene.neon .sc-key b { text-shadow: 0 0 6px currentColor; }
+.scene.neon .scene-summary { box-shadow: -4px 0 10px -6px var(--sc-title); }
+.scene button.scene-neon { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; padding: 2px 6px; }
+.scene.neon button.scene-neon { color: var(--sc-title); text-shadow: 0 0 6px currentColor; }
