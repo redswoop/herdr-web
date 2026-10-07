@@ -1,0 +1,14 @@
+{
+  "name": "herdr-director",
+  "private": true,
+  "type": "module",
+  "description": "The director: a claude session that watches a pane and dresses its scene. feeder.mjs nudges it; mcp.mjs gives it hands.",
+  "scripts": {
+    "start": "node feeder.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "zod": "^4.6.5"
+  }
+}

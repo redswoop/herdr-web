@@ -1,0 +1,18 @@
+# systemd user unit: ~/.config/systemd/user/herdr-stage-manager.service
+#   systemctl --user daemon-reload && systemctl --user enable --now herdr-stage-manager
+# The stage manager watches every pane through herdr-web and runs a headless
+# director turn (claude -p, sonnet) per workspace when its story moves.
+[Unit]
+Description=herdr stage manager — directors for the scene panel
+After=herdr-web.service
+Wants=herdr-web.service
+
+[Service]
+ExecStart=/usr/bin/node %h/src/herdr-web/director/manager.mjs --api http://127.0.0.1:7683
+Restart=on-failure
+RestartSec=5
+# Environment=HERDR_WEB_TOKEN=change-me
+# Environment=HERDR_WEB_STATE=%h/.local/state/herdr-web
+
+[Install]
+WantedBy=default.target
