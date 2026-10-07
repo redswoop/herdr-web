@@ -80,6 +80,22 @@ test('startedAfter accepts files created after the process start', async () => {
   assert.equal(hit?.sessionId, sid(1), 'own-file filter should keep the newest qualifying file');
 });
 
+test('liveCwd (process chdir after launch, e.g. EnterWorktree) is searched before the launch cwd', async () => {
+  // the launch dir has a newer file, but the process now lives in the
+  // worktree and writes there — the worktree's file must win
+  const liveCwd = `${CWD}/.claude/worktrees/rail`;
+  const liveDir = path.join(home, '.claude', 'projects', liveCwd.replace(/[/.]/g, '-'));
+  await fsp.mkdir(liveDir, { recursive: true });
+  const p = path.join(liveDir, `${sid(7)}.jsonl`);
+  await fsp.writeFile(p, line({ type: 'user', message: { content: 'in the worktree' }, timestamp: '2026-10-06T00:00:00Z' }));
+  await fsp.utimes(p, new Date(Date.now() - 600_000), new Date(Date.now() - 600_000));
+  const hit = await find(CWD, { liveCwd });
+  assert.equal(hit?.sessionId, sid(7));
+  // a live cwd with no project dir yet falls back to the launch cwd
+  const fb = await find(CWD, { liveCwd: `${CWD}/.claude/worktrees/nothing-here` });
+  assert.equal(fb?.sessionId, sid(1));
+});
+
 test('unknown project dir → null, not a throw', async () => {
   assert.equal(await find('/does/not/exist', {}), null);
 });

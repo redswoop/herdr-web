@@ -202,11 +202,15 @@ const paneProcCache = new Map(); // paneId -> {at, pid, startedAt}
 async function paneProcess(paneId, kind) {
   const hit = paneProcCache.get(paneId);
   if (hit && Date.now() - hit.at < 30_000) return hit;
-  const info = { at: Date.now(), pid: null, startedAt: null };
+  const info = { at: Date.now(), pid: null, startedAt: null, cwd: null };
   try {
     const r = await rpc('pane.process_info', { pane_id: paneId });
     const procs = r.process_info?.foreground_processes ?? [];
     info.pid = (procs.find((p) => p.name === kind) ?? procs[0])?.pid ?? null;
+    // the process's REAL cwd — herdr reports the launch dir, but claude can
+    // chdir after start (EnterWorktree) and then writes its session file
+    // under the new dir's project slug
+    if (info.pid) info.cwd = await fsp.readlink(`/proc/${info.pid}/cwd`).catch(() => null);
     const btime = await bootTimeMs();
     if (info.pid && btime) {
       const stat = await fsp.readFile(`/proc/${info.pid}/stat`, 'utf8');
@@ -231,7 +235,11 @@ async function findSessionFor({ paneId, agent, cwd, title }) {
   const adapter = adapterFor(agent);
   if (!adapter || !cwd) return null;
   const hints = { title: title ?? '', sessionId: pinnedSessions.get(paneId) };
-  if (agent === 'claude') hints.startedAfter = (await paneProcess(paneId, agent)).startedAt;
+  if (agent === 'claude') {
+    const p = await paneProcess(paneId, agent);
+    hints.startedAfter = p.startedAt;
+    hints.liveCwd = p.cwd;
+  }
   if (agent === 'grok') {
     const p = await paneProcess(paneId, agent);
     hints.pid = p.pid;

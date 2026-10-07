@@ -10,7 +10,9 @@ let md;
 let pathish;
 try {
   let esbuild;
-  for (const p of ['../node_modules/esbuild/lib/main.js', '../web/node_modules/esbuild/lib/main.js'])
+  // bare 'esbuild' last: a nested git worktree has no node_modules of its
+  // own and resolves through the parent checkout's
+  for (const p of ['../node_modules/esbuild/lib/main.js', '../web/node_modules/esbuild/lib/main.js', 'esbuild'])
     try {
       esbuild = await import(p);
       break;
