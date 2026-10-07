@@ -164,7 +164,7 @@ if (NOTES_FILE) {
       inputSchema: { notes: z.string().max(6000) },
     },
     async ({ notes }) => {
-      const lines = notes.split('\n');
+      const lines = notes.trimEnd().split('\n'); // a trailing newline is not a line
       if (lines.length > NOTES_MAX_LINES) {
         return fail(new Error(`${lines.length} lines; the cap is ${NOTES_MAX_LINES}. Condense — this is memory, not a log.`));
       }

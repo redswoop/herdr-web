@@ -11,12 +11,15 @@
 //   node manager.mjs [--api http://100.119.251.97:7693] [--model sonnet]
 //     [--only w20,w31] [--dry-run] [--while-working 90] [--min-gap 20]
 //     [--concurrency 2] [--delta-chars 6000] [--turn-timeout 300]
+//
+// The pure parts (prompt, cursor resume, delta split, scheduler) live in
+// lib/manager-core.mjs and are unit-tested; this file is the wiring.
 import { spawn } from 'node:child_process';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { compactEvents, budget } from './lib/compact.mjs';
+import { Scheduler, buildLogBody, buildPrompt, resumeOffset, splitDeltas } from './lib/manager-core.mjs';
 import { describeScene } from './lib/scene-view.mjs';
 import { subscribe } from './lib/sse.mjs';
 
@@ -38,7 +41,6 @@ const MIN_GAP = Number(argOf('--min-gap', 20)) * 1000;
 const CONCURRENCY = Number(argOf('--concurrency', 2));
 const DELTA_CHARS = Number(argOf('--delta-chars', 6000));
 const TURN_TIMEOUT = Number(argOf('--turn-timeout', 300)) * 1000;
-const DEBOUNCE = 3000;
 const STAGE = path.join(here, 'stage');
 const STATE_DIR = process.env.HERDR_WEB_STATE ?? path.join(os.homedir(), '.local', 'state', 'herdr-web');
 const STATE_FILE = path.join(STATE_DIR, 'stage-manager.json');
@@ -68,7 +70,7 @@ async function postJson(p, body) {
 
 // ---------- persisted state ----------
 // panes: { [paneId]: { offset, sessionId } }  — transcript cursors
-// workspaces: { [wsId]: { lastTurnAt, turns } }
+// workspaces: { [wsId]: { turns, lastTurnAt, lastLine, cost } }
 let state = { panes: {}, workspaces: {} };
 async function loadState() {
   try {
@@ -91,41 +93,19 @@ function saveState() {
 
 // ---------- the herd ----------
 let roster = { agents: [], workspaces: [] };
-const panes = new Map(); // paneId -> { agent, status, stop, pending: [] }
-const wsRuns = new Map(); // wsId -> { timer, want, running, lastTick, workingTimer, why }
-let running = 0;
+const panes = new Map(); // paneId -> { agent, status, stop, pending: [], streamOffset }
+const workingTimers = new Map(); // wsId -> interval during long turns
+const scheduler = new Scheduler({ run: runTurn, debounce: 3000, minGap: MIN_GAP, concurrency: CONCURRENCY, log });
 
 const watched = (a) => (a.agent === 'claude' || a.agent === 'grok') && (!ONLY.length || ONLY.includes(a.workspaceId));
 const wsLabel = (ws) => roster.workspaces?.find((w) => w.workspaceId === ws)?.label ?? ws;
-
-function wsRun(ws) {
-  let r = wsRuns.get(ws);
-  if (!r) {
-    r = { timer: null, want: false, running: false, lastTick: 0, workingTimer: null, why: '' };
-    wsRuns.set(ws, r);
-  }
-  return r;
-}
-
-function scheduleTurn(ws, why, delay = DEBOUNCE) {
-  const r = wsRun(ws);
-  r.want = true;
-  r.why = why;
-  if (r.timer || r.running) return;
-  const gap = Math.max(delay, MIN_GAP - (Date.now() - r.lastTick));
-  log(`[${ws}] turn in ${Math.round(gap / 1000)}s (${why})`);
-  r.timer = setTimeout(() => {
-    r.timer = null;
-    runTurn(ws).catch((e) => log(`[${ws}] turn failed: ${e.message ?? e}`));
-  }, gap);
-}
+const wsPanes = (ws) => [...panes.values()].filter((p) => p.agent.workspaceId === ws);
 
 // ---------- transcripts ----------
 async function openPane(a) {
   const id = a.paneId;
-  const p = { agent: a, status: a.status, stop: null, pending: [] };
+  const p = { agent: a, status: a.status, stop: null, pending: [], streamOffset: null };
   panes.set(id, p);
-  const cur = state.panes[id];
   let t;
   try {
     t = await getJson(`/api/agent/${encodeURIComponent(id)}/transcript`);
@@ -134,26 +114,17 @@ async function openPane(a) {
     panes.delete(id);
     return;
   }
-  const total = t.events?.length ?? 0;
-  let offset = t.offset ?? 0;
-  if (cur && cur.sessionId === t.sessionId && cur.offset <= offset) {
-    // same session as our cursor: open the stream AT the cursor and the
-    // server replays exactly what we haven't seen, no approximation
-    offset = cur.offset;
-    if (cur.offset < (t.offset ?? 0)) log(`[${id}] resuming from cursor; ${(t.offset ?? 0) - cur.offset} bytes unseen`);
-  } else if (total) {
-    p.pending.push(...(t.events ?? []).slice(-40)); // a new pane: a glimpse of its recent story
-  }
+  const { offset, seed, unseenBytes } = resumeOffset(state.panes[id], t);
+  if (unseenBytes) log(`[${id}] resuming from cursor; ${unseenBytes} bytes unseen`);
+  p.pending.push(...seed);
   state.panes[id] = { offset, sessionId: t.sessionId ?? null };
   saveState();
-  if (p.pending.length) scheduleTurn(a.workspaceId, `${id} has ${p.pending.length} unseen events`);
+  if (p.pending.length) scheduler.schedule(a.workspaceId, `${id} has ${p.pending.length} unseen events`);
   p.stop = subscribe(url(`/api/agent/${encodeURIComponent(id)}/stream?offset=${offset}`), {
     log: (m) => log(`[${id}] ${m}`),
     onFrame: ({ event, data }) => {
       if (event === 'offset') {
-        // the cursor only advances once a turn has consumed the events;
-        // until then remember where the stream is
-        p.streamOffset = Number(data);
+        p.streamOffset = Number(data); // the cursor advances only once a turn consumed the events
         return;
       }
       if (event === 'reset') {
@@ -166,7 +137,7 @@ async function openPane(a) {
       if (event !== 'events') return;
       const evs = JSON.parse(data);
       p.pending.push(...evs);
-      if (evs.some((e) => e.kind === 'user' || e.kind === 'command')) scheduleTurn(p.agent.workspaceId, `${id}: user spoke`);
+      if (evs.some((e) => e.kind === 'user' || e.kind === 'command')) scheduler.schedule(p.agent.workspaceId, `${id}: user spoke`);
     },
   });
 }
@@ -176,7 +147,7 @@ function closePane(id) {
   if (!p) return;
   p.stop?.();
   panes.delete(id);
-  if (p.pending.length) scheduleTurn(p.agent.workspaceId, `${id} left with ${p.pending.length} unseen events`);
+  if (p.pending.length) scheduler.schedule(p.agent.workspaceId, `${id} left with ${p.pending.length} unseen events`);
 }
 
 function onStatus(p, next) {
@@ -184,18 +155,16 @@ function onStatus(p, next) {
   const prev = p.status;
   p.status = next;
   const ws = p.agent.workspaceId;
-  const r = wsRun(ws);
-  if (prev === 'working' && (next === 'idle' || next === 'blocked' || next === 'done')) scheduleTurn(ws, `${p.agent.paneId} turn ended (${next})`);
-  if (next === 'blocked' && prev !== 'working') scheduleTurn(ws, `${p.agent.paneId} blocked`);
-  const anyWorking = [...panes.values()].some((x) => x.agent.workspaceId === ws && x.status === 'working');
-  if (anyWorking && !r.workingTimer) {
-    r.workingTimer = setInterval(() => {
-      const pend = [...panes.values()].filter((x) => x.agent.workspaceId === ws).reduce((n, x) => n + x.pending.length, 0);
-      if (pend) scheduleTurn(ws, 'long turn, periodic');
-    }, WHILE_WORKING);
-  } else if (!anyWorking && r.workingTimer) {
-    clearInterval(r.workingTimer);
-    r.workingTimer = null;
+  if (prev === 'working' && (next === 'idle' || next === 'blocked' || next === 'done')) scheduler.schedule(ws, `${p.agent.paneId} turn ended (${next})`);
+  if (next === 'blocked' && prev !== 'working') scheduler.schedule(ws, `${p.agent.paneId} blocked`);
+  const anyWorking = wsPanes(ws).some((x) => x.status === 'working');
+  if (anyWorking && !workingTimers.has(ws)) {
+    workingTimers.set(ws, setInterval(() => {
+      if (wsPanes(ws).some((x) => x.pending.length)) scheduler.schedule(ws, 'long turn, periodic');
+    }, WHILE_WORKING));
+  } else if (!anyWorking && workingTimers.has(ws)) {
+    clearInterval(workingTimers.get(ws));
+    workingTimers.delete(ws);
   }
 }
 
@@ -217,26 +186,6 @@ function onRoster(r) {
 }
 
 // ---------- the turn ----------
-export function buildPrompt({ ws, label, agents, notes, deltas, scene, first }) {
-  const paneLines = agents
-    .map((a) => `- ${a.paneId}: ${a.displayAgent ?? a.agent} "${a.label ?? a.title}" — ${a.status}, cwd ${a.cwd ?? '?'}`)
-    .join('\n');
-  const delta = deltas.length
-    ? deltas.map(({ paneId, text }) => `[pane ${paneId}]\n${text}`).join('\n\n')
-    : '(nothing new in the transcripts — a status changed)';
-  return [
-    `You are the director for workspace ${ws}${label && label !== ws ? ` ("${label}")` : ''}. Scene scope: ws:${ws}.`,
-    `PANES:\n${paneLines || '(none)'}`,
-    `YOUR NOTES (your only memory; ${first ? 'none yet — this is your first turn here' : 'from your last turn'}):\n${notes || '(empty)'}`,
-    `SINCE YOU LAST LOOKED:\n${delta}`,
-    `SCENE NOW:\n${scene}`,
-    first
-      ? 'First turn: call scene_catalog once, then dress the stage for where the story is. Call transcript_tail for any pane whose context you need.'
-      : 'Adjust the scene with scene_apply if the story moved; otherwise leave it.',
-    'Then call notes_write with your rewritten notes (≤ 40 lines: the story, what is on stage and why, what to watch for, what you decided not to show). Use knowledge_append only for durable facts about the machine. Reply with ONE line.',
-  ].join('\n\n');
-}
-
 function runClaude(prompt, { ws, mcpConfig }) {
   return new Promise((resolve) => {
     const cliArgs = [
@@ -290,34 +239,21 @@ async function writeMcpConfig(ws) {
   return file;
 }
 
-async function runTurn(ws) {
-  const r = wsRun(ws);
-  if (!r.want) return;
-  if (r.running) return;
-  if (running >= CONCURRENCY) {
-    log(`[${ws}] waiting for a slot (${running} turns running)`);
-    setTimeout(() => runTurn(ws).catch(() => {}), 5000);
-    return;
-  }
-  r.running = true;
-  r.want = false;
-  running += 1;
-  const wsPanes = [...panes.values()].filter((p) => p.agent.workspaceId === ws);
-  const deltas = [];
-  for (const p of wsPanes) {
-    if (!p.pending.length) continue;
-    const text = budget(compactEvents(p.pending), Math.floor(DELTA_CHARS / Math.max(1, wsPanes.filter((x) => x.pending.length).length)));
-    deltas.push({ paneId: p.agent.paneId, text, events: p.pending });
-    p.pending = [];
-  }
+async function runTurn(ws, why) {
+  const ps = wsPanes(ws);
+  const deltas = splitDeltas(ps.map((p) => ({ paneId: p.agent.paneId, pending: p.pending })), DELTA_CHARS);
+  for (const p of ps) p.pending = [];
   const w = (state.workspaces[ws] ??= { turns: 0, lastTurnAt: 0 });
   const first = !w.turns;
+  const requeue = () => {
+    for (const d of deltas) panes.get(d.paneId)?.pending.unshift(...d.events);
+  };
   try {
     const notes = await fsp.readFile(notesFile(ws), 'utf8').catch(() => '');
     const snapshot = await getJson(`/api/scene/${encodeURIComponent(`ws:${ws}`)}`);
-    const prompt = buildPrompt({ ws, label: wsLabel(ws), agents: wsPanes.map((p) => p.agent), notes, deltas, scene: describeScene(snapshot), first });
+    const prompt = buildPrompt({ ws, label: wsLabel(ws), agents: ps.map((p) => p.agent), notes, deltas, scene: describeScene(snapshot), first });
     const nEvents = deltas.reduce((n, d) => n + d.events.length, 0);
-    log(`[${ws}] turn ${w.turns + 1}: ${nEvents} events from ${deltas.length} pane(s), ${prompt.length} chars, ${snapshot.cards.length} cards (${r.why})`);
+    log(`[${ws}] turn ${w.turns + 1}: ${nEvents} events from ${deltas.length} pane(s), ${prompt.length} chars, ${snapshot.cards.length} cards (${why})`);
     if (DRY) {
       log(`[${ws}] DRY RUN prompt:\n${prompt}`);
     } else {
@@ -328,34 +264,26 @@ async function runTurn(ws) {
       const secs = ((Date.now() - t0) / 1000).toFixed(1);
       if (!j) {
         log(`[${ws}] turn produced no JSON (exit ${res.code}): ${(res.err || res.raw).trim().slice(0, 300)}`);
-        for (const d of deltas) panes.get(d.paneId)?.pending.unshift(...d.events); // retry later with the same delta
-        r.want = true;
-      } else {
-        const line = String(j.result ?? '').trim().replace(/\s+/g, ' ');
-        log(`[${ws}] turn done in ${secs}s, ${j.num_turns ?? '?'} steps, $${(j.total_cost_usd ?? 0).toFixed(3)}${j.is_error ? ' ERROR' : ''}: ${line.slice(0, 200)}`);
-        w.turns += 1;
-        w.lastTurnAt = Date.now();
-        w.lastLine = line.slice(0, 300);
-        w.cost = (w.cost ?? 0) + (j.total_cost_usd ?? 0);
-        await publishLog(ws, line);
+        requeue();
+        throw new Error('no result');
       }
+      const line = String(j.result ?? '').trim().replace(/\s+/g, ' ');
+      log(`[${ws}] turn done in ${secs}s, ${j.num_turns ?? '?'} steps, $${(j.total_cost_usd ?? 0).toFixed(3)}${j.is_error ? ' ERROR' : ''}: ${line.slice(0, 200)}`);
+      w.turns += 1;
+      w.lastTurnAt = Date.now();
+      w.lastLine = line.slice(0, 300);
+      w.cost = (w.cost ?? 0) + (j.total_cost_usd ?? 0);
+      await publishLog(ws, line);
     }
     // cursors: whatever we fed is seen — advance to where the stream was
-    for (const p of wsPanes) {
+    for (const p of ps) {
       const cur = state.panes[p.agent.paneId];
       if (cur && p.streamOffset != null && !p.pending.length) cur.offset = p.streamOffset;
-      if (cur) cur.seenAt = Date.now();
     }
     saveState();
   } catch (e) {
-    log(`[${ws}] turn error: ${e.message ?? e}`);
-    for (const d of deltas) panes.get(d.paneId)?.pending.unshift(...d.events);
-    r.want = true;
-  } finally {
-    r.running = false;
-    r.lastTick = Date.now();
-    running -= 1;
-    if (r.want) scheduleTurn(ws, 'queued during turn');
+    requeue();
+    throw e; // the scheduler logs it and re-queues the workspace
   }
 }
 
@@ -364,7 +292,7 @@ async function runTurn(ws) {
 async function publishLog(ws, line) {
   const notes = await fsp.readFile(notesFile(ws), 'utf8').catch(() => '');
   const w = state.workspaces[ws];
-  const body = `${line || '(no reply)'}\n\n---\n${notes.trim() || '(no notes)'}\n\n_turn ${w.turns} · $${(w.cost ?? 0).toFixed(2)} total_`;
+  const body = buildLogBody({ line, notes, turns: w.turns, cost: w.cost });
   try {
     await postJson(`/api/scene/${encodeURIComponent(`ws:${ws}`)}/ops`, {
       ops: [{ op: 'mount', plugin: 'summary', id: 'director', title: 'director', props: { body, tone: 'info', collapsed: true } }],
