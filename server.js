@@ -13,6 +13,7 @@ import {
   composerText, typedComposerText, parseMode, MODES, trimSalvage,
 } from './lib/screen.js';
 import { PushStore, Coordinator } from './lib/notify.js';
+import { SceneStore, catalog as sceneCatalog } from './lib/scene.js';
 
 // A stray rejection (e.g. a background refresh path that missed a catch) must
 // not kill a daemon whose whole job is staying up — log loudly and carry on.
@@ -59,6 +60,16 @@ const coordinator = new Coordinator(
   (paneId) => blockedContext(paneId),
   Number(argOf('--notify-delay', 20_000)),
 );
+
+// ---------- scene ----------
+// The plot-driven side panel: per-scope card lists mutated by posted ops.
+// Card lists persist under the state dir so a bounce doesn't clear the
+// stage; live data refills from the sources.
+const sceneStore = new SceneStore({
+  persistFile: path.join(process.env.HERDR_WEB_STATE ?? path.join(os.homedir(), '.local', 'state', 'herdr-web'), 'scenes.json'),
+  log: (m) => console.log(`[herdr-web] ${m}`),
+});
+await sceneStore.load();
 
 // ---------- roster ----------
 
@@ -1236,6 +1247,47 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    if (req.method === 'GET' && seg[1] === 'scene-plugins' && !seg[2]) {
+      return sendJson(res, 200, { plugins: sceneCatalog() });
+    }
+    if (seg[1] === 'scene') {
+      if (req.method === 'GET' && !seg[2]) {
+        return sendJson(res, 200, { scenes: sceneStore.scopes() });
+      }
+      const scope = decodeURIComponent(seg[2]);
+      if (!/^[a-z]+:.+$/.test(scope)) throw httpErr(400, 'scope: "<kind>:<id>", e.g. pane:w1:p1');
+      if (req.method === 'GET' && !seg[3]) {
+        return sendJson(res, 200, sceneStore.snapshot(scope));
+      }
+      if (req.method === 'GET' && seg[3] === 'stream') {
+        startSse(res);
+        res.write(`event: scene\ndata: ${JSON.stringify(sceneStore.snapshot(scope))}\n\n`);
+        sceneStore.subscribe(scope, res);
+        return;
+      }
+      // a human pressed a card button: /api/scene/<scope>/cards/<id>/action
+      if (req.method === 'POST' && seg[3] === 'cards' && seg[4] && seg[5] === 'action') {
+        const { action } = await readBody(req);
+        if (typeof action !== 'string' || !action) throw httpErr(400, 'action: string');
+        try {
+          return sendJson(res, 200, await sceneStore.action(scope, decodeURIComponent(seg[4]), action));
+        } catch (e) {
+          throw httpErr(e.status ?? 400, String(e.message ?? e));
+        }
+      }
+      if (req.method === 'POST' && seg[3] === 'ops') {
+        const body = await readBody(req);
+        // accept {ops:[...]}, a bare array, or a single op object
+        const ops = Array.isArray(body) ? body : Array.isArray(body.ops) ? body.ops : body.op ? [body] : null;
+        if (!ops) throw httpErr(400, 'body: {ops:[{op:"mount",…}]}');
+        try {
+          return sendJson(res, 200, sceneStore.apply(scope, ops));
+        } catch (e) {
+          throw httpErr(e.status ?? 400, String(e.message ?? e));
+        }
+      }
+    }
+
     if (seg[1] === 'agent' && seg[2]) {
       const paneId = decodeURIComponent(seg[2]);
       const action = seg[3];
@@ -1283,6 +1335,10 @@ const server = http.createServer(async (req, res) => {
             offset = r.offset;
             if (r.events.length) {
               res.write(`event: events\ndata: ${JSON.stringify(r.events)}\n\n`);
+              // the byte offset after those events — a cursor a client can
+              // persist and hand back as ?offset= to resume without replay
+              // (the stage manager does; the web client ignores it)
+              res.write(`event: offset\ndata: ${offset}\n\n`);
             }
           }
         };
