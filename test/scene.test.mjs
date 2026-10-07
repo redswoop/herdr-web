@@ -231,6 +231,7 @@ test('persistence: card lists survive a new store, data does not, sources restar
   assert.equal(snap.rev, 1);
   await new Promise((r) => setTimeout(r, 30));
   assert.ok(runs > runsBefore, 'the restored command-watch polls again');
+  assert.equal(b.snapshot('pane:p').cards[1].data?.value, 7, 'and its data lands on the restored card');
   // ids keep counting from where they left off
   const next = b.apply('pane:p', [{ op: 'mount', plugin: 'summary', props: { body: 'new' } }]);
   assert.equal(next.cards[2].id, 'c2');

@@ -31,6 +31,57 @@ function later(fn, ms) {
 
 /** @type {import('../../shared/src/types.ts').Roster} */
 let roster = clone(readJson('roster.json'));
+
+// ---------- scene (the plot-driven side panel) ----------
+// scope -> { scope, rev, cards }. Seed via POST /__mock/scene {scope, cards}
+// (cards get data: null unless given); actions are logged, not run.
+/** @type {Record<string, {scope: string, rev: number, cards: object[]}>} */
+let scenes = {};
+/** @type {Map<string, Set<import('node:http').ServerResponse>>} */
+const sceneClients = new Map();
+const PLUGINS = [
+  { name: 'summary', description: 'markdown', props: { body: { type: 'string', required: true } }, live: false },
+  { name: 'command-watch', description: 'a command on an interval', props: { cmd: { type: 'string', required: true } }, live: true },
+  { name: 'service-control', description: 'a systemd unit', props: { unit: { type: 'string', required: true } }, live: true, actions: { restart: 'systemctl restart', stop: 'systemctl stop', start: 'systemctl start' } },
+];
+function sceneOf(scope) {
+  return (scenes[scope] ??= { scope, rev: 0, cards: [] });
+}
+function broadcastScene(scope, event, data) {
+  const set = sceneClients.get(scope);
+  if (!set) return;
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const c of set) {
+    try { c.write(payload); } catch { /* closed */ }
+  }
+}
+function applySceneOps(scope, ops) {
+  const s = sceneOf(scope);
+  for (const op of ops) {
+    if (!PLUGINS.some((p) => p.name === op.plugin) && op.op === 'mount') throw new Error(`unknown plugin "${op.plugin}"`);
+    if (op.op === 'mount') {
+      const card = { id: op.id ?? `c${s.cards.length + 1}`, plugin: op.plugin, title: op.title ?? null, props: op.props ?? {}, data: op.data ?? null, mountedAt: Date.now(), updatedAt: Date.now() };
+      const i = s.cards.findIndex((c) => c.id === card.id);
+      if (i !== -1) s.cards[i] = card;
+      else s.cards.push(card);
+    } else if (op.op === 'update') {
+      const c = s.cards.find((x) => x.id === op.id);
+      if (!c) throw new Error(`no card "${op.id}"`);
+      if (op.title !== undefined) c.title = op.title;
+      if (op.props) c.props = { ...c.props, ...op.props };
+    } else if (op.op === 'unmount') {
+      if (!s.cards.some((x) => x.id === op.id)) throw new Error(`no card "${op.id}"`);
+      s.cards = s.cards.filter((x) => x.id !== op.id);
+    } else if (op.op === 'clear') {
+      s.cards = [];
+    } else if (op.op !== 'move') {
+      throw new Error(`unknown op "${op.op}"`);
+    }
+  }
+  s.rev += 1;
+  broadcastScene(scope, 'scene', s);
+  return s;
+}
 /** @type {Record<string, object[]>} */
 const transcripts = {
   'w1:p1': clone(readJson('transcript-w1p1.json')),
@@ -193,8 +244,11 @@ function resetState() {
   log.push.length = 0;
   chatSeq = 0;
   pushSubscribed = false;
+  scenes = {};
+  sceneActions.length = 0;
   broadcastRoster();
 }
+const sceneActions = []; // { scope, id, action } pressed on cards
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://127.0.0.1:${PORT}`);
@@ -212,6 +266,26 @@ const server = http.createServer(async (req, res) => {
 
   // ── control plane ──────────────────────────────────────────────
   if (seg[0] === '__mock') {
+    // seed a scene: {scope, cards:[{id, plugin, title?, props, data?}]}
+    if (req.method === 'POST' && seg[1] === 'scene') {
+      const body = await readBody(req);
+      const s = sceneOf(body.scope);
+      s.cards = (body.cards ?? []).map((c) => ({ title: null, props: {}, data: null, mountedAt: Date.now(), updatedAt: Date.now(), ...c }));
+      s.rev += 1;
+      broadcastScene(body.scope, 'scene', s);
+      return sendJson(res, 200, s);
+    }
+    // push a data frame for a live card: {scope, id, data}
+    if (req.method === 'POST' && seg[1] === 'scene-data') {
+      const body = await readBody(req);
+      const c = sceneOf(body.scope).cards.find((x) => x.id === body.id);
+      if (c) c.data = body.data;
+      broadcastScene(body.scope, 'data', { id: body.id, data: body.data });
+      return sendJson(res, 200, { ok: true });
+    }
+    if (req.method === 'GET' && seg[1] === 'scene-actions') {
+      return sendJson(res, 200, { actions: sceneActions });
+    }
     if (req.method === 'POST' && seg[1] === 'reset') {
       resetState();
       return sendJson(res, 200, { ok: true });
@@ -268,6 +342,43 @@ const server = http.createServer(async (req, res) => {
   if (!checkAuth(req, res, url)) return;
 
   // roster
+  if (req.method === 'GET' && seg[1] === 'scene-plugins') {
+    return sendJson(res, 200, { plugins: PLUGINS });
+  }
+  if (seg[1] === 'scene' && seg[2]) {
+    const scope = decodeURIComponent(seg[2]);
+    if (req.method === 'GET' && !seg[3]) return sendJson(res, 200, sceneOf(scope));
+    if (req.method === 'GET' && seg[3] === 'stream') {
+      startSse(res);
+      res.write(`event: scene\ndata: ${JSON.stringify(sceneOf(scope))}\n\n`);
+      let set = sceneClients.get(scope);
+      if (!set) sceneClients.set(scope, (set = new Set()));
+      set.add(res);
+      res.on('close', () => set.delete(res));
+      return;
+    }
+    if (req.method === 'POST' && seg[3] === 'ops') {
+      const body = await readBody(req);
+      const ops = Array.isArray(body) ? body : Array.isArray(body.ops) ? body.ops : body.op ? [body] : null;
+      if (!ops) return sendJson(res, 400, { error: 'ops required' });
+      try {
+        return sendJson(res, 200, applySceneOps(scope, ops));
+      } catch (e) {
+        return sendJson(res, 400, { error: String(e.message) });
+      }
+    }
+    if (req.method === 'POST' && seg[3] === 'cards' && seg[4] && seg[5] === 'action') {
+      const { action } = await readBody(req);
+      const id = decodeURIComponent(seg[4]);
+      const c = sceneOf(scope).cards.find((x) => x.id === id);
+      if (!c) return sendJson(res, 404, { error: `no card "${id}"` });
+      sceneActions.push({ scope, id, action });
+      const result = { name: action, at: Date.now(), ok: action !== 'stop', text: action === 'stop' ? `stop ${c.props.unit} failed (exit 1)` : `${action} ${c.props.unit}: ok` };
+      c.lastAction = result;
+      broadcastScene(scope, 'action', { id, action, result });
+      return sendJson(res, 200, result);
+    }
+  }
   if (req.method === 'GET' && seg[1] === 'roster' && !seg[2]) {
     return sendJson(res, 200, roster);
   }
