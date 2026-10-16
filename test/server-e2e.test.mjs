@@ -322,3 +322,52 @@ test('e2e: stream emits reset when the session file shrinks underneath it', asyn
   const frame = await wait;
   assert.equal(frame.event, 'reset');
 });
+
+test('e2e: media files classify by extension and stream with byte ranges', async () => {
+  const clip = path.join(home, 'clip.mp4');
+  const bytes = Buffer.from('0123456789abcdef'); // 16 bytes; content is irrelevant to the route
+  await fsp.writeFile(clip, bytes);
+  const q = `path=${enc(clip)}&cwd=`;
+
+  const info = await (await fetch(`${BASE}/api/file?${q}`)).json();
+  assert.equal(info.kind, 'video');
+  assert.equal(info.size, 16);
+
+  // whole file
+  const whole = await fetch(`${BASE}/api/file/raw?${q}`);
+  assert.equal(whole.status, 200);
+  assert.equal(whole.headers.get('content-type'), 'video/mp4');
+  assert.equal(whole.headers.get('accept-ranges'), 'bytes');
+  assert.equal(Buffer.from(await whole.arrayBuffer()).toString(), '0123456789abcdef');
+
+  // iOS's opening probe
+  const probe = await fetch(`${BASE}/api/file/raw?${q}`, { headers: { range: 'bytes=0-1' } });
+  assert.equal(probe.status, 206);
+  assert.equal(probe.headers.get('content-range'), 'bytes 0-1/16');
+  assert.equal(probe.headers.get('content-length'), '2');
+  assert.equal(Buffer.from(await probe.arrayBuffer()).toString(), '01');
+
+  // open-ended + suffix + clamped end
+  const tail = await fetch(`${BASE}/api/file/raw?${q}`, { headers: { range: 'bytes=10-' } });
+  assert.equal(tail.status, 206);
+  assert.equal(Buffer.from(await tail.arrayBuffer()).toString(), 'abcdef');
+  const suffix = await fetch(`${BASE}/api/file/raw?${q}`, { headers: { range: 'bytes=-4' } });
+  assert.equal(suffix.headers.get('content-range'), 'bytes 12-15/16');
+  assert.equal(Buffer.from(await suffix.arrayBuffer()).toString(), 'cdef');
+  const over = await fetch(`${BASE}/api/file/raw?${q}`, { headers: { range: 'bytes=14-99' } });
+  assert.equal(over.headers.get('content-range'), 'bytes 14-15/16');
+
+  // unsatisfiable
+  const bad = await fetch(`${BASE}/api/file/raw?${q}`, { headers: { range: 'bytes=16-' } });
+  assert.equal(bad.status, 416);
+  assert.equal(bad.headers.get('content-range'), 'bytes */16');
+
+  // HEAD carries the size without a body
+  const head = await fetch(`${BASE}/api/file/raw?${q}`, { method: 'HEAD' });
+  assert.equal(head.status, 200);
+  assert.equal(head.headers.get('content-length'), '16');
+
+  const song = path.join(home, 'song.m4a');
+  await fsp.writeFile(song, bytes);
+  assert.equal((await (await fetch(`${BASE}/api/file?path=${enc(song)}&cwd=`)).json()).kind, 'audio');
+});

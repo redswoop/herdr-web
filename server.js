@@ -2,7 +2,7 @@
 // Zero deps, node >= 22.  Usage: node server.js [--port 7683] [--host 0.0.0.0]
 import http from 'node:http';
 import fsp from 'node:fs/promises';
-import { constants as fsConstants } from 'node:fs';
+import fs, { constants as fsConstants } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1115,11 +1115,17 @@ async function agentRpc(method, params) {
 // that can ask an agent to read anything — so no path jail, just no writes.
 
 const TEXT_MAX = 512 * 1024;
-const RAW_MAX = 50 * 1024 * 1024;
 const IMG_MIME = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
   '.webp': 'image/webp', '.svg': 'image/svg+xml', '.avif': 'image/avif',
   '.ico': 'image/x-icon', '.bmp': 'image/bmp',
+};
+const VIDEO_MIME = {
+  '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm',
+};
+const AUDIO_MIME = {
+  '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg', '.oga': 'audio/ogg', '.flac': 'audio/flac', '.opus': 'audio/ogg',
 };
 
 function resolveUserPath(url) {
@@ -1150,7 +1156,10 @@ async function fileInfo(url) {
     return { ...base, kind: 'dir', entries: entries.slice(0, 1000), clipped: ents.length > 1000 };
   }
   if (!st.isFile()) return { ...base, kind: 'special' };
-  if (IMG_MIME[path.extname(target).toLowerCase()]) return { ...base, kind: 'image' };
+  const ext = path.extname(target).toLowerCase();
+  if (IMG_MIME[ext]) return { ...base, kind: 'image' };
+  if (VIDEO_MIME[ext]) return { ...base, kind: 'video' };
+  if (AUDIO_MIME[ext]) return { ...base, kind: 'audio' };
   let fh;
   try { fh = await fsp.open(target); } catch (e) { throw fsErr(e); }
   try {
@@ -1168,27 +1177,52 @@ async function fileInfo(url) {
   }
 }
 
-async function serveRawFile(url, res) {
+// Streams straight off disk and honours a single byte range: iOS Safari
+// refuses to play a <video> whose server can't answer `Range: bytes=0-1`
+// with a 206, and a Wan render can be well past anything worth buffering.
+async function serveRawFile(req, url, res) {
   const target = resolveUserPath(url);
-  let body;
+  let st;
   try {
-    const st = await fsp.stat(target);
+    st = await fsp.stat(target);
     if (!st.isFile()) throw httpErr(422, 'not a regular file');
-    if (st.size > RAW_MAX) throw httpErr(413, 'file too large');
-    body = await fsp.readFile(target);
   } catch (e) {
     throw fsErr(e);
   }
   const ext = path.extname(target).toLowerCase();
-  res.writeHead(200, {
-    'content-type': IMG_MIME[ext] ?? MIME[ext] ?? 'application/octet-stream',
+  const headers = {
+    'content-type': IMG_MIME[ext] ?? VIDEO_MIME[ext] ?? AUDIO_MIME[ext] ?? MIME[ext] ?? 'application/octet-stream',
     'cache-control': 'no-store',
-    'content-length': body.length,
+    'accept-ranges': 'bytes',
     // a hostile file (e.g. an svg an agent downloaded) must not script our origin
     'content-security-policy': 'sandbox',
     'x-content-type-options': 'nosniff',
-  });
-  res.end(body);
+  };
+  let start = 0;
+  let end = st.size - 1;
+  let status = 200;
+  const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
+  if (m && (m[1] || m[2])) {
+    if (m[1]) {
+      start = Number(m[1]);
+      if (m[2]) end = Math.min(Number(m[2]), end);
+    } else {
+      start = Math.max(0, st.size - Number(m[2])); // suffix: last N bytes
+    }
+    if (start > end || start >= st.size) {
+      res.writeHead(416, { 'content-range': `bytes */${st.size}` });
+      return res.end();
+    }
+    status = 206;
+    headers['content-range'] = `bytes ${start}-${end}/${st.size}`;
+  }
+  headers['content-length'] = st.size ? end - start + 1 : 0;
+  res.writeHead(status, headers);
+  if (req.method === 'HEAD' || !st.size) return res.end();
+  const stream = fs.createReadStream(target, { start, end });
+  stream.on('error', () => res.destroy());
+  res.on('close', () => stream.destroy());
+  stream.pipe(res);
 }
 
 // ---------- uploads (pasted images) ----------
@@ -1353,8 +1387,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && seg[1] === 'file' && !seg[2]) {
       return sendJson(res, 200, await fileInfo(url));
     }
-    if (req.method === 'GET' && seg[1] === 'file' && seg[2] === 'raw') {
-      return await serveRawFile(url, res);
+    if ((req.method === 'GET' || req.method === 'HEAD') && seg[1] === 'file' && seg[2] === 'raw') {
+      return await serveRawFile(req, url, res);
     }
 
     if (req.method === 'POST' && seg[1] === 'upload' && !seg[2]) {

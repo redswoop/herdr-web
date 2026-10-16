@@ -177,7 +177,7 @@ export interface FileInfo {
   path: string;
   size: number;
   mtime: number;
-  kind: 'text' | 'image' | 'binary' | 'dir' | 'special';
+  kind: 'text' | 'image' | 'video' | 'audio' | 'binary' | 'dir' | 'special';
   content?: string;
   truncated?: boolean;
   entries?: { name: string; dir: boolean }[];

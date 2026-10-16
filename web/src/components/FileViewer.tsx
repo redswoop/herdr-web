@@ -86,7 +86,7 @@ export function FileViewer({
             {raw ? 'pretty' : 'raw'}
           </button>
         )}
-        {(info?.kind === 'binary' || info?.kind === 'image') && (
+        {(info?.kind === 'binary' || info?.kind === 'image' || info?.kind === 'video' || info?.kind === 'audio') && (
           <a className="ghost file-toggle" href={fileUrl(info.path, null, true)} download>
             ⬇
           </a>
@@ -153,6 +153,20 @@ export function FileViewer({
 
         {info?.kind === 'image' && (
           <img className="file-img" src={fileUrl(info.path, null, true)} alt={info.path} />
+        )}
+
+        {info?.kind === 'video' && (
+          // playsInline: iOS otherwise hijacks into its fullscreen player on tap
+          <video
+            className="file-video"
+            src={fileUrl(info.path, null, true)}
+            controls
+            playsInline
+            preload="metadata"
+          />
+        )}
+        {info?.kind === 'audio' && (
+          <audio className="file-audio" src={fileUrl(info.path, null, true)} controls preload="metadata" />
         )}
 
         {info?.kind === 'binary' && (
