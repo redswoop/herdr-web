@@ -452,3 +452,118 @@ test('cursor menu needs the confirm footer at the bottom of the screen', () => {
   // numbered menus keep their own grammar (no nav flag)
   assert.equal(parseMenuScreen(CLAUDE_PERMISSION).nav, undefined);
 });
+
+// ---------- codex menus ----------
+// /permissions and the idle screen are live captures from codex 0.162
+// (2026-10). The approval prompt is RECONSTRUCTED from codex's documented
+// layout, not captured — re-verify against a real one. Echo + composer share
+// the › glyph with the menu cursor.
+
+const CODEX_PERMISSIONS = `
+› Use your shell tool to run: touch /tmp/x   Then say done.
+
+
+• done
+
+  Worked for 24s • 1:18 PM
+
+  Update Model Permissions
+
+  1. Ask for approval  Read and edit workspace files and run commands, with approval required for internet access or
+                       edits outside the workspace
+› 2. Approve for me    Only ask for actions detected as potentially unsafe
+  3. Full Access       Use with caution: Codex can edit files outside this workspace and access the internet without
+                       approval
+  4. Read Only         Read workspace files, with approval required for edits or internet access
+
+  enter select · esc back
+`;
+
+const CODEX_APPROVAL = `
+› make the file
+
+• I need to write outside the workspace:
+  1. touch the file
+  2. report back
+
+  Would you like to run the following command?
+
+  Reason: writes outside the workspace
+
+  $ touch /tmp/cx-probe-outside.txt
+
+› 1. Yes, proceed (y)
+  2. Yes, and don't ask again for commands that start with \`touch /tmp/cx-probe-outside.txt\` (p)
+  3. No, and tell Codex what to do differently (esc)
+
+  Press enter to confirm or esc to cancel
+`;
+
+const CODEX_IDLE = `
+› Use your shell tool to run: touch /tmp/x   Then say done.
+
+• done
+
+  Worked for 24s • 1:18 PM
+
+› Ask Codex to do anything
+
+  gpt-6.1-sol default · ~/src/herdr-web
+  ? for shortcuts
+`;
+
+test('codex picker: same-row descriptions, wrapped continuations, › cursor', async () => {
+  const { parseCodexMenuScreen } = await import('../lib/screen.js');
+  const m = parseCodexMenuScreen(CODEX_PERMISSIONS);
+  assert.equal(m.question, 'Update Model Permissions');
+  assert.deepEqual(m.options.map((o) => [o.n, o.label, o.selected]), [
+    [1, 'Ask for approval', false],
+    [2, 'Approve for me', true],
+    [3, 'Full Access', false],
+    [4, 'Read Only', false],
+  ]);
+  assert.match(m.options[0].description, /internet access or edits outside the workspace$/);
+  assert.match(m.options[2].description, /without approval$/);
+});
+
+test('codex approval prompt: question, command detail, prose lists ignored', async () => {
+  const { parseMenuFor } = await import('../lib/screen.js');
+  for (const kind of ['codex', 'claude', undefined]) {
+    const m = parseMenuFor(kind, CODEX_APPROVAL);
+    assert.equal(m.question, 'Would you like to run the following command?');
+    assert.match(m.detail, /\$ touch \/tmp\/cx-probe-outside\.txt/);
+    assert.equal(m.options.length, 3);
+    assert.equal(m.options[0].label, 'Yes, proceed (y)');
+    assert.equal(m.options[0].selected, true);
+  }
+});
+
+// Verbatim capture, codex 0.162: first launch in a directory it hasn't seen.
+const CODEX_TRUST = `
+  Folder access
+  /home/armen/src/thing
+
+  Trust this folder? Codex can read, edit, and run files here, subject to your permission settings. Folder settings
+  can run code automatically, even without a model request. Continue only if you trust these files. Your trust
+  decision will be saved.
+
+› 1. Trust and continue
+  2. Quit
+
+  enter continue · esc quit
+`;
+
+test('codex folder-trust dialog: the asking sentence is the question', async () => {
+  const { parseMenuFor } = await import('../lib/screen.js');
+  const m = parseMenuFor('codex', CODEX_TRUST);
+  assert.equal(m.question, 'Trust this folder?');
+  assert.match(m.detail, /^Codex can read, edit.*decision will be saved\.$/);
+  assert.deepEqual(m.options.map((o) => o.label), ['Trust and continue', 'Quit']);
+});
+
+test('codex idle screen: no menu, composer is the last › line, chrome trims', async () => {
+  const { parseMenuFor, codexComposerText, trimSalvage } = await import('../lib/screen.js');
+  assert.equal(parseMenuFor('codex', CODEX_IDLE), null);
+  assert.equal(codexComposerText(CODEX_IDLE), 'Ask Codex to do anything');
+  assert.equal(trimSalvage(CODEX_IDLE, 'Use your shell tool to run'), '• done\n\n  Worked for 24s • 1:18 PM');
+});

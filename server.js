@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { rpc, subscribe, isPromptable } from './lib/herdr.js';
 import { adapterFor, readEvents, listSessions, classifyBlocked } from './lib/adapters.js';
 import {
-  parseMenuScreen, parseMenuFor, isGrokProjectPicker, isGrokModalOverlay,
+  parseMenuScreen, parseMenuFor, codexComposerText, isGrokProjectPicker, isGrokModalOverlay,
   isGrokPlanApproval, parseGrokPlanApproval, parseRewindScreen,
   composerText, typedComposerText, parseMode, MODES, trimSalvage,
 } from './lib/screen.js';
@@ -80,6 +80,13 @@ async function doRefreshRoster() {
     // here are the same AgentInfo shape agent.list returns).
     const snap = (await rpc('session.snapshot')).snapshot ?? {};
     const snapAgents = (snap.agents ?? []).filter((a) => a.agent);
+    reportedSessions.clear();
+    for (const a of snapAgents) {
+      // codex only: claude's pid registry already follows /clear exactly
+      if (a.agent === 'codex' && a.agent_session?.kind === 'id' && a.agent_session.value) {
+        reportedSessions.set(a.pane_id, a.agent_session.value);
+      }
+    }
     const sessions = await allocateSessions(snapAgents);
     const agents = await Promise.all(snapAgents.map(async (a) => {
       const session = sessions.get(a.pane_id) ?? null;
@@ -242,6 +249,10 @@ const pinnedSessions = new Map();
 // stream reset onto A's transcript.
 const paneBindings = new Map();
 
+// The session id an agent's herdr integration hook reported for its pane
+// (snapshot agent_session) — exact where present. Refreshed with the roster.
+const reportedSessions = new Map(); // paneId -> session id
+
 function claimedBySiblings(paneId, agent, cwd) {
   const claimed = new Set();
   for (const [id, b] of paneBindings) {
@@ -259,13 +270,16 @@ async function findSessionFor({ paneId, agent, cwd, title }, { exclude } = {}) {
   const hints = {
     title: title ?? '',
     sessionId: pinnedSessions.get(paneId),
+    agentSessionId: reportedSessions.get(paneId),
     exclude: exclude ?? claimedBySiblings(paneId, agent, cwd),
   };
   const p = await paneProcess(paneId, agent);
   // claude: exact pid binding via ~/.claude/sessions/<pid>.json, else the
-  // created-since filter. grok: pid against active_sessions.json.
+  // created-since filter. grok: pid against active_sessions.json. codex:
+  // herdr's reported session id, else the rollout the pid holds open, else
+  // the created-since filter.
   hints.pid = p.pid;
-  if (agent === 'claude') hints.startedAfter = p.startedAt;
+  if (agent === 'claude' || agent === 'codex') hints.startedAfter = p.startedAt;
   if (agent === 'grok') hints.startedAt = p.startedAt;
   let session = null;
   try {
@@ -350,7 +364,7 @@ async function answerByNav(paneId, { option, feedback, kind }) {
     }
     return answerGrokMenu(paneId, { option });
   }
-  const read = async () => parseMenuScreen(await readScreen(paneId));
+  const read = async () => parseMenuFor(kind, await readScreen(paneId));
   const settle = () => new Promise((r) => setTimeout(r, 300));
   const send = (keys) => agentRpc('agent.send_keys', { target: paneId, keys });
   let menu = await read();
@@ -854,16 +868,17 @@ function cleanAgentName(raw) {
 // names an existing checkout) a worktree-bound workspace and start there.
 //
 // resume: a session uuid — spawns with --resume (claude and grok both take
-// it) and pins the pane's transcript binding to that session, skipping the
+// it; codex spells it `codex resume <id>`) and pins the pane's transcript
+// binding to that session, skipping the
 // title/mtime guesswork (a resumed file is old, so the
 // created-since-process-start filter in claudeFindSession would otherwise
 // reject it until the ai-title lands).
 async function createChat({ kind, name, cwd, workspaceId, label, args, worktree, resume } = {}) {
   if (!kind || typeof kind !== 'string') throw httpErr(400, 'kind required');
   if (resume !== undefined) {
-    if (kind !== 'claude' && kind !== 'grok') throw httpErr(400, `resume not supported for ${kind}`);
+    if (!['claude', 'grok', 'codex'].includes(kind)) throw httpErr(400, `resume not supported for ${kind}`);
     if (typeof resume !== 'string' || !/^[\w-]+$/.test(resume)) throw httpErr(400, 'resume: session id');
-    args = [...(args ?? []), '--resume', resume];
+    args = kind === 'codex' ? ['resume', resume, ...(args ?? [])] : [...(args ?? []), '--resume', resume];
   }
   const untilde = (s) => (s ? s.replace(/^~(?=\/|$)/, os.homedir()) : null);
   const dir = untilde(cwd);
@@ -1032,9 +1047,20 @@ async function verifyPromptLanded(paneId, text, attempt = 1) {
     const lines = screen.split('\n');
     const textOf = (l) => l.replace(/^.*❯/, '').replace(/│\s*$/, '').replace(/\s+/g, ' ').trim();
     const boxed = (l) => /│\s*❯/.test(l);
+    const norm = (s) => s.replace(/\s+/g, ' ');
     // stranded on a composer → the Enter got eaten; nudge. (If the text
     // cleared between read and nudge, Enter on an empty composer is a no-op.)
     const kind = roster.agents.find((x) => x.paneId === paneId)?.agent;
+    // codex: the composer is the LAST ›-line (earlier ones are sent echoes).
+    // Nudge a stranded prompt; no retype tier — an empty codex composer
+    // shows placeholder text a plain capture can't tell from a user's draft.
+    if (kind === 'codex') {
+      if (norm(codexComposerText(screen) ?? '').startsWith(head)) {
+        console.warn(`prompt stranded on input line of ${paneId} — nudging with Enter`);
+        await agentRpc('agent.send_keys', { target: paneId, keys: ['Enter'] });
+      }
+      return;
+    }
     const stranded = lines.some((l) => {
       if (!l.includes('❯') || !textOf(l).startsWith(head)) return false;
       return kind === 'grok' ? boxed(l) : true; // grok's bare ❯ is a sent echo
@@ -1046,7 +1072,6 @@ async function verifyPromptLanded(paneId, text, attempt = 1) {
     }
     // any other trace of the text on screen (sent echo, streaming turn) or a
     // busy agent means it landed — done.
-    const norm = (s) => s.replace(/\s+/g, ' ');
     if (lines.some((l) => norm(l).includes(head))) return;
     // a dialog/menu owns the screen (startup picker, permission prompt whose
     // status hasn't flipped yet) — retyping would type into it; hands off

@@ -258,7 +258,7 @@ export function AgentView({
       // if already live — both claude and grok take --resume.
       const ov = /^\/(rewind|resume)(?:\s+(\S+))?$/.exec(text.trim());
       if (ov?.[1] === 'rewind' && agent?.agent === 'claude') return openRewind();
-      if (ov?.[1] === 'resume' && agent?.cwd && (agent.agent === 'claude' || agent.agent === 'grok')) {
+      if (ov?.[1] === 'resume' && agent?.cwd && ['claude', 'grok', 'codex'].includes(agent.agent)) {
         return ov[2] ? resumeById(ov[2]) : setResumeOpen(true);
       }
       const slash = text.trim().startsWith('/');

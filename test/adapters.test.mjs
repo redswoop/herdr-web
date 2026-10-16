@@ -425,3 +425,131 @@ test('grok tool_call_update falls back to rawOutput when content is absent', () 
   }));
   assert.equal(r.text, 'from content');
 });
+
+// ---------- codex rollouts ----------
+// Shapes mirror a real ~/.codex/sessions rollout (codex 0.162, 2026-10):
+// {timestamp, ordinal, type, payload}.
+
+const codex = adapterFor('codex');
+const cx = (type, payload, ordinal = 1) => ({
+  timestamp: '2026-10-13T17:14:42.840Z', ordinal, type, payload,
+});
+const cxMsg = (role, text, kinds) => cx('response_item', {
+  type: 'message',
+  role,
+  content: [{ type: role === 'assistant' ? 'output_text' : 'input_text', text }],
+  ...(kinds ? { internal_chat_message_metadata_passthrough: { content_item_kinds: kinds } } : {}),
+});
+
+test('codex messages: typed prompts and replies pass, harness context is dropped', () => {
+  const [u] = codex.translate(cxMsg('user', 'fix the bug', ['user.text']));
+  assert.deepEqual(u, { kind: 'user', text: 'fix the bug', ts: '2026-10-13T17:14:42.840Z' });
+  assert.equal(codex.translate(cxMsg('assistant', 'done'))[0].kind, 'assistant');
+  // environment_context rides in as a user message, tagged by kind …
+  assert.deepEqual(codex.translate(
+    cxMsg('user', '<environment_context>\n <cwd>/x</cwd>', ['environments.environment_context']),
+  ), []);
+  // … and on rollouts without the tag, by its leading XML element
+  assert.deepEqual(codex.translate(cxMsg('user', '<environment_context>\n <cwd>/x</cwd>')), []);
+  assert.equal(codex.translate(cxMsg('user', 'why is <div> here'))[0].text, 'why is <div> here');
+  assert.deepEqual(codex.translate(cxMsg('developer', '<permissions instructions>')), []);
+});
+
+test('codex reasoning: summary text becomes a thought, encrypted-only is skipped', () => {
+  const [t] = codex.translate(cx('response_item', {
+    type: 'reasoning', summary: [{ type: 'summary_text', text: 'Checking the file.' }], encrypted_content: 'x',
+  }));
+  assert.equal(t.kind, 'thought');
+  assert.equal(t.text, 'Checking the file.');
+  assert.deepEqual(codex.translate(cx('response_item', {
+    type: 'reasoning', summary: [], encrypted_content: 'gAAAA',
+  })), []);
+});
+
+test('codex tool calls pair with their outputs by call_id', () => {
+  const [use] = codex.translate(cx('response_item', {
+    type: 'function_call', name: 'exec_command', arguments: '{"cmd":"cat note.txt"}', call_id: 'call_1',
+  }));
+  assert.equal(use.kind, 'tool_use');
+  assert.equal(use.name, 'exec_command');
+  assert.equal(use.id, 'call_1');
+  assert.deepEqual(use.input, { cmd: 'cat note.txt' });
+  const [res] = codex.translate(cx('response_item', {
+    type: 'function_call_output', call_id: 'call_1', output: 'hello',
+  }));
+  assert.deepEqual(res, { kind: 'tool_result', text: 'hello', ts: use.ts, id: 'call_1' });
+  // legacy JSON-string wrapper
+  assert.equal(codex.translate(cx('response_item', {
+    type: 'function_call_output', call_id: 'c', output: '{"output":"hi\\n","metadata":{"exit_code":0}}',
+  }))[0].text, 'hi\n');
+  // apply_patch: raw patch text, not JSON
+  const [patch] = codex.translate(cx('response_item', {
+    type: 'custom_tool_call', name: 'apply_patch', input: '*** Begin Patch\n*** End Patch', call_id: 'call_2',
+  }));
+  assert.equal(patch.name, 'apply_patch');
+  assert.equal(patch.text, '*** Begin Patch\n*** End Patch');
+  // a call still waiting on approval is the blocked signal
+  assert.deepEqual(classifyBlocked([use]).kind, 'permission');
+  assert.deepEqual(classifyBlocked([use, res]).kind, 'unknown');
+  // web search has no output record — must not read as pending
+  const ws = codex.translate(cx('response_item', { type: 'web_search_call', id: 'ws_1', action: { query: 'q' } }));
+  assert.deepEqual(classifyBlocked(ws).kind, 'unknown');
+});
+
+test('codex usage: one summable event per model response; UI mirrors are dropped', () => {
+  const tc = (ordinal, out) => cx('event_msg', {
+    type: 'token_count',
+    info: { last_token_usage: { input_tokens: 1846, output_tokens: out }, total_token_usage: {} },
+  }, ordinal);
+  const [a] = codex.translate(tc(13, 323));
+  const [b] = codex.translate(tc(19, 100));
+  assert.deepEqual(a.usage, { out: 323, ctx: 1846 });
+  assert.notEqual(a.msgId, b.msgId);
+  assert.deepEqual(codex.translate(cx('event_msg', { type: 'token_count', info: null })), []);
+  // item_completed duplicates the response_item stream
+  assert.deepEqual(codex.translate(cx('event_msg', {
+    type: 'item_completed', item: { type: 'AgentMessage', content: [{ type: 'Text', text: 'done' }] },
+  })), []);
+  assert.deepEqual(codex.translate(cx('session_meta', { id: 's', cwd: '/x' })), []);
+});
+
+test('codex find + list: by reported id, by resume pin, by cwd since process start', async (t) => {
+  const home = await fsp.mkdtemp(path.join(os.tmpdir(), 'codex-home-'));
+  const prev = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = home;
+  t.after(async () => {
+    if (prev === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = prev;
+    await fsp.rm(home, { recursive: true, force: true });
+  });
+  const write = async (day, stamp, id, cwd, created, prompt) => {
+    const dir = path.join(home, 'sessions', '2026', '10', day);
+    await fsp.mkdir(dir, { recursive: true });
+    const lines = [cx('session_meta', { id, cwd, timestamp: created, thread_source: 'user' }, 0)];
+    if (prompt) lines.push(cxMsg('user', prompt, ['user.text']));
+    await fsp.writeFile(
+      path.join(dir, `rollout-${stamp}-${id}.jsonl`),
+      lines.map((l) => JSON.stringify(l)).join('\n') + '\n',
+    );
+  };
+  const OLD = '01a13641-3d32-7dc0-a7ba-8e6dd75878b2';
+  const NEW = '01a13644-fbd9-7840-8427-83e715af948e';
+  const OTHER = '01a13650-0000-7000-8000-000000000000';
+  await write('12', '2026-10-12T09-00-00', OLD, '/proj', '2026-10-12T13:00:00.000Z', 'old prompt');
+  await write('13', '2026-10-13T13-17-33', NEW, '/proj', '2026-10-13T17:17:33.000Z', 'new prompt');
+  await write('13', '2026-10-13T14-00-00', OTHER, '/elsewhere', '2026-10-13T18:00:00.000Z', 'x');
+
+  assert.equal((await codex.find('/proj', { agentSessionId: OLD })).sessionId, OLD);
+  assert.equal((await codex.find('/proj', { sessionId: OLD })).sessionId, OLD);
+  assert.equal((await codex.find('/proj', {})).sessionId, NEW); // newest for the cwd
+  assert.equal((await codex.find('/proj', { exclude: new Set([NEW]) })).sessionId, OLD);
+  // a pane whose process started after every session owns none of them
+  assert.equal(await codex.find('/proj', { startedAfter: Date.parse('2026-10-13T19:00:00Z') }), null);
+  assert.equal(
+    (await codex.find('/proj', { startedAfter: Date.parse('2026-10-13T17:17:00Z') })).sessionId, NEW,
+  );
+  assert.equal(await codex.find('/nowhere', {}), null);
+
+  const { listSessions } = await import('../lib/adapters.js');
+  const rows = await listSessions('codex', '/proj');
+  assert.deepEqual(rows.map((r) => r.firstPrompt).sort(), ['new prompt', 'old prompt']);
+});

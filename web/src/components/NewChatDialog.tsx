@@ -53,8 +53,20 @@ const SPAWN_MODES: Record<SpawnMode, { label: string; args: string[]; hint: stri
     hint: 'no permission checks at all',
   },
 };
-const spawnModeArgs = (kind: string, m: SpawnMode) =>
-  m === 'yolo' && kind === 'grok' ? ['--always-approve'] : SPAWN_MODES[m].args;
+// codex has no claude-style permission modes — its ladder is sandbox ×
+// approval policy, mapped onto the nearest rung
+const CODEX_MODE_ARGS: Record<SpawnMode, string[]> = {
+  default: [],
+  acceptEdits: ['--sandbox', 'workspace-write', '--ask-for-approval', 'on-request'],
+  plan: ['--sandbox', 'read-only', '--ask-for-approval', 'on-request'],
+  auto: ['--approve-for-me'],
+  yolo: ['--dangerously-bypass-approvals-and-sandbox'],
+};
+const spawnModeArgs = (kind: string, m: SpawnMode) => {
+  if (kind === 'codex') return CODEX_MODE_ARGS[m];
+  return m === 'yolo' && kind === 'grok' ? ['--always-approve'] : SPAWN_MODES[m].args;
+};
+const MODE_KINDS = ['claude', 'grok', 'codex'];
 
 /** Modal form for starting a fresh agent chat: destination + kind. */
 export function NewChatDialog({
@@ -150,7 +162,7 @@ export function NewChatDialog({
       setSessions((s) => ({ ...s, [p.key]: null }));
       Promise.all(
         p.dirs.flatMap((d) =>
-          ['claude', 'grok'].map((k) =>
+          MODE_KINDS.map((k) =>
             fetch(`/api/sessions?cwd=${encodeURIComponent(d)}&kind=${k}`)
               .then((r) => (r.ok ? r.json() : Promise.reject()))
               .then((j: { sessions: SessionEntry[] }) =>
@@ -182,7 +194,7 @@ export function NewChatDialog({
     setBusy(true);
     setError(null);
     const args = [
-      ...(effKind === 'claude' || effKind === 'grok' ? spawnModeArgs(effKind, spawnMode) : []),
+      ...(MODE_KINDS.includes(effKind) ? spawnModeArgs(effKind, spawnMode) : []),
       ...(argsText.trim() ? argsText.trim().split(/\s+/) : []),
     ];
     // an untitled resume inherits the session's title so the tab reads right
@@ -437,7 +449,7 @@ export function NewChatDialog({
           )}
         </label>
 
-        {(effKind === 'claude' || effKind === 'grok') && (
+        {MODE_KINDS.includes(effKind) && (
           <label className="field">
             <span>permission mode</span>
             <div className="seg-row">

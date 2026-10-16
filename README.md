@@ -42,7 +42,7 @@ static files the daemon serves. Runtime is still just `node server.js`.
 phone ──HTTPS (tailscale serve)──> herdr-web daemon ──unix socket──> herdr
                                         │
                                         └─── reads agent session files
-                                             (~/.claude/projects/…, ~/.grok/sessions/…)
+                                             (~/.claude/projects/…, ~/.grok/sessions/…, ~/.codex/sessions/…)
 ```
 
 The trick that makes transcripts possible: agent TUIs run on the terminal's
@@ -58,6 +58,7 @@ Per-agent adapters (`lib/adapters.js`):
 |---|---|---|
 | claude (Claude Code) | `~/.claude/projects/<cwd-slug>/<uuid>.jsonl` | pid → `~/.claude/sessions/<pid>.json` (exact, claude ≥ 2.1.290); else terminal title vs the jsonl's `ai-title`, then newest file created since the pane's process started — siblings in one cwd allocated jointly so no two panes share a file |
 | grok | `~/.grok/sessions/<cwd>/<id>/updates.jsonl` (ACP `session/update` stream — live, timestamped, with per-turn usage; `chat_history.jsonl` fallback for pre-ACP sessions) | pane pid matched against `active_sessions.json` (exact — follows `/clear`), pinned session on `--resume`, cwd+newest fallback |
+| codex | `~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<id>.jsonl` (`response_item` history + `token_count` usage; `item_completed` mirrors skipped) | session id herdr reports for the pane (needs `herdr integration install codex`), else the rollout the pane's pid holds open in `/proc/<pid>/fd`, pinned session on resume, `session_meta.cwd` + created-since fallback |
 
 Blocked-context classification is two-tier: pending `tool_use` in the session
 file first (AskUserQuestion / permission asks — grok streams the pending
@@ -139,8 +140,8 @@ All under `/api`, JSON in/out. `:pane` is a herdr pane id like `w1:p2`.
 | `GET /api/kinds` | startable agent kinds from herdr's manifests + installed probe |
 | `GET /api/projects` | places to start a session: live cwds + workspace checkouts + dirs decoded from `~/.claude/projects`, collapsed by git repo |
 | `GET /api/worktrees?cwd=` | a repo's checkouts (herdr `worktree.list`) with open-workspace links |
-| `GET /api/sessions?cwd=&kind=` | resumable sessions for a dir (kind: `claude` default, or `grok`): id, title, first prompt, mtime, `livePaneId` when already bound to a pane |
-| `POST /api/chats` | start an agent: `{kind, cwd?, workspaceId?, name?, args?, worktree?, resume?}` — `worktree: {repoCwd, branch}` creates a checkout, `{repoCwd, path}` opens one; `resume: <session-uuid>` (claude or grok) spawns with `--resume` and pins the transcript binding |
+| `GET /api/sessions?cwd=&kind=` | resumable sessions for a dir (kind: `claude` default, `grok`, or `codex`): id, title, first prompt, mtime, `livePaneId` when already bound to a pane |
+| `POST /api/chats` | start an agent: `{kind, cwd?, workspaceId?, name?, args?, worktree?, resume?}` — `worktree: {repoCwd, branch}` creates a checkout, `{repoCwd, path}` opens one; `resume: <session-uuid>` (claude, grok, or codex — `codex resume <id>`) spawns with `--resume` and pins the transcript binding |
 | `GET /api/push/pubkey` · `POST /api/push/subscribe` · `…/unsubscribe` · `…/test` | Web Push plumbing |
 
 ## Security model

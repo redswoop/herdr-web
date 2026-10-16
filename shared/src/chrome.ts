@@ -1,10 +1,11 @@
-/** claude/grok composer + status furniture at the bottom of the screen —
+/** claude/grok/codex composer + status furniture at the bottom of the screen —
  *  cut it so the tail is output, not chrome */
 export const TAIL_CHROME_RES = [
   /^\s*$/,
   /^\s*─{5,}\s*$/,
-  /^\s*❯/,
+  /^\s*[❯›]/, // composer: claude ❯, codex ›
   /^\s*[⏸⏵]/,
+  /^\s+\S.* · [~/]\S*\s*$/, // codex status row: "model effort · cwd"
   /esc to interrupt/,
   /\? for shortcuts/i,
   /shift\+tab/i,
@@ -47,7 +48,7 @@ export function stripChrome(lines: string[]): number {
 const TUI_CHROME_RES = [
   /^[─═╌▔]+$/, // rules
   /^[╭╰╮╯│]/, // box borders
-  /^❯/, // input line / menu cursor
+  /^[❯›]/, // input line / menu cursor (claude ❯, codex ›)
   /^⏸|^⏵/, // status line
   /\? for shortcuts/,
   /esc to interrupt/,
