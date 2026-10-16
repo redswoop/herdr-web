@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { chipName } from '@herdr/shared';
 import { agentPath, errorOf, post } from '../api';
 import { useAgentMode } from '../hooks/useAgentMode';
 import { useAgentSession } from '../hooks/useAgentSession';
@@ -392,7 +393,7 @@ export function AgentView({
         </button>
         <div className="who">
           <div className="agent-name">
-            {agent ? agent.label || agent.title || agent.paneId : paneId}
+            {agent ? chipName(agent) : paneId}
           </div>
           <div className="sub">
             {agent ? [agent.displayAgent ?? agent.agent, agent.cwd].filter(Boolean).join(' · ') : ''}

@@ -69,6 +69,7 @@ const log = {
   chats: /** @type {object[]} */ ([]),
   uploads: /** @type {object[]} */ ([]),
   push: /** @type {object[]} */ ([]),
+  refreshes: 0,
 };
 
 let chatSeq = 0;
@@ -191,6 +192,7 @@ function resetState() {
   log.chats.length = 0;
   log.uploads.length = 0;
   log.push.length = 0;
+  log.refreshes = 0;
   chatSeq = 0;
   pushSubscribed = false;
   broadcastRoster();
@@ -269,6 +271,10 @@ const server = http.createServer(async (req, res) => {
 
   // roster
   if (req.method === 'GET' && seg[1] === 'roster' && !seg[2]) {
+    return sendJson(res, 200, roster);
+  }
+  if (req.method === 'POST' && seg[1] === 'roster' && seg[2] === 'refresh') {
+    log.refreshes += 1;
     return sendJson(res, 200, roster);
   }
   if (req.method === 'GET' && seg[1] === 'roster' && seg[2] === 'stream') {

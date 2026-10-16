@@ -23,6 +23,12 @@ export interface Agent {
   revision: number;
   hasTranscript: boolean;
   sessionId: string | null;
+  /** the harness's own session title (claude ai-title, grok generated_title, pi name) */
+  sessionTitle?: string | null;
+  /** first user prompt, truncated — the description of last resort */
+  firstPrompt?: string | null;
+  /** epoch ms: newest of transcript mtime / an observed status flip */
+  lastActiveAt?: number | null;
 }
 
 export interface Workspace {

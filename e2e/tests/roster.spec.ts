@@ -1,5 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { mockReset, mockState, openApp } from '../helpers/app';
+import type { Page } from '@playwright/test';
+import { mockLog, mockReset, mockState, openApp } from '../helpers/app';
+
+const groupBy = async (page: Page, mode: RegExp) => {
+  await page.getByRole('button', { name: /sort and group/i }).click();
+  await page.getByRole('menuitemradio', { name: mode }).click();
+};
 
 test.describe('roster', () => {
   test('shows sessions with status words and focused mark', async ({ page }) => {
@@ -7,8 +13,8 @@ test.describe('roster', () => {
     await expect(page.getByRole('button', { name: /fix-auth/i }).first()).toBeVisible();
     await expect(page.getByRole('button', { name: /fix-ui/i }).first()).toBeVisible();
     await expect(page.getByRole('button', { name: /explore/i }).first()).toBeVisible();
-    // status words on session chips
-    await expect(page.locator('.session .state-word.idle').first()).toBeVisible();
+    // status words only where they need attention — idle rows show age instead
+    await expect(page.locator('.session .state-word.idle')).toHaveCount(0);
     await expect(page.locator('.session .state-word.working').first()).toBeVisible();
     await expect(page.locator('.session .state-word.blocked').first()).toBeVisible();
     // focused mark on fix-auth
@@ -19,14 +25,17 @@ test.describe('roster', () => {
 
   test('group-by modes switch labels', async ({ page }) => {
     await openApp(page);
-    const tablist = page.getByRole('tablist', { name: /group sessions/i });
-    await expect(tablist).toBeVisible();
-    await tablist.getByRole('tab', { name: 'status' }).click();
+    // the recent list is flat: no group headers
+    await groupBy(page, /^❯? ?recent/);
+    await expect(page.getByRole('navigation').locator('.group-head')).toHaveCount(0);
+    await groupBy(page, /by status/);
     await expect(page.getByText('blocked', { exact: false }).first()).toBeVisible();
-    await tablist.getByRole('tab', { name: 'agent' }).click();
+    await groupBy(page, /by agent/);
     await expect(page.getByText(/Claude|claude|Grok|grok/i).first()).toBeVisible();
-    await tablist.getByRole('tab', { name: 'project' }).click();
+    await groupBy(page, /by project/);
     await expect(page.getByText('app').first()).toBeVisible();
+    await groupBy(page, /^❯? ?recent/);
+    await expect(page.getByRole('navigation').locator('.group-head')).toHaveCount(0);
   });
 
   test('collapse group and persist across reload', async ({ page }) => {
@@ -36,16 +45,19 @@ test.describe('roster', () => {
     const rail = page.getByRole('navigation');
     const fixAuth = rail.getByRole('button', { name: /fix-auth/i }).first();
     await expect(fixAuth).toBeVisible();
+    await groupBy(page, /by space/);
+    const fixAuthHead = rail.locator('section.group', { hasText: /fix-auth/i }).locator('.group-head');
     // assert the UI actually collapses, not just the storage side-effect —
     // the old localStorage-only check survived a broken collapse
-    await rail.locator('.group-head').first().click();
+    await fixAuthHead.click();
     await expect(fixAuth).toBeHidden();
     await page.reload();
     await expect(page.getByRole('heading', { name: /herd/i }).first()).toBeVisible();
     // the collapse persisted: still hidden after reload
     await expect(rail.getByRole('button', { name: /fix-auth/i })).toBeHidden();
-    // and expanding brings it back
-    await rail.locator('.group-head').first().click();
+    // and expanding brings it back — its section no longer contains a
+    // visible fix-auth to anchor on, so find the one collapsed group
+    await rail.locator('section.group:not(.empties) .group-head.closed').click();
     await expect(rail.getByRole('button', { name: /fix-auth/i }).first()).toBeVisible();
   });
 
@@ -75,5 +87,48 @@ test.describe('roster', () => {
     await page.route('**/api/roster/stream**', (route) => route.abort());
     await mockState({ disconnectRoster: true });
     await expect(page.locator('.conn-banner')).toBeVisible({ timeout: 20_000 });
+  });
+
+  test('tapping the freshness dot re-snapshots the roster', async ({ page }) => {
+    await openApp(page);
+    const dot = page.locator('.sidebar .freshness');
+    await expect(dot).toHaveClass(/\bok\b/);
+    const before = (await mockLog()).refreshes;
+    await dot.click();
+    await expect.poll(async () => (await mockLog()).refreshes).toBeGreaterThan(before);
+  });
+
+  test('pull down at the top of the list refreshes', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'phone', 'touch gesture');
+    await openApp(page);
+    await expect(page.locator('.session').first()).toBeVisible();
+    const before = (await mockLog()).refreshes;
+    // synthesize the gesture — playwright has no touch drag
+    await page.locator('.sessions').evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const at = (y: number) =>
+        new Touch({ identifier: 1, target: el, clientX: r.left + 40, clientY: y });
+      const fire = (type: string, y: number) =>
+        el.dispatchEvent(
+          new TouchEvent(type, {
+            touches: type === 'touchend' ? [] : [at(y)],
+            changedTouches: [at(y)],
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      fire('touchstart', r.top + 10);
+      for (let y = 20; y <= 200; y += 20) fire('touchmove', r.top + 10 + y);
+      fire('touchend', r.top + 210);
+    });
+    await expect.poll(async () => (await mockLog()).refreshes).toBeGreaterThan(before);
+  });
+
+  test('coming back to the foreground re-snapshots', async ({ page }) => {
+    await openApp(page);
+    await expect(page.locator('.session').first()).toBeVisible();
+    const before = (await mockLog()).refreshes;
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await expect.poll(async () => (await mockLog()).refreshes).toBeGreaterThan(before);
   });
 });

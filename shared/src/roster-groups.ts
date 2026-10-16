@@ -6,9 +6,10 @@ export interface SpawnTarget {
   cwd?: string;
 }
 
-export type GroupBy = 'workspace' | 'status' | 'project' | 'agent';
+export type GroupBy = 'recent' | 'workspace' | 'status' | 'project' | 'agent';
 
 export const GROUP_MODES: { key: GroupBy; label: string }[] = [
+  { key: 'recent', label: 'recent' },
   { key: 'workspace', label: 'space' },
   { key: 'project', label: 'project' },
   { key: 'agent', label: 'agent' },
@@ -49,6 +50,10 @@ export interface Group {
   spawn?: SpawnTarget;
   agents: Agent[];
   subs?: TabSub[];
+  /** render rows without a header (recent mode's main list) */
+  flat?: boolean;
+  /** starts collapsed until the user opens it (recent mode's stale fold) */
+  defaultClosed?: boolean;
 }
 
 // Tabs herdr hasn't renamed carry their position number as the label.
@@ -61,6 +66,13 @@ export function splitByTab(agents: Agent[], tabs: Map<string, Tab>): TabSub[] | 
     (byTab.get(a.tabId) ?? byTab.set(a.tabId, []).get(a.tabId)!).push(a);
   }
   if (byTab.size < 2) return undefined;
+  // herdr numbers unnamed tabs; "tab 1 / tab 2" headers over one chat each
+  // are pure chrome — only split when someone named a tab
+  const named = [...byTab.keys()].some((id) => {
+    const label = tabs.get(id)?.label;
+    return !!label && !/^\d+$/.test(label);
+  });
+  if (!named) return undefined;
   return [...byTab.entries()]
     .map(([tabId, list]) => ({
       key: tabId,
@@ -89,17 +101,77 @@ export function dominant<T>(agents: Agent[], of: (a: Agent) => T | null): T | un
   return best;
 }
 
-export const chipName = (a: Agent) => a.label || a.title || a.paneId;
+/** The name the server mints for an unnamed spawn (`claude-w33p7`) — not a human's. */
+export const isAutoLabel = (a: Agent) =>
+  !!a.label && a.label === `${a.agent}-${a.paneId.replace(/\W+/g, '').toLowerCase()}`;
+
+const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** A terminal title that only restates agent/folder (`π - ComfyData`,
+ *  `Claude Code`, `~/src/x`) says nothing about the chat. */
+export function isGenericTitle(title: string, a: Agent): boolean {
+  let t = title.trim();
+  if (!t || /^[~/]/.test(t)) return true;
+  const noise = [a.agent, a.displayAgent, a.cwd && basename(a.cwd), 'π']
+    .filter((x): x is string => !!x)
+    .sort((x, y) => y.length - x.length); // "Claude Code" before "claude"
+  for (const n of noise) t = t.replace(new RegExp(escRe(n), 'gi'), ' ');
+  return (t.match(/\p{L}/gu) ?? []).length < 3;
+}
+
+/** What the chat is about: a human's label, else the agent's live title, else
+ *  the session's own title, else its first prompt — auto-names last. */
+export function chipName(a: Agent): string {
+  if (a.label && !isAutoLabel(a)) return a.label;
+  if (a.title && !isGenericTitle(a.title, a)) return a.title;
+  const fallback = a.sessionTitle?.trim() || a.firstPrompt?.trim().split('\n')[0];
+  return fallback || a.label || a.title || a.paneId;
+}
+
+/** Idle this long with no transcript movement → folded under "stale". */
+export const STALE_MS = 24 * 3600_000;
+
+/** Attention first (blocked, then working), then most recently active. */
+export function byAttention(a: Agent, b: Agent): number {
+  const rank = (x: Agent) => (x.status === 'blocked' ? 0 : x.status === 'working' ? 1 : 2);
+  return (
+    rank(a) - rank(b) ||
+    (b.lastActiveAt ?? 0) - (a.lastActiveAt ?? 0) ||
+    chipName(a).localeCompare(chipName(b))
+  );
+}
+
+export const isStale = (a: Agent, now: number) =>
+  a.status !== 'blocked' && a.status !== 'working' && !!a.lastActiveAt && now - a.lastActiveAt > STALE_MS;
+
+// a group ranks by its most urgent, then most recent, member
+const groupRank = (g: { agents: Agent[] }) => {
+  const top = g.agents[0]; // lists are byAttention-sorted
+  if (!top) return { rank: 3, at: 0 };
+  return { rank: top.status === 'blocked' ? 0 : top.status === 'working' ? 1 : 2, at: top.lastActiveAt ?? 0 };
+};
+const byGroupRank = (a: { agents: Agent[] }, b: { agents: Agent[] }) => {
+  const x = groupRank(a);
+  const y = groupRank(b);
+  return x.rank - y.rank || y.at - x.at;
+};
 
 export function buildGroups(
   agents: Agent[],
   workspaces: Workspace[],
   tabs: Tab[],
   mode: GroupBy,
+  now: number = Date.now(),
 ): Group[] {
-  const byStatus = (a: Agent, b: Agent) =>
-    (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) ||
-    chipName(a).localeCompare(chipName(b));
+  if (mode === 'recent') {
+    const sorted = [...agents].sort(byAttention);
+    const groups: Group[] = [
+      { key: 'live', title: '', flat: true, agents: sorted.filter((a) => !isStale(a, now)) },
+    ];
+    const stale = sorted.filter((a) => isStale(a, now));
+    if (stale.length) groups.push({ key: 'stale', title: 'stale', defaultClosed: true, agents: stale });
+    return groups;
+  }
 
   const bucket = new Map<string, Agent[]>();
   for (const a of agents) {
@@ -113,9 +185,10 @@ export function buildGroups(
             : (a.repoRoot ?? a.cwd ?? 'no project');
     (bucket.get(k) ?? bucket.set(k, []).get(k)!).push(a);
   }
-  for (const list of bucket.values()) list.sort(byStatus);
+  for (const list of bucket.values()) list.sort(byAttention);
 
   if (mode === 'workspace') {
+    // agentless spaces still come back (last) — the ＋ is how they get a session
     for (const w of workspaces) if (!bucket.has(w.workspaceId)) bucket.set(w.workspaceId, []);
     const known = new Map(workspaces.map((w) => [w.workspaceId, w]));
     const tabMap = new Map(tabs.map((t) => [t.tabId, t]));
@@ -137,8 +210,13 @@ export function buildGroups(
           number: w?.number ?? 999,
         };
       })
-      .sort((a, b) => a.number - b.number)
-      .map(({ number: _n, ...rest }) => rest);
+      .sort((a, b) => byGroupRank(a, b) || a.number - b.number)
+      .map(({ number, ...rest }, _i, all) =>
+        // two spaces both called "~" read as a grouping bug — say which is which
+        all.filter((g) => g.title === rest.title).length > 1
+          ? { ...rest, badge: [rest.badge, `#${number}`].filter(Boolean).join(' ') }
+          : rest,
+      );
   }
   if (mode === 'status') {
     return [...bucket.entries()]
@@ -157,11 +235,11 @@ export function buildGroups(
             : { cwd: key, workspaceId: dominant(list, (a) => a.workspaceId) },
         agents: list,
       }))
-      .sort((a, b) => a.title.localeCompare(b.title));
+      .sort((a, b) => byGroupRank(a, b) || a.title.localeCompare(b.title));
   }
   return [...bucket.entries()]
     .map(([key, list]) => ({ key, title: key, agents: list }))
-    .sort((a, b) => a.title.localeCompare(b.title));
+    .sort((a, b) => byGroupRank(a, b) || a.title.localeCompare(b.title));
 }
 
 /** Sanitize a user-typed agent name for the daemon. */

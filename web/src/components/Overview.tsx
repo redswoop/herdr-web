@@ -1,6 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useRef } from 'react';
+import { chipName } from '@herdr/shared';
+import { HomeToggle } from './ui/HomeToggle';
+import { Freshness } from './ui/Freshness';
+import { PullIndicator } from './ui/PullIndicator';
+import { usePullToRefresh } from '../hooks/usePullToRefresh';
+import type { Sync } from '../sync';
 import type { SpawnTarget } from '../spawn';
-import type { Agent, Project, Roster, Workspace } from '../types';
+import type { Agent, Roster, Workspace } from '../types';
 import { STATUS_ORDER, STATUS_WORD, basename, shortPath } from '../util';
 
 interface Card {
@@ -52,68 +58,53 @@ function buildCards(roster: Roster): Card[] {
   );
 }
 
-/** Home surface: one card per project with its live sessions, plus quick
- *  spawn targets for recently-used projects. */
+/** Home surface: one card per project with its live sessions. Starting
+ *  somewhere new is the ＋ dialog's job. */
 export function Overview({
   roster,
   selected,
   onSelect,
   onNewChat,
-  onQuickChat,
   onShowList,
+  connected,
+  sync,
 }: {
   roster: Roster;
   selected: string | null;
   onSelect: (paneId: string) => void;
   onNewChat: (target?: SpawnTarget) => void;
-  onQuickChat: (target: SpawnTarget) => Promise<void>;
   /** phone only: switch the home surface back to the list */
   onShowList?: () => void;
+  connected: boolean;
+  sync: Sync;
 }) {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [spawning, setSpawning] = useState<string | null>(null);
 
-  useEffect(() => {
-    let alive = true;
-    fetch('/api/projects')
-      .then((r) => r.json())
-      .then((j: { projects: Project[] }) => alive && setProjects(j.projects))
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [roster.agents.length]); // refetch when the herd changes size
-
+  const scroller = useRef<HTMLDivElement>(null);
+  const pulled = usePullToRefresh(scroller, sync.onRefresh);
   const cards = useMemo(() => buildCards(roster), [roster]);
-  const dormant = useMemo(
-    () => projects.filter((p) => p.live === 0).slice(0, 12),
-    [projects],
-  );
 
   const blocked = roster.agents.filter((a) => a.status === 'blocked').length;
   const working = roster.agents.filter((a) => a.status === 'working').length;
 
-  const quick = async (key: string, target: SpawnTarget) => {
-    if (spawning) return;
-    setSpawning(key);
-    try {
-      await onQuickChat(target);
-    } catch (e) {
-      alert(String((e as Error).message ?? e));
-    } finally {
-      setSpawning(null);
-    }
-  };
 
   return (
-    <div className="overview scroll">
-      <header className="ov-head">
-        {onShowList && (
-          <button className="ghost" aria-label="show session list" onClick={onShowList}>
-            ☰
+    <>
+      {onShowList && (
+        // phone: the list's header, slot for slot, so the toggle stays put
+        <header className="bar home-bar">
+          <h1>🐑 herd</h1>
+          <HomeToggle view="cards" onPick={onShowList} />
+          <span className="bar-spacer" />
+          <button className="ghost new-chat" onClick={() => onNewChat()} title="start a new chat">
+            ＋
           </button>
-        )}
-        <h2>🐑 the herd</h2>
+          <Freshness connected={connected} {...sync} />
+        </header>
+      )}
+    <div className="overview scroll" ref={scroller}>
+      <PullIndicator {...pulled} />
+      <header className={`ov-head ${onShowList ? 'sub-only' : ''}`}>
+        {!onShowList && <h2>🐑 the herd</h2>}
         <span className="ov-summary sub">
           {roster.herdrDown
             ? 'herdr unreachable'
@@ -121,9 +112,11 @@ export function Overview({
               (blocked ? ` · ${blocked} need${blocked === 1 ? 's' : ''} you` : '') +
               (working ? ` · ${working} working` : '')}
         </span>
-        <button className="ghost new-chat" onClick={() => onNewChat()} title="start a new chat">
-          ＋
-        </button>
+        {!onShowList && (
+          <button className="ghost new-chat" onClick={() => onNewChat()} title="start a new chat">
+            ＋
+          </button>
+        )}
       </header>
 
       <div className="ov-grid">
@@ -137,16 +130,11 @@ export function Overview({
               {c.path && <span className="ov-path sub">{shortPath(c.path)}</span>}
               {c.spawn && (
                 <button
-                  className={`ghost group-spawn ${spawning === c.key ? 'busy' : ''}`}
-                  title="new session here (right-click to customize)"
-                  disabled={spawning !== null}
-                  onClick={() => quick(c.key, c.spawn!)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    onNewChat(c.spawn);
-                  }}
+                  className="ghost group-spawn"
+                  title="new session here"
+                  onClick={() => onNewChat(c.spawn)}
                 >
-                  {spawning === c.key ? '…' : '＋'}
+                  ＋
                 </button>
               )}
             </header>
@@ -164,7 +152,7 @@ export function Overview({
                 onClick={() => onSelect(a.paneId)}
               >
                 <span className={`status-dot ${a.status}`} />
-                <span className="ov-row-name">{a.label || a.title || a.paneId}</span>
+                <span className="ov-row-name">{chipName(a)}</span>
                 <span className="ov-row-agent sub">{a.displayAgent ?? a.agent}</span>
                 <span className={`state-word ${a.status}`}>
                   {STATUS_WORD[a.status] ?? a.status}
@@ -174,32 +162,8 @@ export function Overview({
           </section>
         ))}
 
-        {dormant.length > 0 && (
-          <section className="ov-card ov-dormant">
-            <header className="ov-card-head">
-              <span className="ov-card-title">start somewhere</span>
-            </header>
-            <div className="ov-pills">
-              {dormant.map((p) => (
-                <button
-                  key={p.key}
-                  className="ov-pill"
-                  title={`${shortPath(p.path)} — tap to start a session, right-click to customize`}
-                  disabled={spawning !== null}
-                  onClick={() => quick(p.key, { cwd: p.path })}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    onNewChat({ cwd: p.path });
-                  }}
-                >
-                  {p.repo && '⎇ '}
-                  {spawning === p.key ? '…' : p.name}
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
       </div>
     </div>
+    </>
   );
 }

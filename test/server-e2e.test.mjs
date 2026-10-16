@@ -265,6 +265,18 @@ test('e2e: roster reflects the healed bindings', async () => {
   assert.equal(by.get('w1:pB')?.sessionId, 'sess-b');
   assert.equal(by.get('w1:pA')?.hasTranscript, true);
   assert.equal(by.get('w1:pC')?.hasTranscript, false);
+  // description + recency come from the bound transcript
+  assert.equal(by.get('w1:pB')?.firstPrompt, 'hello from pane B');
+  assert.ok(by.get('w1:pB')?.lastActiveAt > 0, 'transcript mtime feeds lastActiveAt');
+  assert.equal(by.get('w1:pC')?.lastActiveAt, null, 'no transcript, no flip seen: no recency');
+});
+
+test('e2e: POST roster/refresh re-snapshots instead of serving the cache', async () => {
+  const before = (await api('roster')).updatedAt;
+  const res = await fetch(`${BASE}/api/roster/refresh`, { method: 'POST' });
+  assert.equal(res.status, 200);
+  const r = await res.json();
+  assert.ok(r.updatedAt >= before && Array.isArray(r.agents));
 });
 
 test('e2e: multi-byte UTF-8 survives a request-body chunk boundary', async () => {

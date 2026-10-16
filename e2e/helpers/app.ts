@@ -25,6 +25,7 @@ export async function mockLog() {
     chats: unknown[];
     uploads: unknown[];
     push: unknown[];
+    refreshes: number;
   }>;
 }
 

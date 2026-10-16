@@ -1,24 +1,32 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  GROUP_MODES,
+  buildGroups,
+  chipName,
+  dominant,
+  type Group,
+  type GroupBy,
+} from '@herdr/shared';
 import type { SpawnTarget } from '../spawn';
-import type { Agent, AgentStatus, Roster, Tab, Workspace } from '../types';
-import { STATUS_ORDER, STATUS_WORD, basename } from '../util';
+import type { Agent, Roster } from '../types';
+import { STATUS_WORD, agoShort, basename } from '../util';
 import { Chevrons } from './ui/Chevrons';
-
-export type GroupBy = 'workspace' | 'status' | 'project' | 'agent';
-
-const GROUP_MODES: { key: GroupBy; label: string }[] = [
-  { key: 'workspace', label: 'space' },
-  { key: 'project', label: 'project' },
-  { key: 'agent', label: 'agent' },
-  { key: 'status', label: 'status' },
-];
+import { HomeToggle } from './ui/HomeToggle';
+import { Freshness } from './ui/Freshness';
+import { PullIndicator } from './ui/PullIndicator';
+import { usePullToRefresh } from '../hooks/usePullToRefresh';
+import type { Sync } from '../sync';
 
 const GROUPBY_KEY = 'herdr.groupBy';
 const CLOSED_KEY = 'herdr.groupsClosed';
 
 function loadGroupBy(): GroupBy {
-  const v = localStorage.getItem(GROUPBY_KEY);
-  return v === 'status' || v === 'project' || v === 'agent' ? v : 'workspace';
+  try {
+    const v = localStorage.getItem(GROUPBY_KEY);
+    return GROUP_MODES.some((m) => m.key === v) ? (v as GroupBy) : 'recent';
+  } catch {
+    return 'recent';
+  }
 }
 
 function loadClosed(): Set<string> {
@@ -30,136 +38,23 @@ function loadClosed(): Set<string> {
   }
 }
 
-interface TabSub {
-  key: string;
-  title: string;
-  focused?: boolean;
-  agents: Agent[];
+/** re-render on an interval so "3m" ages without a roster push */
+function useNow(everyMs: number): number {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), everyMs);
+    return () => clearInterval(t);
+  }, [everyMs]);
+  return now;
 }
 
-interface Group {
-  key: string;
-  title: string;
-  badge?: string; // small dim tag next to the title (worktree, ws number…)
-  focused?: boolean;
-  /** workspace rollup status (workspace mode only) */
-  status?: AgentStatus;
-  /** target for the group's one-click ＋ (workspace & project modes) */
-  spawn?: SpawnTarget;
-  agents: Agent[];
-  /** workspace mode: agents split by herdr tab when a workspace has several */
-  subs?: TabSub[];
-}
-
-// Tabs herdr hasn't renamed carry their position number as the label.
-const tabTitle = (t: Tab | undefined, tabId: string) =>
-  !t ? tabId : /^\d+$/.test(t.label) ? `tab ${t.label}` : t.label;
-
-function splitByTab(agents: Agent[], tabs: Map<string, Tab>): TabSub[] | undefined {
-  const byTab = new Map<string, Agent[]>();
-  for (const a of agents) {
-    (byTab.get(a.tabId) ?? byTab.set(a.tabId, []).get(a.tabId)!).push(a);
-  }
-  if (byTab.size < 2) return undefined;
-  return [...byTab.entries()]
-    .map(([tabId, list]) => ({
-      key: tabId,
-      title: tabTitle(tabs.get(tabId), tabId),
-      focused: tabs.get(tabId)?.focused,
-      agents: list,
-      number: tabs.get(tabId)?.number ?? 999,
-    }))
-    .sort((a, b) => a.number - b.number);
-}
-
-/** Most common value among the agents; spawn targets follow the majority. */
-function dominant<T>(agents: Agent[], of: (a: Agent) => T | null): T | undefined {
-  const counts = new Map<T, number>();
-  for (const a of agents) {
-    const v = of(a);
-    if (v != null) counts.set(v, (counts.get(v) ?? 0) + 1);
-  }
-  let best: T | undefined;
-  let n = 0;
-  for (const [v, c] of counts) if (c > n) { best = v; n = c; }
-  return best;
-}
-
-function buildGroups(
-  agents: Agent[],
-  workspaces: Workspace[],
-  tabs: Tab[],
-  mode: GroupBy,
-): Group[] {
-  const byStatus = (a: Agent, b: Agent) =>
-    (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) ||
-    chipName(a).localeCompare(chipName(b));
-
-  const bucket = new Map<string, Agent[]>();
-  for (const a of agents) {
-    const k =
-      mode === 'workspace' ? a.workspaceId
-      : mode === 'status' ? a.status
-      : mode === 'agent' ? (a.displayAgent ?? a.agent ?? 'unknown')
-      : a.repoRoot ?? a.cwd ?? 'no project';
-    (bucket.get(k) ?? bucket.set(k, []).get(k)!).push(a);
-  }
-  for (const list of bucket.values()) list.sort(byStatus);
-
-  if (mode === 'workspace') {
-    // agentless workspaces still render — the ＋ is how they get a session
-    for (const w of workspaces) if (!bucket.has(w.workspaceId)) bucket.set(w.workspaceId, []);
-    const known = new Map(workspaces.map((w) => [w.workspaceId, w]));
-    const tabMap = new Map(tabs.map((t) => [t.tabId, t]));
-    return [...bucket.entries()]
-      .map(([key, list]) => {
-        const w = known.get(key);
-        return {
-          key,
-          title: w?.label || `workspace ${w?.number ?? '?'}`,
-          badge: w?.worktree?.isLinked ? `⎇ ${w.worktree.repoName ?? 'worktree'}` : undefined,
-          focused: w?.focused,
-          status: w?.status,
-          spawn: {
-            workspaceId: key,
-            cwd: w?.worktree?.checkoutPath ?? dominant(list, (a) => a.cwd),
-          },
-          agents: list,
-          subs: splitByTab(list, tabMap),
-          number: w?.number ?? 999,
-        };
-      })
-      .sort((a, b) => a.number - b.number);
-  }
-  if (mode === 'status') {
-    return [...bucket.entries()]
-      .map(([key, list]) => ({ key, title: key, agents: list }))
-      .sort((a, b) => (STATUS_ORDER[a.key] ?? 9) - (STATUS_ORDER[b.key] ?? 9));
-  }
-  if (mode === 'project') {
-    return [...bucket.entries()]
-      .map(([key, list]) => ({
-        key,
-        title: key === 'no project' ? key : basename(key),
-        badge: list[0]?.repoRoot === key ? '⎇' : undefined,
-        spawn:
-          key === 'no project'
-            ? undefined
-            : { cwd: key, workspaceId: dominant(list, (a) => a.workspaceId) },
-        agents: list,
-      }))
-      .sort((a, b) => a.title.localeCompare(b.title));
-  }
-  return [...bucket.entries()]
-    .map(([key, list]) => ({ key, title: key, agents: list }))
-    .sort((a, b) => a.title.localeCompare(b.title));
-}
-
-const chipName = (a: Agent) => a.label || a.title || a.paneId;
+const folderOf = (cwd: string | null) =>
+  !cwd ? null : /^\/home\/[^/]+\/?$/.test(cwd) ? '~' : basename(cwd);
 
 export function Sidebar({
   roster,
   connected,
+  sync,
   selected,
   onSelect,
   pushSupported,
@@ -167,11 +62,12 @@ export function Sidebar({
   onTogglePush,
   onCollapse,
   onNewChat,
-  onQuickChat,
   onShowCards,
 }: {
   roster: Roster;
   connected: boolean;
+  /** roster freshness + manual refresh (pull, dot tap) */
+  sync: Sync;
   selected: string | null;
   onSelect: (paneId: string) => void;
   pushSupported: boolean;
@@ -181,23 +77,38 @@ export function Sidebar({
   /** open the full launcher, optionally pre-aimed at a place */
   onNewChat: (target?: SpawnTarget) => void;
   /** one-click spawn with defaults; resolves when the pane is live */
-  onQuickChat: (target: SpawnTarget) => Promise<void>;
   /** phone only: swap the home surface to the project-card overview */
   onShowCards?: () => void;
 }) {
   const [groupBy, setGroupBy] = useState<GroupBy>(loadGroupBy);
   const [collapsed, setCollapsed] = useState<Set<string>>(loadClosed);
-  const [spawning, setSpawning] = useState<string | null>(null); // group key
+
+  const [modesOpen, setModesOpen] = useState(false);
+  const scroller = useRef<HTMLDivElement>(null);
+  const pulled = usePullToRefresh(scroller, sync.onRefresh);
+  const now = useNow(30_000);
 
   const pick = (mode: GroupBy) => {
     setGroupBy(mode);
-    localStorage.setItem(GROUPBY_KEY, mode);
+    setModesOpen(false);
+    try {
+      localStorage.setItem(GROUPBY_KEY, mode);
+    } catch {}
   };
 
   const groups = useMemo(
-    () => buildGroups(roster.agents, roster.workspaces ?? [], roster.tabs ?? [], groupBy),
-    [roster, groupBy],
+    () => buildGroups(roster.agents, roster.workspaces ?? [], roster.tabs ?? [], groupBy, now),
+    [roster, groupBy, now],
   );
+  // agentless spaces fold into one row at the bottom instead of a header each
+  const [filled, empties] = useMemo(
+    () => [groups.filter((g) => g.agents.length > 0), groups.filter((g) => g.agents.length === 0)],
+    [groups],
+  );
+  // the agent most chats run — saying "claude" on every row is noise
+  const usualAgent = useMemo(() => dominant(roster.agents, (a) => a.agent), [roster]);
+  const isClosed = (g: Pick<Group, 'key' | 'defaultClosed'>) =>
+    collapsed.has(`${groupBy}:${g.key}`) !== !!g.defaultClosed;
 
   const toggleGroup = (key: string) =>
     setCollapsed((prev) => {
@@ -210,16 +121,63 @@ export function Sidebar({
       return next;
     });
 
-  const quickSpawn = async (g: Group) => {
-    if (!g.spawn || spawning) return;
-    setSpawning(g.key);
-    try {
-      await onQuickChat(g.spawn);
-    } catch (e) {
-      alert(String((e as Error).message ?? e));
-    } finally {
-      setSpawning(null);
-    }
+  const head = (g: Group) => {
+    const closed = isClosed(g);
+    const blocked = g.agents.filter((a) => a.status === 'blocked').length;
+    return (
+      <div className={`group-row ${closed ? 'closed' : ''}`}>
+        <button
+          className={`group-head ${closed ? 'closed' : ''}`}
+          onClick={() => toggleGroup(`${groupBy}:${g.key}`)}
+        >
+          <svg className="chev" viewBox="0 0 24 24" width="12" height="12" fill="none"
+            stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 6l6 6-6 6" />
+          </svg>
+          {g.status && g.agents.length > 0 && <span className={`status-dot ${g.status}`} />}
+          <span className="group-title">{g.title}</span>
+          {g.badge && <span className="group-badge">{g.badge}</span>}
+          {g.focused && <span className="group-badge eye" title="focused in the TUI">⌖</span>}
+          {g.agents.length > 0 && (
+            <span className="group-count">
+              {blocked > 0 && <em className="blocked-count">{blocked}</em>}
+              {g.agents.length}
+            </span>
+          )}
+        </button>
+        {g.spawn && (
+          <button className="ghost group-spawn" title="new session here" onClick={() => onNewChat(g.spawn)}>
+            ＋
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  // the group header already says the folder in space/project modes
+  const groupTitleOf = (a: Agent) =>
+    groupBy === 'workspace'
+      ? groups.find((g) => g.key === a.workspaceId)?.title
+      : groupBy === 'project'
+        ? groups.find((g) => g.agents.includes(a))?.title
+        : undefined;
+
+  const row = (a: Agent) => {
+    const folder = folderOf(a.cwd);
+    const meta = [
+      folder && folder.toLowerCase() !== groupTitleOf(a)?.toLowerCase() ? folder : null,
+      groupBy !== 'agent' && a.agent !== usualAgent ? (a.displayAgent ?? a.agent) : null,
+    ].filter(Boolean);
+    return (
+      <SessionChip
+        key={a.paneId}
+        agent={a}
+        meta={meta.join(' · ')}
+        now={now}
+        active={a.paneId === selected}
+        onSelect={onSelect}
+      />
+    );
   };
 
   const showDiagnostics = () => {
@@ -237,13 +195,18 @@ export function Sidebar({
 
   return (
     <nav className="sidebar">
-      <header className="bar">
+      <header className="bar home-bar">
         <h1>🐑 herd</h1>
-        {onShowCards && (
-          <button className="ghost" aria-label="project overview" title="project overview" onClick={onShowCards}>
-            ⊞
-          </button>
-        )}
+        {onShowCards && <HomeToggle view="list" onPick={onShowCards} />}
+        <span className="bar-spacer" />
+        <button
+          className={`ghost group-trigger ${groupBy !== 'recent' ? 'on' : ''}`}
+          onClick={() => setModesOpen((o) => !o)}
+          title="sort / group"
+          aria-label="sort and group sessions"
+        >
+          {groupBy === 'recent' ? '⇅' : GROUP_MODES.find((m) => m.key === groupBy)?.label}
+        </button>
         <button className="ghost new-chat" onClick={() => onNewChat()} title="start a new chat">
           ＋
         </button>
@@ -256,105 +219,72 @@ export function Sidebar({
             {pushOn ? '🔔' : '🔕'}
           </button>
         )}
-        <span className={`dot ${connected ? 'ok' : ''}`} title="daemon connection" />
+        <Freshness connected={connected} {...sync} />
         <button className="ghost side-collapse" aria-label="hide session list" onClick={onCollapse}>
           <Chevrons dir="left" />
         </button>
+        {modesOpen && (
+          <>
+            <div className="pop-backdrop" onClick={() => setModesOpen(false)} />
+            <div className="mode-pop" role="menu">
+              {GROUP_MODES.map((m) => (
+                <button
+                  key={m.key}
+                  role="menuitemradio"
+                  aria-checked={groupBy === m.key}
+                  className={`mode-row ${groupBy === m.key ? 'current' : ''}`}
+                  onClick={() => pick(m.key)}
+                >
+                  <span className="mode-name">
+                    {groupBy === m.key ? '❯ ' : ''}
+                    {m.key === 'recent' ? 'recent' : `by ${m.label}`}
+                  </span>
+                  <span className="mode-desc">{MODE_DESC[m.key]}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </header>
 
-      <div className="groupby" role="tablist" aria-label="group sessions by">
-        {GROUP_MODES.map((m) => (
-          <button
-            key={m.key}
-            role="tab"
-            aria-selected={groupBy === m.key}
-            className={groupBy === m.key ? 'on' : ''}
-            onClick={() => pick(m.key)}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="scroll sessions">
+      <div className="scroll sessions" ref={scroller}>
+        <PullIndicator {...pulled} />
         {roster.agents.length === 0 && (roster.workspaces ?? []).length === 0 ? (
           <div className="empty">
             {roster.herdrDown ? 'herdr server unreachable' : 'no agents detected'}
           </div>
         ) : (
-          groups.map((g) => {
-            const closed = collapsed.has(`${groupBy}:${g.key}`);
-            const blocked = g.agents.filter((a) => a.status === 'blocked').length;
-            return (
-              <section key={g.key} className="group">
-                <div className={`group-row ${closed ? 'closed' : ''}`}>
-                  <button
-                    className={`group-head ${closed ? 'closed' : ''}`}
-                    onClick={() => toggleGroup(`${groupBy}:${g.key}`)}
-                  >
-                    <svg className="chev" viewBox="0 0 24 24" width="12" height="12" fill="none"
-                      stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M9 6l6 6-6 6" />
-                    </svg>
-                    {g.status && <span className={`status-dot ${g.status}`} />}
-                    <span className="group-title">{g.title}</span>
-                    {g.badge && <span className="group-badge">{g.badge}</span>}
-                    {g.focused && <span className="group-badge eye" title="focused in the TUI">⌖</span>}
-                    <span className="group-count">
-                      {blocked > 0 && <em className="blocked-count">{blocked}</em>}
-                      {g.agents.length}
-                    </span>
-                  </button>
-                  {g.spawn && (
-                    <button
-                      className={`ghost group-spawn ${spawning === g.key ? 'busy' : ''}`}
-                      title="new session here (right-click to customize)"
-                      disabled={spawning !== null}
-                      onClick={() => quickSpawn(g)}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        onNewChat(g.spawn);
-                      }}
-                    >
-                      {spawning === g.key ? '…' : '＋'}
-                    </button>
-                  )}
-                </div>
-                {!closed &&
-                  (g.subs ? (
-                    g.subs.map((t) => (
-                      <div key={t.key} className="tab-sub">
-                        <div className="tab-head">
-                          <span className="tab-title">{t.title}</span>
-                          {t.focused && <span className="group-badge eye" title="active tab in the TUI">⌖</span>}
-                        </div>
-                        {t.agents.map((a) => (
-                          <SessionChip
-                            key={a.paneId}
-                            agent={a}
-                            active={a.paneId === selected}
-                            showAgent={groupBy !== 'agent'}
-                            onSelect={onSelect}
-                          />
-                        ))}
-                      </div>
-                    ))
-                  ) : g.agents.length === 0 ? (
-                    <div className="group-empty sub">no sessions — ＋ starts one</div>
-                  ) : (
-                    g.agents.map((a) => (
-                      <SessionChip
-                        key={a.paneId}
-                        agent={a}
-                        active={a.paneId === selected}
-                        showAgent={groupBy !== 'agent'}
-                        onSelect={onSelect}
-                      />
-                    ))
-                  ))}
+          <>
+            {filled.map((g) =>
+              g.flat ? (
+                <section key={g.key} className="group flat">
+                  {g.agents.map(row)}
+                </section>
+              ) : (
+                <section key={g.key} className="group">
+                  {head(g)}
+                  {!isClosed(g) &&
+                    (g.subs
+                      ? g.subs.map((t) => (
+                          <div key={t.key} className="tab-sub">
+                            <div className="tab-head">
+                              <span className="tab-title">{t.title}</span>
+                              {t.focused && <span className="group-badge eye" title="active tab in the TUI">⌖</span>}
+                            </div>
+                            {t.agents.map(row)}
+                          </div>
+                        ))
+                      : g.agents.map(row))}
+                </section>
+              ),
+            )}
+            {empties.length > 0 && (
+              <section className="group empties">
+                {head({ key: '__empty', title: `${empties.length} empty space${empties.length > 1 ? 's' : ''}`, agents: [], defaultClosed: true })}
+                {!isClosed({ key: '__empty', defaultClosed: true }) && empties.map((g) => <div key={g.key}>{head(g)}</div>)}
               </section>
-            );
-          })
+            )}
+          </>
         )}
       </div>
 
@@ -367,23 +297,38 @@ export function Sidebar({
   );
 }
 
+const MODE_DESC: Record<GroupBy, string> = {
+  recent: 'needs-you first, then most recently active',
+  workspace: 'herdr spaces, busiest first',
+  project: 'git repo / folder',
+  agent: 'claude, grok, pi, codex…',
+  status: 'needs you · working · idle',
+};
+
 function SessionChip({
   agent: a,
+  meta,
+  now,
   active,
-  showAgent,
   onSelect,
 }: {
   agent: Agent;
+  meta: string;
+  now: number;
   active: boolean;
-  showAgent: boolean;
   onSelect: (paneId: string) => void;
 }) {
   const labels = Object.entries(a.stateLabels ?? {});
+  // launchPending can linger minutes after the agent is up — only call it
+  // "starting" while herdr has no read on it yet
+  const starting = a.launchPending && a.status === 'unknown';
+  const fresh = !a.hasTranscript && a.status !== 'unknown';
+  const loud = a.status === 'blocked' || a.status === 'working';
   return (
     <button
-      className={`session ${a.status} ${active ? 'active' : ''}`}
+      className={`session ${a.status} ${active ? 'active' : ''} ${fresh ? 'fresh' : ''}`}
       onClick={() => onSelect(a.paneId)}
-      title={a.cwd ?? undefined}
+      title={[a.cwd, fresh ? 'no messages yet' : null].filter(Boolean).join(' — ') || undefined}
     >
       <span className={`status-dot ${a.status}`} />
       <span className="info">
@@ -391,17 +336,10 @@ function SessionChip({
           {chipName(a)}
           {a.focused && <span className="focus-mark" title="focused in the TUI"> ⌖</span>}
         </span>
-        <span className="sub">
-          {showAgent && (a.displayAgent ?? a.agent ?? '?')}
-          {showAgent && a.cwd ? ' · ' : ''}
-          {a.cwd ? basename(a.cwd) : ''}
-        </span>
-        {(labels.length > 0 || !a.hasTranscript) && (
+        {meta && <span className="sub">{meta}</span>}
+        {(starting || labels.length > 0) && (
           <span className="tags">
-            {/* launchPending can linger minutes after the agent is up — only
-                call it "starting" while herdr has no read on it yet */}
-            {a.launchPending && a.status === 'unknown' && <span className="tag warn">starting…</span>}
-            {!a.hasTranscript && a.status !== 'unknown' && <span className="tag">fresh</span>}
+            {starting && <span className="tag warn">starting…</span>}
             {labels.map(([k, v]) => (
               <span key={k} className="tag" title={k}>
                 {v}
@@ -410,7 +348,13 @@ function SessionChip({
           </span>
         )}
       </span>
-      <span className={`state-word ${a.status}`}>{STATUS_WORD[a.status] ?? a.status}</span>
+      {loud ? (
+        <span className={`state-word ${a.status}`}>{STATUS_WORD[a.status]}</span>
+      ) : a.lastActiveAt ? (
+        <span className="age" title={new Date(a.lastActiveAt).toLocaleString()}>
+          {agoShort(a.lastActiveAt, now)}
+        </span>
+      ) : null}
     </button>
   );
 }

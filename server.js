@@ -66,6 +66,27 @@ const coordinator = new Coordinator(
 let roster = { agents: [], workspaces: [], tabs: [], herdrDown: false, updatedAt: 0 };
 const rosterClients = new Set(); // SSE responses
 
+// paneId -> {status, at}: when this server last saw the pane's status flip.
+// `at` is 0 for the status a pane had when first seen — boot isn't activity.
+const statusSince = new Map();
+
+// file -> {mtimeMs, desc}: adapter.describe() re-reads head+tail, so only
+// redo it when the transcript actually moved.
+const describeCache = new Map();
+
+// What the session is about and when it last moved, from its transcript.
+async function sessionMeta(adapter, file) {
+  let st;
+  try { st = await fsp.stat(file); } catch { return { mtimeMs: 0, desc: null }; }
+  const hit = describeCache.get(file);
+  if (hit && hit.mtimeMs === st.mtimeMs) return hit;
+  let desc = null;
+  try { desc = adapter?.describe ? await adapter.describe(file) : null; } catch {}
+  const entry = { mtimeMs: st.mtimeMs, desc };
+  describeCache.set(file, entry);
+  return entry;
+}
+
 // Coalesce concurrent callers (interval + event debounce) — overlapping runs
 // could double-fire coordinator.onTransition for the same status change.
 let refreshInFlight = null;
@@ -102,6 +123,13 @@ async function doRefreshRoster() {
           status = 'blocked';
         }
       }
+      const since = statusSince.get(a.pane_id);
+      if (!since) statusSince.set(a.pane_id, { status, at: 0 });
+      else if (since.status !== status) statusSince.set(a.pane_id, { status, at: Date.now() });
+      const meta = session?.file
+        ? await sessionMeta(adapterFor(a.agent), session.file)
+        : { mtimeMs: 0, desc: null };
+      const lastActiveAt = Math.max(meta.mtimeMs, statusSince.get(a.pane_id).at) || null;
       return {
         paneId: a.pane_id,
         workspaceId: a.workspace_id,
@@ -119,6 +147,9 @@ async function doRefreshRoster() {
         revision: a.revision,
         hasTranscript: !!session,
         sessionId: session?.sessionId ?? null,
+        sessionTitle: meta.desc?.title ?? null,
+        firstPrompt: meta.desc?.firstPrompt ?? null,
+        lastActiveAt,
       };
     }));
     const workspaces = (snap.workspaces ?? []).map((w) => ({
@@ -158,7 +189,11 @@ async function doRefreshRoster() {
         paneProcCache.delete(paneId);
         pinnedSessions.delete(paneId);
         paneBindings.delete(paneId);
+        statusSince.delete(paneId);
       }
+      // /clear and pane churn leave dead transcript entries; a cold re-read
+      // of a dozen heads/tails is cheap, so just drop the lot when it bloats
+      if (describeCache.size > 4 * (agents.length + 8)) describeCache.clear();
     }
     roster = { agents, workspaces, tabs, herdrDown: false, updatedAt: Date.now(), build: BUILD, bootedAt: BOOTED_AT };
   } catch (e) {
@@ -1387,6 +1422,12 @@ const server = http.createServer(async (req, res) => {
     if (!checkAuth(req, res, url)) return;
 
     if (req.method === 'GET' && seg[1] === 'roster' && !seg[2]) {
+      return sendJson(res, 200, roster);
+    }
+    // pull-to-refresh: re-snapshot herdr now instead of serving the cache
+    // (doRefreshRoster also pushes the result down every open stream)
+    if (req.method === 'POST' && seg[1] === 'roster' && seg[2] === 'refresh') {
+      await refreshRoster();
       return sendJson(res, 200, roster);
     }
     if (req.method === 'GET' && seg[1] === 'roster' && seg[2] === 'stream') {

@@ -9,7 +9,7 @@ import { Split, SplitHandle, SplitPane } from './components/ui/Split';
 import { WIDE, useMediaQuery } from './hooks/useMediaQuery';
 import { usePush } from './hooks/usePush';
 import { useRoster } from './hooks/useRoster';
-import { lastKind, spawnChat, type SpawnTarget } from './spawn';
+import type { SpawnTarget } from './spawn';
 
 function routeFromHash(): { pane: string | null; file: string | null } {
   const m = location.hash.match(/^#\/agent\/([^/]+)(?:\/file\/(.+))?$/);
@@ -20,7 +20,8 @@ function routeFromHash(): { pane: string | null; file: string | null } {
 const HOME_VIEW_KEY = 'herdr.homeView';
 
 export default function App() {
-  const { roster, connected, authNeeded } = useRoster();
+  const { roster, connected, authNeeded, syncedAt, refresh, refreshing } = useRoster();
+  const sync = { syncedAt, refreshing, onRefresh: refresh };
   const push = usePush();
   const [route, setRoute] = useState(routeFromHash);
   const pane = route.pane;
@@ -67,17 +68,19 @@ export default function App() {
     location.hash = `#/agent/${encodeURIComponent(paneId)}`;
   };
 
-  // one-click spawn: last-used agent kind, straight to the new pane
-  const quickChat = async (target: SpawnTarget) => {
-    select(await spawnChat({ kind: lastKind(), ...target }));
-  };
-
-  const openNewChat = (target?: SpawnTarget) => setNewChat({ open: true, target });
+  // every ＋ opens the launcher (the confirm step catches stray taps); a
+  // bare ＋ aims at the chat you're looking at
+  const openNewChat = (target?: SpawnTarget) =>
+    setNewChat({
+      open: true,
+      target: target ?? (agent ? { workspaceId: agent.workspaceId, cwd: agent.cwd ?? undefined } : undefined),
+    });
 
   const sidebar = (
     <Sidebar
       roster={roster}
       connected={connected}
+      sync={sync}
       selected={pane}
       onSelect={select}
       pushSupported={push.supported}
@@ -85,7 +88,6 @@ export default function App() {
       onTogglePush={push.toggle}
       onCollapse={toggleSide}
       onNewChat={openNewChat}
-      onQuickChat={quickChat}
       onShowCards={!wide ? () => pickHomeView('cards') : undefined}
     />
   );
@@ -96,8 +98,9 @@ export default function App() {
       selected={pane}
       onSelect={select}
       onNewChat={openNewChat}
-      onQuickChat={quickChat}
       onShowList={onShowList}
+      connected={connected}
+      sync={sync}
     />
   );
 

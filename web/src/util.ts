@@ -9,6 +9,15 @@ export const ago = (ms: number) => {
   return `${Math.round(s / 86_400)}d ago`;
 };
 
+/** "now" / "3m" / "2h" / "5d" — the compact form for list rows */
+export const agoShort = (ms: number, now = Date.now()) => {
+  const s = Math.max(0, (now - ms) / 1000);
+  if (s < 60) return 'now';
+  if (s < 3600) return `${Math.round(s / 60)}m`;
+  if (s < 86_400) return `${Math.round(s / 3600)}h`;
+  return `${Math.round(s / 86_400)}d`;
+};
+
 export const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
 
 /** /home/<user>/… → ~/… for display */

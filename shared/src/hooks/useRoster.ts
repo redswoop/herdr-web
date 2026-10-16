@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { apiUrl, get } from '../api';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { apiUrl, get, post } from '../api';
 import { getPlatform } from '../platform';
 import type { Roster } from '../types';
 
@@ -9,6 +9,11 @@ export function useRoster() {
   const [roster, setRoster] = useState<Roster>(EMPTY);
   const [connected, setConnected] = useState(false);
   const [authNeeded, setAuthNeeded] = useState(false);
+  // client clock of the last roster we applied — the server pushes one every
+  // ~5s, so a growing gap means the pipe is dead even if the socket says open
+  const [syncedAt, setSyncedAt] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const kick = useRef<() => void>(() => {});
 
   useEffect(() => {
     const platform = getPlatform();
@@ -40,6 +45,7 @@ export function useRoster() {
           return;
         }
         setRoster((await r.json()) as Roster);
+        setSyncedAt(Date.now());
       } catch {
         if (!alive) return;
         setConnected(false);
@@ -53,6 +59,7 @@ export function useRoster() {
         bump();
         const j = JSON.parse((e as MessageEvent).data) as Roster;
         setRoster(j);
+        setSyncedAt(Date.now());
         setConnected(!j.herdrDown);
       });
       es.addEventListener('ping', bump);
@@ -69,8 +76,9 @@ export function useRoster() {
       };
     };
 
-    const wake = () => {
-      if (!platform.isForeground() || !alive) return;
+    // a dead stream reconnects (fresh GET included)
+    kick.current = () => {
+      if (!alive) return;
       if (!es || es.isClosed() || stale()) {
         if (retry) {
           clearTimeout(retry);
@@ -79,6 +87,29 @@ export function useRoster() {
         load();
       }
     };
+
+    const wake = () => {
+      if (!platform.isForeground() || !alive) return;
+      // back from the background: re-snapshot herdr, don't trust what we had
+      void refreshNow();
+      if (!es || es.isClosed() || stale()) {
+        if (retry) {
+          clearTimeout(retry);
+          retry = null;
+        }
+        load();
+      }
+    };
+    const refreshNow = async () => {
+      try {
+        const r = await post('/api/roster/refresh', {});
+        if (!alive || !r.ok) return;
+        setRoster((await r.json()) as Roster);
+        setSyncedAt(Date.now());
+        // no bump(): a good POST says nothing about the stream's health
+      } catch {}
+    };
+
     const unsubWake = platform.onWake(wake);
     const dog = setInterval(() => {
       if (alive && es && stale()) {
@@ -97,5 +128,22 @@ export function useRoster() {
     };
   }, []);
 
-  return { roster, connected, authNeeded };
+  /** Pull-to-refresh: herdr re-snapshotted now, and a dead stream reopened. */
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const r = await post('/api/roster/refresh', {});
+      if (r.ok) {
+        setRoster((await r.json()) as Roster);
+        setSyncedAt(Date.now());
+      }
+    } catch {
+      // unreachable server: the reconnect below owns the retry
+    } finally {
+      kick.current();
+      setRefreshing(false);
+    }
+  }, []);
+
+  return { roster, connected, authNeeded, syncedAt, refresh, refreshing };
 }
