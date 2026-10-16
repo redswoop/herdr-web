@@ -79,13 +79,10 @@ async function doRefreshRoster() {
     // One RPC for the whole tree: agents + workspaces + tabs (agent entries
     // here are the same AgentInfo shape agent.list returns).
     const snap = (await rpc('session.snapshot')).snapshot ?? {};
-    const agents = await Promise.all((snap.agents ?? []).filter((a) => a.agent).map(async (a) => {
-      const session = await findSessionFor({
-        paneId: a.pane_id,
-        agent: a.agent,
-        cwd: a.cwd,
-        title: a.terminal_title_stripped ?? '',
-      });
+    const snapAgents = (snap.agents ?? []).filter((a) => a.agent);
+    const sessions = await allocateSessions(snapAgents);
+    const agents = await Promise.all(snapAgents.map(async (a) => {
+      const session = sessions.get(a.pane_id) ?? null;
       const repoRoot = await gitRootOf(a.cwd);
       // grok's plan-approval overlay keeps herdr at "working" (exit_plan_mode
       // stays Pending). Surface it as blocked so the card/push/key-pad fire.
@@ -151,6 +148,7 @@ async function doRefreshRoster() {
         coordinator.onRemove(paneId);
         paneProcCache.delete(paneId);
         pinnedSessions.delete(paneId);
+        paneBindings.delete(paneId);
       }
     }
     roster = { agents, workspaces, tabs, herdrDown: false, updatedAt: Date.now(), build: BUILD, bootedAt: BOOTED_AT };
@@ -235,23 +233,81 @@ async function paneProcess(paneId, kind) {
 // cleared when the pane leaves the roster.
 const pinnedSessions = new Map();
 
+// What each pane resolved to last time anyone looked: paneId -> {agent,
+// cwd, sessionId|null}. Siblings sharing an agent+cwd are correlated as a
+// set (allocateSessions), and a single-pane lookup (transcript GET, stream
+// re-resolve) excludes whatever its siblings hold, so the two paths can't
+// disagree. Before this, two title-less claude panes in one cwd both
+// resolved to whichever file was written last — prompt in A, and B's
+// stream reset onto A's transcript.
+const paneBindings = new Map();
+
+function claimedBySiblings(paneId, agent, cwd) {
+  const claimed = new Set();
+  for (const [id, b] of paneBindings) {
+    if (id !== paneId && b.agent === agent && b.cwd === cwd && b.sessionId) claimed.add(b.sessionId);
+  }
+  return claimed;
+}
+
 // Shared by the roster refresh and the API routes so every caller correlates
-// pane → session file the same way.
-async function findSessionFor({ paneId, agent, cwd, title }) {
+// pane → session file the same way. `exclude` is the joint-allocation hook;
+// without it the pane's siblings' current bindings are excluded.
+async function findSessionFor({ paneId, agent, cwd, title }, { exclude } = {}) {
   const adapter = adapterFor(agent);
   if (!adapter || !cwd) return null;
-  const hints = { title: title ?? '', sessionId: pinnedSessions.get(paneId) };
-  if (agent === 'claude') hints.startedAfter = (await paneProcess(paneId, agent)).startedAt;
-  if (agent === 'grok') {
-    const p = await paneProcess(paneId, agent);
-    hints.pid = p.pid;
-    hints.startedAt = p.startedAt;
-  }
+  const hints = {
+    title: title ?? '',
+    sessionId: pinnedSessions.get(paneId),
+    exclude: exclude ?? claimedBySiblings(paneId, agent, cwd),
+  };
+  const p = await paneProcess(paneId, agent);
+  // claude: exact pid binding via ~/.claude/sessions/<pid>.json, else the
+  // created-since filter. grok: pid against active_sessions.json.
+  hints.pid = p.pid;
+  if (agent === 'claude') hints.startedAfter = p.startedAt;
+  if (agent === 'grok') hints.startedAt = p.startedAt;
+  let session = null;
   try {
-    return await adapter.find(cwd, hints);
+    session = await adapter.find(cwd, hints);
   } catch {
-    return null;
+    session = null;
   }
+  paneBindings.set(paneId, { agent, cwd, sessionId: session?.sessionId ?? null });
+  return session;
+}
+
+// Correlate a roster's panes together. Panes sharing an agent+cwd go
+// youngest process first — its "created since I started" window is the
+// narrowest, while the oldest pane's window swallows every younger
+// sibling's file — and each pick claims its session so the heuristic tiers
+// can't hand the same transcript to two panes. Groups run in parallel.
+async function allocateSessions(snapAgents) {
+  const out = new Map();
+  const groups = new Map();
+  for (const a of snapAgents) {
+    const key = `${a.agent}\0${a.cwd ?? ''}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(a);
+  }
+  await Promise.all([...groups.values()].map(async (group) => {
+    const procs = await Promise.all(group.map((a) => paneProcess(a.pane_id, a.agent)));
+    const order = group
+      .map((a, i) => ({ a, started: procs[i].startedAt ?? 0 }))
+      .sort((x, y) => y.started - x.started);
+    const claimed = new Set();
+    for (const { a } of order) {
+      const session = await findSessionFor({
+        paneId: a.pane_id,
+        agent: a.agent,
+        cwd: a.cwd,
+        title: a.terminal_title_stripped ?? '',
+      }, { exclude: claimed });
+      if (session) claimed.add(session.sessionId);
+      out.set(a.pane_id, session);
+    }
+  }));
+  return out;
 }
 
 async function resolveAgent(paneId, { optional = false } = {}) {

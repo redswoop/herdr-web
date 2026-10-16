@@ -1,5 +1,5 @@
 // claudeFindSession correlation ladder, against a fixture $HOME:
-//   title match (ai-title / custom-title) > sessionId pin > birthtime filter
+//   pid registry > title match (ai-title / custom-title) > sessionId pin > birthtime filter
 //   (startedAfter) > newest mtime. This is the claude twin of the grok
 //   clobber-scan logic — previously untested.
 import { test, before, after } from 'node:test';
@@ -82,4 +82,69 @@ test('startedAfter accepts files created after the process start', async () => {
 
 test('unknown project dir → null, not a throw', async () => {
   assert.equal(await find('/does/not/exist', {}), null);
+});
+
+// ---------- pid registry tier (claude ≥ 2.1.290) ----------
+// ~/.claude/sessions/<pid>.json is an exact binding; the test process itself
+// stands in for the pane's claude so /proc/<pid>/stat is live.
+
+const regDir = path.join(home, '.claude', 'sessions');
+async function procStart(pid) {
+  const stat = await fsp.readFile(`/proc/${pid}/stat`, 'utf8');
+  return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
+}
+async function mkRegistry({ sessionId, cwd = CWD, procStart: ps, pid = process.pid }) {
+  await fsp.mkdir(regDir, { recursive: true });
+  await fsp.writeFile(path.join(regDir, `${pid}.json`), JSON.stringify({
+    pid, sessionId, cwd, startedAt: Date.now(), procStart: ps ?? await procStart(pid), version: '2.1.292',
+  }));
+}
+
+test('pid registry is an exact binding — beats title and mtime', async () => {
+  await mkRegistry({ sessionId: sid(3) });
+  const hit = await find(CWD, { pid: process.pid, title: 'fix the flux pipeline' });
+  assert.equal(hit?.sessionId, sid(3));
+});
+
+test('pid registry: a live cwd that moved still finds the launch-cwd jsonl', async () => {
+  await mkRegistry({ sessionId: sid(3), cwd: '/moved/into/a/worktree' });
+  const hit = await find('/also/not/the/launch/cwd', { pid: process.pid });
+  assert.equal(hit?.sessionId, sid(3), 'should scan every project dir for the registered id');
+});
+
+test('pid registry: registered but no jsonl yet → null, never a sibling\'s file', async () => {
+  await mkRegistry({ sessionId: sid(9) });
+  const hit = await find(CWD, { pid: process.pid, startedAfter: Date.now() - 5_000 });
+  assert.equal(hit, null, 'a fresh registered session must read as pending');
+});
+
+test('pid registry: an entry left by a dead process (pid reused) is ignored', async () => {
+  await mkRegistry({ sessionId: sid(3), procStart: '1' });
+  const hit = await find(CWD, { pid: process.pid });
+  assert.equal(hit?.sessionId, sid(1), 'stale registry → fall through to the heuristic ladder');
+});
+
+test('pid registry: missing entry → heuristic ladder (older claude)', async () => {
+  await fsp.rm(path.join(regDir, `${process.pid}.json`), { force: true });
+  const hit = await find(CWD, { pid: process.pid, title: 'fix the flux pipeline' });
+  assert.equal(hit?.sessionId, sid(2));
+});
+
+// ---------- exclude: joint allocation across sibling panes ----------
+
+test('exclude keeps the mtime guess off a sibling\'s file', async () => {
+  const hit = await find(CWD, { exclude: new Set([sid(1)]) });
+  assert.equal(hit?.sessionId, sid(2));
+});
+
+test('exclude applies to the created-since tier too', async () => {
+  const hit = await find(CWD, { startedAfter: Date.now() - 5_000, exclude: new Set([sid(1)]) });
+  assert.equal(hit?.sessionId, sid(2));
+});
+
+test('exclude never overrides an exact tier (pin, title)', async () => {
+  const pinned = await find(CWD, { sessionId: sid(1), exclude: new Set([sid(1)]) });
+  assert.equal(pinned?.sessionId, sid(1));
+  const titled = await find(CWD, { title: 'fix the flux pipeline', exclude: new Set([sid(2)]) });
+  assert.equal(titled?.sessionId, sid(2));
 });

@@ -56,7 +56,7 @@ Per-agent adapters (`lib/adapters.js`):
 
 | agent | transcript source | pane→session correlation |
 |---|---|---|
-| claude (Claude Code) | `~/.claude/projects/<cwd-slug>/<uuid>.jsonl` | terminal title vs the jsonl's `ai-title`, newest-mtime fallback |
+| claude (Claude Code) | `~/.claude/projects/<cwd-slug>/<uuid>.jsonl` | pid → `~/.claude/sessions/<pid>.json` (exact, claude ≥ 2.1.290); else terminal title vs the jsonl's `ai-title`, then newest file created since the pane's process started — siblings in one cwd allocated jointly so no two panes share a file |
 | grok | `~/.grok/sessions/<cwd>/<id>/updates.jsonl` (ACP `session/update` stream — live, timestamped, with per-turn usage; `chat_history.jsonl` fallback for pre-ACP sessions) | pane pid matched against `active_sessions.json` (exact — follows `/clear`), pinned session on `--resume`, cwd+newest fallback |
 
 Blocked-context classification is two-tier: pending `tool_use` in the session
