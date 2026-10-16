@@ -1,5 +1,6 @@
 import { useMemo, useRef } from 'react';
 import { chipName } from '@herdr/shared';
+import { ThemeToggle } from './ui/ThemeToggle';
 import { HomeToggle } from './ui/HomeToggle';
 import { Freshness } from './ui/Freshness';
 import { PullIndicator } from './ui/PullIndicator';
@@ -112,6 +113,7 @@ export function Overview({
               (blocked ? ` · ${blocked} need${blocked === 1 ? 's' : ''} you` : '') +
               (working ? ` · ${working} working` : '')}
         </span>
+        <ThemeToggle compact />
         {!onShowList && (
           <button className="ghost new-chat" onClick={() => onNewChat()} title="start a new chat">
             ＋

@@ -14,6 +14,7 @@ import {
   composerText, typedComposerText, parseMode, MODES, trimSalvage,
 } from './lib/screen.js';
 import { PushStore, Coordinator } from './lib/notify.js';
+import { loadPrefs, savePrefs } from './lib/prefs.js';
 
 // A stray rejection (e.g. a background refresh path that missed a catch) must
 // not kill a daemon whose whole job is staying up — log loudly and carry on.
@@ -1452,6 +1453,11 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && seg[1] === 'upload' && !seg[2]) {
       return sendJson(res, 200, await saveUpload(req));
+    }
+
+    if (seg[1] === 'prefs' && !seg[2]) {
+      if (req.method === 'GET') return sendJson(res, 200, { prefs: await loadPrefs() });
+      if (req.method === 'PUT') return sendJson(res, 200, { prefs: await savePrefs(await readBody(req)) });
     }
 
     if (req.method === 'GET' && seg[1] === 'kinds' && !seg[2]) {

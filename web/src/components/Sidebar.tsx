@@ -16,6 +16,10 @@ import { Freshness } from './ui/Freshness';
 import { PullIndicator } from './ui/PullIndicator';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import type { Sync } from '../sync';
+import { ThemeToggle } from './ui/ThemeToggle';
+import { CyberTicker } from './ui/CyberTicker';
+import { useTheme } from '../theme';
+import { PrefsDialog } from './PrefsDialog';
 
 const GROUPBY_KEY = 'herdr.groupBy';
 const CLOSED_KEY = 'herdr.groupsClosed';
@@ -84,6 +88,8 @@ export function Sidebar({
   const [collapsed, setCollapsed] = useState<Set<string>>(loadClosed);
 
   const [modesOpen, setModesOpen] = useState(false);
+  const [prefsOpen, setPrefsOpen] = useState(false);
+  const theme = useTheme();
   const scroller = useRef<HTMLDivElement>(null);
   const pulled = usePullToRefresh(scroller, sync.onRefresh);
   const now = useNow(30_000);
@@ -289,10 +295,16 @@ export function Sidebar({
       </div>
 
       <footer className="side-foot">
+        <button className="prefs-open sub" onClick={() => setPrefsOpen(true)} title="preferences" aria-label="preferences">
+          ⚙
+        </button>
+        <ThemeToggle />
+        {theme === 'cyber' && <CyberTicker roster={roster} connected={connected} />}
         <button className="build sub" onClick={showDiagnostics} title="server build · tap for details">
           {roster.build ?? ''}
         </button>
       </footer>
+      {prefsOpen && <PrefsDialog onClose={() => setPrefsOpen(false)} />}
     </nav>
   );
 }
