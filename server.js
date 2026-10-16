@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rpc, subscribe, isPromptable } from './lib/herdr.js';
-import { adapterFor, readEvents, listSessions, classifyBlocked } from './lib/adapters.js';
+import { adapterFor, lastTurnAt, readEvents, listSessions, classifyBlocked } from './lib/adapters.js';
 import {
   parseMenuScreen, parseMenuFor, codexComposerText, piComposerText, isGrokProjectPicker, isGrokModalOverlay,
   isGrokPlanApproval, parseGrokPlanApproval, parseRewindScreen,
@@ -77,12 +77,14 @@ const describeCache = new Map();
 // What the session is about and when it last moved, from its transcript.
 async function sessionMeta(adapter, file) {
   let st;
-  try { st = await fsp.stat(file); } catch { return { mtimeMs: 0, desc: null }; }
+  try { st = await fsp.stat(file); } catch { return { mtimeMs: 0, desc: null, turnAt: null }; }
   const hit = describeCache.get(file);
   if (hit && hit.mtimeMs === st.mtimeMs) return hit;
   let desc = null;
   try { desc = adapter?.describe ? await adapter.describe(file) : null; } catch {}
-  const entry = { mtimeMs: st.mtimeMs, desc };
+  let turnAt = null;
+  try { turnAt = await lastTurnAt(adapter, file); } catch {}
+  const entry = { mtimeMs: st.mtimeMs, desc, turnAt };
   describeCache.set(file, entry);
   return entry;
 }
@@ -128,8 +130,11 @@ async function doRefreshRoster() {
       else if (since.status !== status) statusSince.set(a.pane_id, { status, at: Date.now() });
       const meta = session?.file
         ? await sessionMeta(adapterFor(a.agent), session.file)
-        : { mtimeMs: 0, desc: null };
-      const lastActiveAt = Math.max(meta.mtimeMs, statusSince.get(a.pane_id).at) || null;
+        : { mtimeMs: 0, desc: null, turnAt: null };
+      // last real turn, not file mtime (bookkeeping writes) or status flips
+      // (done→idle fires when you merely look at the pane). Status time is
+      // only the fallback for panes with no transcript turn yet.
+      const lastActiveAt = meta.turnAt ?? (statusSince.get(a.pane_id).at || null);
       return {
         paneId: a.pane_id,
         workspaceId: a.workspace_id,
