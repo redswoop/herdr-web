@@ -213,6 +213,9 @@ const EventNode = memo(function EventNode({ ev }: { ev: TEvent }) {
   if (ev.kind === 'interrupted') {
     return <div className="interrupt-divider">⏹ interrupted</div>;
   }
+  if (ev.kind === 'note' && ev.name === 'compact') {
+    return <div className="interrupt-divider">⟲ context compacted</div>;
+  }
   if (ev.kind === 'user') {
     return <div className="msg user" dangerouslySetInnerHTML={{ __html: md(ev.text) }} />;
   }
