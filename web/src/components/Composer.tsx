@@ -52,6 +52,9 @@ function persistText(paneId: string, text: string) {
   } catch {}
 }
 
+/** coarse pointer = phone/tablet: the soft keyboard owns the return key */
+const TOUCH = matchMedia('(pointer: coarse)').matches;
+
 const KEYS = [
   ['esc', 'Escape'],
   ['↑', 'Up'],
@@ -207,7 +210,7 @@ export function Composer({
     // a slash command means a TUI dialog is coming — on touch devices, drop
     // the phone keyboard so the key strip and screen mirror aren't buried
     // behind it (desktop keeps focus for the next keystroke)
-    if (t.startsWith('/') && matchMedia('(pointer: coarse)').matches) taRef.current?.blur();
+    if (t.startsWith('/') && TOUCH) taRef.current?.blur();
     // bytes are already on the server — the prompt just references the paths
     const full = [t, ...sending.map((a) => `[pasted image: ${a.path}]`)]
       .filter(Boolean)
@@ -314,13 +317,17 @@ export function Composer({
             placeholder="prompt…"
             autoCapitalize="off"
             autoComplete="off"
-            enterKeyHint="send"
+            enterKeyHint="enter"
             value={text}
             onChange={(e) => {
               setText(e.target.value);
               grow();
             }}
             onKeyDown={(e) => {
+              // desktop: Enter sends, Shift+Enter breaks a line. Touch: the
+              // on-screen return key just inserts a newline — prompts are
+              // multi-line, and the send button is right there anyway.
+              if (TOUCH) return;
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 send();
