@@ -262,6 +262,19 @@ export function AgentView({
       if (ov?.[1] === 'resume' && agent?.cwd && ['claude', 'grok', 'codex', 'pi'].includes(agent.agent)) {
         return ov[2] ? resumeById(ov[2]) : setResumeOpen(true);
       }
+      // Session switches that leave no record anywhere: pi's /new (and /clear,
+      // aliased by an extension) and codex's /new only print a toast, so a
+      // bubble would wait forever for its echo and the toast would read as a
+      // dialog. Fire it raw — herdr reports the new session and the stream
+      // resets onto it (claude's /clear does write a record, so it isn't here).
+      if (
+        (agent?.agent === 'pi' && /^\/(new|clear)$/.test(text.trim()))
+        || (agent?.agent === 'codex' && text.trim() === '/new')
+      ) {
+        const r = await post(agentPath(paneId, 'prompt'), { text: text.trim() });
+        if (!r.ok) throw new Error(await errorOf(r));
+        return;
+      }
       const slash = text.trim().startsWith('/');
       if (slash) {
         // baseline the screen before the command runs, so dialog residue

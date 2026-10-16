@@ -1541,9 +1541,19 @@ const server = http.createServer(async (req, res) => {
         let offset = Number(url.searchParams.get('offset') ?? 0);
         let ticks = 0;
         let resetSent = false; // the client reloads on reset — say it once
+        // what herdr said this pane was running when we opened. pi/codex /new
+        // moves that to a file that won't exist until its first message —
+        // re-resolving can't see the switch, so watch the report itself.
+        // (vs. the value at open, not the resolved file: can't reset-loop)
+        const reportedAtOpen = reportedSessions.get(paneId);
         startSse(res);
         const tick = async () => {
           if (resetSent) return;
+          if (reportedSessions.get(paneId) !== reportedAtOpen) {
+            resetSent = true;
+            res.write('event: reset\ndata: {}\n\n');
+            return;
+          }
           // A fresh agent's session file may not exist (or not win
           // correlation) until it has content — re-resolve periodically and
           // tell the client to reload if the binding changed. When we started
@@ -1672,6 +1682,11 @@ const server = http.createServer(async (req, res) => {
         await dismissOverlay(paneId, roster.agents.find((x) => x.paneId === paneId)?.agent);
         await agentRpc('agent.prompt', { target: paneId, text });
         verifyPromptLanded(paneId, text); // fire-and-forget — don't hold the response
+        // a session switch is only visible in herdr's report — pick it up now
+        // so open streams reset in ~1s instead of at the next roster poll
+        if (/^\/(new|clear)$/.test(text.trim())) {
+          for (const ms of [600, 1500, 3000]) setTimeout(() => refreshRoster(), ms);
+        }
         return sendJson(res, 200, { ok: true });
       }
 
