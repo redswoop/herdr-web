@@ -1,4 +1,4 @@
-/** claude/grok/codex composer + status furniture at the bottom of the screen —
+/** claude/grok/codex/pi composer + status furniture at the bottom of the screen —
  *  cut it so the tail is output, not chrome */
 export const TAIL_CHROME_RES = [
   /^\s*$/,
@@ -6,6 +6,9 @@ export const TAIL_CHROME_RES = [
   /^\s*[❯›]/, // composer: claude ❯, codex ›
   /^\s*[⏸⏵]/,
   /^\s+\S.* · [~/]\S*\s*$/, // codex status row: "model effort · cwd"
+  /^\s*─{2,} .* ─{5,}\s*$/, // pi titled rule: "── ⠼ Working ───"
+  /^\s*[~/]\S*( \([^)]*\))?( • .*)?\s*$/, // pi cwd row: "~/repo (branch) • name"
+  /\d%\/\d+(\.\d+)?[kM]\b/, // pi stats row: "↑613 ↓132 1.4%/131k (auto)  model"
   /esc to interrupt/,
   /\? for shortcuts/i,
   /shift\+tab/i,

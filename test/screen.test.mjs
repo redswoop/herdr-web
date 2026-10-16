@@ -567,3 +567,30 @@ test('codex idle screen: no menu, composer is the last › line, chrome trims', 
   assert.equal(codexComposerText(CODEX_IDLE), 'Ask Codex to do anything');
   assert.equal(trimSalvage(CODEX_IDLE, 'Use your shell tool to run'), '• done\n\n  Worked for 24s • 1:18 PM');
 });
+
+// Verbatim capture (trailing blanks trimmed), pi 1.3: idle after a turn.
+const PI_IDLE = `
+ The secret word is **quokka**.
+ (Also, the directory contains just note.txt.)
+
+────────────────────────────────────────────────────────────────────────────────
+ Session name set: quokka hunt
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+/tmp/scratchpad/pilive • quokka hunt
+↑613 ↓132 R2.9k CH98.4% 1.4%/131k (auto)                    qwen3.8-27b-heretic • medium
+`;
+
+test('pi screens: composer sits between the last two rules, footer is chrome', async () => {
+  const { parseMenuFor, piComposerText, trimSalvage } = await import('../lib/screen.js');
+  assert.equal(parseMenuFor('pi', PI_IDLE), null);
+  assert.equal(piComposerText(PI_IDLE), '');
+  assert.equal(piComposerText(PI_IDLE.replace('─\n\n─', '─\n Read note.txt please\n─')), 'Read note.txt please');
+  assert.equal(
+    trimSalvage(PI_IDLE.replace('Session name set: quokka hunt', '').replace(/\n─+\n\s*\n─+\n/, '\n'), 'x'),
+    'The secret word is **quokka**.\n (Also, the directory contains just note.txt.)',
+  );
+  const working = ' read note.txt\n── ⠼ Working ─────────────────────────────\n──────────────────────\n~/src/app (main)\n1.1%/131k (auto)   m • medium\n';
+  assert.equal(trimSalvage(working, 'x'), 'read note.txt');
+});

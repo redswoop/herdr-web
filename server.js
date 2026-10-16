@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { rpc, subscribe, isPromptable } from './lib/herdr.js';
 import { adapterFor, readEvents, listSessions, classifyBlocked } from './lib/adapters.js';
 import {
-  parseMenuScreen, parseMenuFor, codexComposerText, isGrokProjectPicker, isGrokModalOverlay,
+  parseMenuScreen, parseMenuFor, codexComposerText, piComposerText, isGrokProjectPicker, isGrokModalOverlay,
   isGrokPlanApproval, parseGrokPlanApproval, parseRewindScreen,
   composerText, typedComposerText, parseMode, MODES, trimSalvage,
 } from './lib/screen.js';
@@ -82,9 +82,11 @@ async function doRefreshRoster() {
     const snapAgents = (snap.agents ?? []).filter((a) => a.agent);
     reportedSessions.clear();
     for (const a of snapAgents) {
-      // codex only: claude's pid registry already follows /clear exactly
-      if (a.agent === 'codex' && a.agent_session?.kind === 'id' && a.agent_session.value) {
-        reportedSessions.set(a.pane_id, a.agent_session.value);
+      // codex (session id) and pi (session file path) only: claude's pid
+      // registry already follows /clear exactly
+      const rep = a.agent_session;
+      if (rep?.value && ((a.agent === 'codex' && rep.kind === 'id') || (a.agent === 'pi' && rep.kind === 'path'))) {
+        reportedSessions.set(a.pane_id, rep.value);
       }
     }
     const sessions = await allocateSessions(snapAgents);
@@ -277,9 +279,10 @@ async function findSessionFor({ paneId, agent, cwd, title }, { exclude } = {}) {
   // claude: exact pid binding via ~/.claude/sessions/<pid>.json, else the
   // created-since filter. grok: pid against active_sessions.json. codex:
   // herdr's reported session id, else the rollout the pid holds open, else
-  // the created-since filter.
+  // the created-since filter. pi: herdr's reported session file, else the
+  // created-since filter.
   hints.pid = p.pid;
-  if (agent === 'claude' || agent === 'codex') hints.startedAfter = p.startedAt;
+  if (agent === 'claude' || agent === 'codex' || agent === 'pi') hints.startedAfter = p.startedAt;
   if (agent === 'grok') hints.startedAt = p.startedAt;
   let session = null;
   try {
@@ -868,7 +871,7 @@ function cleanAgentName(raw) {
 // names an existing checkout) a worktree-bound workspace and start there.
 //
 // resume: a session uuid — spawns with --resume (claude and grok both take
-// it; codex spells it `codex resume <id>`) and pins the pane's transcript
+// it; codex spells it `codex resume <id>`, pi `--session <id>`) and pins the pane's transcript
 // binding to that session, skipping the
 // title/mtime guesswork (a resumed file is old, so the
 // created-since-process-start filter in claudeFindSession would otherwise
@@ -876,9 +879,10 @@ function cleanAgentName(raw) {
 async function createChat({ kind, name, cwd, workspaceId, label, args, worktree, resume } = {}) {
   if (!kind || typeof kind !== 'string') throw httpErr(400, 'kind required');
   if (resume !== undefined) {
-    if (!['claude', 'grok', 'codex'].includes(kind)) throw httpErr(400, `resume not supported for ${kind}`);
+    if (!['claude', 'grok', 'codex', 'pi'].includes(kind)) throw httpErr(400, `resume not supported for ${kind}`);
     if (typeof resume !== 'string' || !/^[\w-]+$/.test(resume)) throw httpErr(400, 'resume: session id');
-    args = kind === 'codex' ? ['resume', resume, ...(args ?? [])] : [...(args ?? []), '--resume', resume];
+    args = kind === 'codex' ? ['resume', resume, ...(args ?? [])]
+      : [...(args ?? []), kind === 'pi' ? '--session' : '--resume', resume];
   }
   const untilde = (s) => (s ? s.replace(/^~(?=\/|$)/, os.homedir()) : null);
   const dir = untilde(cwd);
@@ -1056,6 +1060,15 @@ async function verifyPromptLanded(paneId, text, attempt = 1) {
     // shows placeholder text a plain capture can't tell from a user's draft.
     if (kind === 'codex') {
       if (norm(codexComposerText(screen) ?? '').startsWith(head)) {
+        console.warn(`prompt stranded on input line of ${paneId} — nudging with Enter`);
+        await agentRpc('agent.send_keys', { target: paneId, keys: ['Enter'] });
+      }
+      return;
+    }
+    // pi: no prompt glyph — the composer is the rows between the last two
+    // ─ rules. Same nudge-only policy as codex.
+    if (kind === 'pi') {
+      if (norm(piComposerText(screen) ?? '').trim().startsWith(head)) {
         console.warn(`prompt stranded on input line of ${paneId} — nudging with Enter`);
         await agentRpc('agent.send_keys', { target: paneId, keys: ['Enter'] });
       }

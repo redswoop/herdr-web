@@ -553,3 +553,99 @@ test('codex find + list: by reported id, by resume pin, by cwd since process sta
   const rows = await listSessions('codex', '/proj');
   assert.deepEqual(rows.map((r) => r.firstPrompt).sort(), ['new prompt', 'old prompt']);
 });
+
+// ---------- pi sessions ----------
+// Shapes mirror a real ~/.pi/agent/sessions file (pi 1.3, 2026-10): a header
+// line, then parentId-linked entries.
+const pi = adapterFor('pi');
+const piMsg = (id, message) => ({ type: 'message', id, parentId: null, timestamp: '2026-10-15T21:58:41.000Z', message });
+
+test('pi messages: prompts, thinking, tool calls paired with results, usage per message', () => {
+  assert.deepEqual(pi.translate({ type: 'session', version: 3, id: 's', cwd: '/x' }), []);
+  assert.deepEqual(pi.translate(piMsg('a0', { role: 'system', content: '', sections: {} })), []);
+  const [u] = pi.translate(piMsg('a1', { role: 'user', content: [{ type: 'text', text: 'read note.txt' }] }));
+  assert.equal(u.kind, 'user');
+  assert.equal(u.text, 'read note.txt');
+  const evs = pi.translate(piMsg('a2', {
+    role: 'assistant',
+    content: [
+      { type: 'thinking', thinking: 'reading it', thinkingSignature: 'reasoning_content' },
+      { type: 'toolCall', id: 'tc1', name: 'read', arguments: { path: 'note.txt' } },
+    ],
+    usage: { input: 580, output: 99, cacheRead: 1057, cacheWrite: 0 },
+    stopReason: 'toolUse',
+  }));
+  assert.deepEqual(evs.map((e) => e.kind), ['thought', 'tool_use']);
+  assert.deepEqual(evs[1].input, { path: 'note.txt' });
+  assert.deepEqual(evs[1].usage, { out: 99, ctx: 1637 });
+  assert.equal(evs[0].msgId, evs[1].msgId);
+  const [r] = pi.translate(piMsg('a3', {
+    role: 'toolResult', toolCallId: 'tc1', toolName: 'read', content: [{ type: 'text', text: 'quokka\n' }], isError: false,
+  }));
+  assert.deepEqual([r.kind, r.id, r.text], ['tool_result', 'tc1', 'quokka\n']);
+  assert.deepEqual(classifyBlocked([u, ...evs, r]), { kind: 'unknown' });
+});
+
+test('pi user !bash runs pair up; aborted turns and compaction leave notes', () => {
+  const evs = pi.translate(piMsg('b1', {
+    role: 'bashExecution', command: 'echo bang-ok', output: 'bang-ok\n', exitCode: 0, cancelled: false, truncated: false,
+  }));
+  assert.deepEqual(evs.map((e) => e.kind), ['tool_use', 'tool_result']);
+  assert.equal(evs[0].id, evs[1].id);
+  assert.deepEqual(classifyBlocked(evs), { kind: 'unknown' });
+  const ab = pi.translate(piMsg('b2', { role: 'assistant', content: [], stopReason: 'aborted' }));
+  assert.deepEqual(ab.map((e) => e.kind), ['note']);
+  assert.equal(pi.translate({ type: 'compaction', id: 'c', summary: 's', tokensBefore: 9 })[0].name, 'compact');
+  assert.deepEqual(pi.translate({ type: 'session_info', id: 'i', name: 'quokka hunt' }), []);
+  assert.deepEqual(pi.translate({ type: 'custom_message', id: 'm', customType: 'x', content: 'hidden', display: false }), []);
+});
+
+test('pi find + list: reported path (missing = nothing yet), resume pin, cwd since process start', async (t) => {
+  const home = await fsp.mkdtemp(path.join(os.tmpdir(), 'pi-home-'));
+  const prev = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = home;
+  t.after(async () => {
+    if (prev === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = prev;
+    await fsp.rm(home, { recursive: true, force: true });
+  });
+  const dir = path.join(home, 'sessions', '--proj-app--');
+  await fsp.mkdir(dir, { recursive: true });
+  const write = async (created, id, prompt, name) => {
+    const stamp = new Date(created).toISOString().replace(/[:.]/g, '-');
+    const file = path.join(dir, `${stamp}_${id}.jsonl`);
+    const lines = [{ type: 'session', version: 3, id, timestamp: new Date(created).toISOString(), cwd: '/proj/app' }];
+    if (prompt) lines.push(piMsg('u', { role: 'user', content: [{ type: 'text', text: prompt }] }));
+    if (name) lines.push({ type: 'session_info', id: 'n', parentId: 'u', timestamp: '', name });
+    await fsp.writeFile(file, `${lines.map((l) => JSON.stringify(l)).join('\n')}\n`);
+    return file;
+  };
+  const OLD = '01a14188-a4a3-738b-a1c9-426e0583a6dc';
+  const NEW = '01a14193-062f-70ad-9bb0-df655ca67ed0';
+  const now = Date.now();
+  const oldFile = await write(now - 3_600_000, OLD, 'old prompt');
+  const newFile = await write(now - 1_000, NEW, 'new prompt', 'quokka hunt');
+
+  assert.deepEqual(await pi.find('/proj/app', { agentSessionId: oldFile }), { file: oldFile, sessionId: OLD });
+  // herdr reports the path at launch, before pi writes it — never guess past that
+  assert.equal(await pi.find('/proj/app', { agentSessionId: path.join(dir, `x_${NEW.replace('0', '9')}.jsonl`) }), null);
+  assert.deepEqual(await pi.find('/proj/app', { sessionId: OLD }), { file: oldFile, sessionId: OLD });
+  assert.deepEqual(await pi.find('/proj/app', { startedAfter: now - 60_000 }), { file: newFile, sessionId: NEW });
+  assert.equal(await pi.find('/proj/app', { startedAfter: now - 60_000, exclude: new Set([NEW]) }), null);
+  assert.equal(await pi.find('/proj/other', {}), null);
+  // the pane's own session (stamped at launch, written later) beats a
+  // headless run stamped after it but idle since
+  const OWN = '01a1418e-0531-76a5-ab59-d8d71ade9787';
+  const ownFile = await write(now - 2_000, OWN, 'pane prompt');
+  const past = new Date(now - 30_000);
+  await fsp.utimes(newFile, past, past);
+  assert.deepEqual(await pi.find('/proj/app', { startedAfter: now - 60_000 }), { file: ownFile, sessionId: OWN });
+  await fsp.rm(ownFile);
+  await fsp.utimes(newFile, new Date(), new Date());
+
+  const { listSessions } = await import('../lib/adapters.js');
+  const rows = await listSessions('pi', '/proj/app');
+  assert.deepEqual(rows.map((r) => [r.sessionId, r.firstPrompt, r.title]), [
+    [NEW, 'new prompt', 'quokka hunt'],
+    [OLD, 'old prompt', null],
+  ]);
+});

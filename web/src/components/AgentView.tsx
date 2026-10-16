@@ -255,10 +255,10 @@ export function AgentView({
       // TUI — the generic path below would only mirror the raw dialog.
       // /rewind opens the RewindCard (claude's panel); /resume [id] resumes
       // into a NEW pane (this one can't swap sessions under itself), or jumps
-      // if already live — both claude and grok take --resume.
+      // if already live — every resumable kind (claude/grok/codex/pi).
       const ov = /^\/(rewind|resume)(?:\s+(\S+))?$/.exec(text.trim());
       if (ov?.[1] === 'rewind' && agent?.agent === 'claude') return openRewind();
-      if (ov?.[1] === 'resume' && agent?.cwd && ['claude', 'grok', 'codex'].includes(agent.agent)) {
+      if (ov?.[1] === 'resume' && agent?.cwd && ['claude', 'grok', 'codex', 'pi'].includes(agent.agent)) {
         return ov[2] ? resumeById(ov[2]) : setResumeOpen(true);
       }
       const slash = text.trim().startsWith('/');

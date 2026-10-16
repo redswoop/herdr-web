@@ -67,6 +67,9 @@ const spawnModeArgs = (kind: string, m: SpawnMode) => {
   return m === 'yolo' && kind === 'grok' ? ['--always-approve'] : SPAWN_MODES[m].args;
 };
 const MODE_KINDS = ['claude', 'grok', 'codex'];
+// kinds whose past sessions the server can list and --resume (pi has no
+// permission modes — it never asks — but resumes fine)
+const RESUME_KINDS = [...MODE_KINDS, 'pi'];
 
 /** Modal form for starting a fresh agent chat: destination + kind. */
 export function NewChatDialog({
@@ -162,7 +165,7 @@ export function NewChatDialog({
       setSessions((s) => ({ ...s, [p.key]: null }));
       Promise.all(
         p.dirs.flatMap((d) =>
-          MODE_KINDS.map((k) =>
+          RESUME_KINDS.map((k) =>
             fetch(`/api/sessions?cwd=${encodeURIComponent(d)}&kind=${k}`)
               .then((r) => (r.ok ? r.json() : Promise.reject()))
               .then((j: { sessions: SessionEntry[] }) =>
