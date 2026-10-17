@@ -189,6 +189,15 @@ test('claude assistant blocks carry usage + msgId; sidechains dropped', () => {
   assert.deepEqual(claude.translate({ type: 'assistant', isSidechain: true, message: { content: [] } }), []);
 });
 
+test('claude bracketed paste unwraps to the pasted text', () => {
+  const [u] = claude.translate({
+    type: 'user',
+    message: { role: 'user', content: 'see:\n\n<pasted_content id="000e">\nline one\n\nline two\n</pasted_content id="000e">' },
+  });
+  assert.equal(u.kind, 'user');
+  assert.equal(u.text, 'see:\n\nline one\n\nline two');
+});
+
 test('claude slash command triple → command/command_out; meta shapes dropped', () => {
   const [cmd] = claude.translate({
     type: 'user',
