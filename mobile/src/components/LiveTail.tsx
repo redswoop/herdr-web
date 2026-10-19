@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { agentPath, get, getPlatform, stripChrome } from '@herdr/shared';
-import { useStyles, useTheme, type Tokens } from '../theme';
+import { alpha, mix, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 
 const OPEN_KEY = 'herdr.liveTail';
@@ -78,8 +78,8 @@ const makeStyles = (t: Tokens) =>
   StyleSheet.create({
   wrap: {
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: t.colors.hairline,
-    backgroundColor: t.colors.surface,
+    borderTopColor: t.cyber ? alpha(t.colors.accent, 0.3) : t.colors.hairline,
+    backgroundColor: t.cyber ? alpha('#000000', 0.6) : t.colors.surface,
     maxHeight: 180,
   },
   head: {
@@ -93,15 +93,17 @@ const makeStyles = (t: Tokens) =>
   liveDot: {
     ...t.dot(7),
     backgroundColor: t.colors.working,
+    ...t.boxGlow(t.colors.working, 9, 0.8),
   },
-  title: { color: t.colors.sub, fontSize: 12, ...t.font('ui', '600'), textTransform: 'uppercase' },
-  sub: { ...t.font('ui'), color: t.colors.sub, fontSize: 11, flex: 1, opacity: 0.8 },
+  title: { color: t.cyber ? t.colors.working : t.colors.sub, fontSize: t.cyber ? 11 : 12, ...t.font('ui', '600'), textTransform: 'uppercase', ...t.hud, ...t.glow(t.colors.working, 6) },
+  sub: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: 11, flex: 1, opacity: 0.8 },
   chev: { color: t.colors.sub },
   body: { paddingHorizontal: 12, paddingBottom: 8, maxHeight: 140 },
   pre: {
     ...t.font('mono'),
-    color: t.colors.sub,
+    color: t.cyber ? mix(t.colors.text, t.colors.accent, 0.45) : t.colors.sub,
     fontSize: 11,
     lineHeight: 16,
+    ...t.glow(alpha(t.colors.accent, 0.35), 4),
   },
 });

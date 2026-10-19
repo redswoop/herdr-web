@@ -18,7 +18,8 @@ import {
   type Roster,
   type SpawnTarget,
 } from '@herdr/shared';
-import { useStyles, useTheme, type Tokens } from '../theme';
+import { Brackets } from '../cyber';
+import { alpha, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 
 const STATUS_ORDER: Record<string, number> = {
@@ -144,6 +145,7 @@ export function Overview({
 
       {cards.map((c) => (
         <View key={c.key} style={styles.card}>
+          <Brackets />
           <View style={styles.cardHead}>
             <View style={styles.cardTitleRow}>
               {c.repo ? (
@@ -233,24 +235,33 @@ const makeStyles = (t: Tokens) =>
   head: { marginBottom: 6 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   mark: { width: 36, height: 36, borderRadius: t.r(10) },
-  title: { color: t.colors.text, fontSize: 22, ...t.font('ui', '700') },
-  summary: { ...t.font('ui'), color: t.colors.sub, fontSize: 13, marginTop: 4 },
+  title: t.cyber
+    ? { color: t.colors.red, fontSize: 18, ...t.font('display', '900'), letterSpacing: 3, textTransform: 'uppercase', ...t.glow(t.colors.red, 12) }
+    : { color: t.colors.text, fontSize: 22, ...t.font('ui', '700') },
+  summary: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: 13, marginTop: 4 },
   card: {
-    backgroundColor: t.colors.surface,
+    backgroundColor: t.cyber ? alpha(t.colors.surface, 0.9) : t.colors.surface,
     borderRadius: t.radius.md,
     padding: 12,
-    borderWidth: 1,
+    borderWidth: t.cyber ? 0 : 1,
     borderColor: t.colors.hairline,
+    borderTopWidth: 1,
+    borderTopColor: t.cyber ? alpha(t.colors.red, 0.55) : t.colors.hairline,
+    ...(t.cyber ? { boxShadow: `inset 0 1px 30px -12px ${alpha(t.colors.red, 0.35)}` } : {}),
   },
   cardHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
   cardTitleRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
-  cardTitle: { color: t.colors.text, ...t.font('ui', '700'), fontSize: 15, flexShrink: 1 },
-  cardPath: { ...t.font('ui'), color: t.colors.sub, fontSize: 11, maxWidth: '35%' },
+  cardTitle: t.cyber
+    ? { color: t.colors.red, ...t.font('display', '700'), fontSize: 12, letterSpacing: 1.5, textTransform: 'uppercase', flexShrink: 1 }
+    : { color: t.colors.text, ...t.font('ui', '700'), fontSize: 15, flexShrink: 1 },
+  cardPath: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: 11, maxWidth: '35%' },
   cardPlus: {
     width: 28,
     height: 28,
     borderRadius: t.r(14),
-    backgroundColor: t.colors.surface2,
+    backgroundColor: t.cyber ? 'transparent' : t.colors.surface2,
+    borderWidth: t.cyber ? 1 : 0,
+    borderColor: alpha(t.colors.accent, 0.3),
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -264,18 +275,19 @@ const makeStyles = (t: Tokens) =>
     borderTopColor: t.colors.hairline,
   },
   dot: t.dot(8),
-  agentName: { color: t.colors.text, fontSize: 14, ...t.font('ui', '600'), flexShrink: 1 },
-  agentSub: { ...t.font('ui'), color: t.colors.sub, fontSize: 11 },
+  agentName: { color: t.colors.text, fontSize: 14, ...t.font('ui', '600'), flexShrink: 1, ...t.phosphor },
+  agentSub: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: 11 },
   sec: {
-    color: t.colors.sub,
+    color: t.cyber ? t.colors.red : t.colors.sub,
     fontSize: 11,
     ...t.font('ui', '700'),
     textTransform: 'uppercase',
+    ...t.hud,
     marginTop: 12,
   },
   dormantRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   dormant: {
-    backgroundColor: t.colors.surface,
+    backgroundColor: t.glass,
     borderRadius: t.radius.sm,
     paddingHorizontal: 12,
     paddingVertical: 10,

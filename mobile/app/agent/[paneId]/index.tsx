@@ -26,6 +26,7 @@ import { Composer } from '../../../src/components/Composer';
 import { LiveTail } from '../../../src/components/LiveTail';
 import { ScreenMirror } from '../../../src/components/ScreenMirror';
 import { Transcript } from '../../../src/components/Transcript';
+import { StripeFill } from '../../../src/cyber';
 import { alpha, useStyles, useTheme, type Tokens } from '../../../src/theme';
 
 export default function AgentScreen() {
@@ -64,8 +65,15 @@ export default function AgentScreen() {
       title: agent ? agent.label || agent.title || paneId : paneId,
       headerRight: () => (
         <View style={styles.headerRight}>
-          <View style={[styles.statusChip, { backgroundColor: t.status(status) }]}>
-            <Text style={styles.statusChipText}>{status ?? '—'}</Text>
+          <View
+            style={[
+              styles.statusChip,
+              t.cyber
+                ? { backgroundColor: alpha(t.status(status), 0.14), borderColor: t.status(status), ...t.boxGlow(t.status(status), 10) }
+                : { backgroundColor: t.status(status) },
+            ]}
+          >
+            <Text style={[styles.statusChipText, t.cyber && { color: t.status(status), ...t.glow(t.status(status), 6) }]}>{status ?? '—'}</Text>
           </View>
         </View>
       ),
@@ -209,6 +217,7 @@ export default function AgentScreen() {
     <KeyboardAvoidingView style={styles.root} behavior="padding" keyboardVerticalOffset={insets.top + 44}>
       {blocked && (
         <View style={styles.blockedBanner}>
+          <StripeFill />
           <Text style={styles.blockedText}>agent is waiting on you</Text>
           <Pressable onPress={() => setMirror((m) => !m)} hitSlop={8}>
             <Text style={styles.peekBtn}>{mirror ? 'hide screen' : 'view screen'}</Text>
@@ -265,21 +274,23 @@ const makeStyles = (t: Tokens) =>
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: t.r(999),
+    borderWidth: t.cyber ? 1 : 0,
   },
-  statusChipText: { color: t.colors.accentInk, fontSize: 11, ...t.font('ui', '700') },
+  statusChipText: { color: t.colors.accentInk, fontSize: 11, ...t.font('ui', '700'), ...t.hud },
   blockedBanner: {
-    backgroundColor: alpha(t.colors.blocked, 0.2),
+    backgroundColor: alpha(t.colors.blocked, t.cyber ? 0.1 : 0.2),
     padding: 8,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
+    overflow: 'hidden',
   },
-  blockedText: { color: t.colors.blocked, textAlign: 'center', ...t.font('ui', '600'), fontSize: 13 },
-  peekBtn: { color: t.colors.accent, fontSize: 13, ...t.font('ui', '600') },
+  blockedText: { color: t.colors.blocked, textAlign: 'center', ...t.font('ui', '600'), fontSize: t.cyber ? 12 : 13, ...t.hud, ...t.glow(t.colors.blocked, 6) },
+  peekBtn: { color: t.colors.accent, fontSize: t.cyber ? 12 : 13, ...t.font('ui', '600'), ...t.hud, ...t.glow(t.colors.accent, 6) },
   cwd: {
     color: t.colors.sub,
-    ...t.font('ui'),
+    ...t.font(t.cyber ? 'mono' : 'ui'),
     fontSize: 11,
     paddingHorizontal: 14,
     paddingVertical: 4,

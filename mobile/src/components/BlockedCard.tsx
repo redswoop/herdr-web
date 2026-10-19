@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { AnswerBody, BlockedCtx } from '@herdr/shared';
-import { useStyles, useTheme, type Tokens } from '../theme';
+import { Brackets, HazardTape } from '../cyber';
+import { alpha, mix, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 
 export function BlockedCard({
@@ -56,6 +57,8 @@ export function BlockedCard({
   if (ctx.kind === 'ask') {
     return (
       <View style={styles.card}>
+        <HazardTape style={styles.tape} />
+        <Brackets color={t.colors.blocked} />
         {ctx.questions.map((q, qi) => (
           <View key={qi} style={styles.question}>
             <Text style={styles.qText}>{q.question}</Text>
@@ -83,6 +86,8 @@ export function BlockedCard({
     const byNav = hasInput || !!ctx.nav;
     return (
       <View style={styles.card}>
+        <HazardTape style={styles.tape} />
+        <Brackets color={t.colors.blocked} />
         <View style={styles.question}>
           {!!ctx.detail && <Text style={styles.detail}>{ctx.detail}</Text>}
           <Text style={styles.qText}>{ctx.question || ctx.header || 'choose an option'}</Text>
@@ -150,6 +155,8 @@ export function BlockedCard({
       /^(yes|approve)/i.test(label) ? 'confirm' : /^(no|quit)/i.test(label) ? 'deny' : '';
     return (
       <View style={styles.card}>
+        <HazardTape style={styles.tape} />
+        <Brackets color={t.colors.blocked} />
         <View style={styles.question}>
           <Text style={styles.qText}>
             {ctx.question || (grok ? 'Grok has a plan — proceed?' : 'Claude has a plan — proceed?')}
@@ -211,6 +218,8 @@ export function BlockedCard({
   if (ctx.kind === 'permission') {
     return (
       <View style={styles.card}>
+        <HazardTape style={styles.tape} />
+        <Brackets color={t.colors.blocked} />
         <View style={styles.question}>
           <View style={styles.qRow}>
             <Icon name="lock" size={16} color={t.colors.blocked} />
@@ -246,38 +255,50 @@ export function BlockedCard({
 const makeStyles = (t: Tokens) =>
   StyleSheet.create({
   card: {
-    backgroundColor: t.colors.surface,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    backgroundColor: t.cyber ? alpha(t.colors.surface, 0.96) : t.colors.surface,
+    borderTopWidth: t.cyber ? 0 : StyleSheet.hairlineWidth,
     borderTopColor: t.colors.blocked,
     padding: 12,
     gap: 10,
+    ...t.boxGlow(t.colors.blocked, 30, 0.35),
   },
+  tape: { marginHorizontal: -12, marginTop: -12, marginBottom: 4 },
   question: { gap: 8 },
   qRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  qText: { color: t.colors.text, fontSize: 15, ...t.font('ui', '600'), flex: 1 },
+  qText: { color: t.cyber ? mix(t.colors.text, '#ffffff', 0.5) : t.colors.text, fontSize: 15, ...t.font('ui', '600'), flex: 1, ...t.phosphor },
   detail: {
     ...t.font('mono'),
-    color: t.colors.sub,
+    color: t.cyber ? mix(t.colors.accent, t.colors.text, 0.55) : t.colors.sub,
     fontSize: 12,
-    backgroundColor: t.colors.surface2,
+    backgroundColor: t.cyber ? alpha('#000000', 0.5) : t.colors.surface2,
+    borderLeftWidth: t.cyber ? 2 : 0,
+    borderLeftColor: t.colors.accent,
     padding: 8,
     borderRadius: t.radius.sm,
   },
   tool: { color: t.colors.accent, ...t.font('mono'), },
   option: {
-    backgroundColor: t.colors.surface2,
+    backgroundColor: t.cyber ? alpha(t.colors.accent, 0.08) : t.colors.surface2,
     borderRadius: t.radius.md,
     padding: 12,
-    borderWidth: 1,
+    borderWidth: t.cyber ? 0 : 1,
     borderColor: t.colors.hairline,
+    borderLeftWidth: t.cyber ? 2 : 1,
+    borderLeftColor: t.cyber ? t.colors.accent : t.colors.hairline,
   },
-  confirm: { borderColor: t.colors.done },
-  deny: { borderColor: t.colors.blocked },
+  confirm: t.cyber
+    ? { borderLeftColor: t.colors.done, backgroundColor: alpha(t.colors.done, 0.14) }
+    : { borderColor: t.colors.done },
+  deny: t.cyber
+    ? { borderLeftColor: t.colors.red, backgroundColor: alpha(t.colors.red, 0.14) }
+    : { borderColor: t.colors.blocked },
   busy: { opacity: 0.6 },
   optLabel: { color: t.colors.text, fontSize: 15, ...t.font('ui', '600') },
   optDesc: { ...t.font('ui'), color: t.colors.sub, fontSize: 12, marginTop: 2 },
   fb: {
-    backgroundColor: t.colors.surface2,
+    backgroundColor: t.cyber ? alpha('#000000', 0.45) : t.colors.surface2,
+    borderWidth: t.cyber ? 1 : 0,
+    borderColor: alpha(t.colors.accent, 0.25),
     color: t.colors.text,
     borderRadius: t.radius.md,
     padding: 10,

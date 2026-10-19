@@ -21,6 +21,7 @@ import {
   type RestoredDraft,
 } from '@herdr/shared';
 import { fileRawUrl } from '../api-urls';
+import { NeonRail } from '../cyber';
 import { alpha, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 
@@ -331,6 +332,7 @@ export function Composer({
 
   return (
     <View style={styles.wrap}>
+      <NeonRail style={styles.rail} />
       {atts.length > 0 && (
         <View style={styles.attRow}>
           {atts.map((a) => (
@@ -494,12 +496,13 @@ function MenuRow({
 const makeStyles = (t: Tokens) =>
   StyleSheet.create({
   wrap: {
-    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopWidth: t.cyber ? 0 : StyleSheet.hairlineWidth,
     borderTopColor: t.colors.hairline,
-    backgroundColor: t.colors.surface,
+    backgroundColor: t.cyber ? alpha(t.colors.bg, 0.84) : t.colors.surface,
     paddingBottom: 8,
     paddingTop: 6,
   },
+  rail: { marginTop: -6, marginBottom: 6 },
   attRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -549,20 +552,23 @@ const makeStyles = (t: Tokens) =>
     paddingBottom: 6,
   },
   keyBtn: {
-    backgroundColor: t.colors.surface3,
+    backgroundColor: t.cyber ? 'transparent' : t.colors.surface3,
+    borderWidth: t.cyber ? 1 : 0,
+    borderColor: alpha(t.colors.accent, 0.25),
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: t.radius.sm,
   },
-  keyLabel: { color: t.colors.text, fontSize: 13, ...t.font('ui', '600') },
+  keyLabel: { color: t.colors.text, fontSize: t.cyber ? 12 : 13, ...t.font('ui', '600'), ...t.hud },
 
   menu: {
     marginHorizontal: 10,
     marginBottom: 6,
-    backgroundColor: t.colors.surface2,
+    backgroundColor: t.cyber ? alpha(t.colors.surface2, 0.95) : t.colors.surface2,
     borderRadius: t.radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: t.colors.hairline,
+    borderWidth: t.cyber ? 1 : StyleSheet.hairlineWidth,
+    borderColor: t.cyber ? alpha(t.colors.accent, 0.4) : t.colors.hairline,
+    ...t.boxGlow(t.colors.accent, 24, 0.35),
     overflow: 'hidden',
   },
   menuRow: {
@@ -574,8 +580,8 @@ const makeStyles = (t: Tokens) =>
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: t.colors.hairline,
   },
-  menuLabel: { color: t.colors.text, fontSize: 15, ...t.font('ui', '500') },
-  menuLabelOn: { color: t.colors.accent },
+  menuLabel: { color: t.colors.text, fontSize: 15, ...t.font('ui', '500'), ...(t.cyber ? t.font('mono') : {}) },
+  menuLabelOn: { color: t.colors.accent, ...t.glow(t.colors.accent, 8) },
 
   row: {
     flexDirection: 'row',
@@ -589,11 +595,14 @@ const makeStyles = (t: Tokens) =>
     borderRadius: t.r(20),
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: t.colors.surface2,
+    backgroundColor: t.cyber ? 'transparent' : t.colors.surface2,
+    borderWidth: t.cyber ? 1 : 0,
+    borderColor: alpha(t.colors.accent, 0.25),
     marginBottom: 2,
   },
   iconBtnOn: {
     backgroundColor: alpha(t.colors.accent, 0.18),
+    borderColor: t.colors.accent,
   },
 
   inputWrap: {
@@ -603,10 +612,13 @@ const makeStyles = (t: Tokens) =>
   },
   input: {
     height: INPUT_H,
-    backgroundColor: t.colors.surface2,
+    backgroundColor: t.cyber ? alpha('#000000', 0.45) : t.colors.surface2,
+    borderWidth: t.cyber ? 1 : 0,
+    borderColor: alpha(t.colors.accent, 0.25),
     borderRadius: t.radius.md,
     color: t.colors.text,
-    ...t.font('ui'),
+    ...t.font('input'),
+    ...t.phosphor,
     fontSize: 16,
     lineHeight: 22,
     paddingHorizontal: 14,
@@ -630,11 +642,12 @@ const makeStyles = (t: Tokens) =>
     width: 40,
     height: 40,
     borderRadius: t.r(20),
-    backgroundColor: t.colors.accent,
+    backgroundColor: t.cyber ? t.colors.hot : t.colors.accent,
+    ...t.boxGlow(t.colors.hot, 12, 0.6),
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 2,
   },
-  sendStop: { backgroundColor: t.colors.blocked },
+  sendStop: { backgroundColor: t.cyber ? t.colors.red : t.colors.blocked, ...t.boxGlow(t.colors.red, 12, 0.6) },
   sendDisabled: { opacity: 0.4 },
 });

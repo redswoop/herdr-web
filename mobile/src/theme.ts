@@ -38,6 +38,20 @@ export interface Tokens {
   radius: { sm: number; md: number; lg: number };
   /** a one-off radius (pills, bubbles): as given on stock, square on cyber */
   r: (n: number) => number;
+  /** screen background: the bg colour on stock, transparent on cyber so the
+   *  grid/haze backdrop in _layout shows through */
+  canvas: string;
+  /** translucent HUD glass for rows and bars (plain surface on stock) */
+  glass: string;
+  glass2: string;
+  /** neon text: a halo in the given colour (nothing on stock) */
+  glow: (color: string, radius?: number) => TextStyle;
+  /** neon box: a soft outer light (nothing on stock) */
+  boxGlow: (color: string, radius?: number, strength?: number) => ViewStyle;
+  /** faint phosphor halo on reading text */
+  phosphor: TextStyle;
+  /** HUD label grammar: mono, tracked, uppercase (nothing on stock) */
+  hud: TextStyle;
   /** family + weight for a Text, resolved per theme (custom faces need the
    *  exact loaded name, so weight is folded into the family on cyber) */
   font: (kind: FontKind, weight?: Weight) => TextStyle;
@@ -139,13 +153,25 @@ export function buildTokens(theme: Theme, overrides: Record<string, string> = {}
   const cyber = theme === 'cyber';
   const status = (s: string | undefined) =>
     s === 'blocked' ? c.blocked : s === 'working' ? c.working : s === 'done' ? c.done : s === 'idle' ? c.idle : c.sub;
+  const font = fontFor(theme);
   return {
     theme,
     cyber,
     colors: c,
     radius: cyber ? { sm: 0, md: 0, lg: 0 } : { sm: 10, md: 14, lg: 18 },
     r: (n) => (cyber ? 0 : n),
-    font: fontFor(theme),
+    canvas: cyber ? 'transparent' : c.bg,
+    glass: cyber ? alpha(c.surface, 0.78) : c.surface,
+    glass2: cyber ? alpha(c.surface2, 0.85) : c.surface2,
+    glow: (color, radius = 10) =>
+      cyber ? { textShadowColor: color, textShadowRadius: radius, textShadowOffset: { width: 0, height: 0 } } : {},
+    boxGlow: (color, radius = 12, strength = 0.55) =>
+      cyber ? { boxShadow: `0 0 ${radius}px ${alpha(color, strength)}` } : {},
+    phosphor: cyber
+      ? { textShadowColor: alpha(c.red, 0.22), textShadowRadius: 12, textShadowOffset: { width: 0, height: 0 } }
+      : {},
+    hud: cyber ? { ...font('mono'), letterSpacing: 1.4, textTransform: 'uppercase' } : {},
+    font,
     status,
     dot: (size) =>
       cyber

@@ -280,11 +280,14 @@ export default function RosterScreen() {
                     size={16}
                     color={t.colors.sub}
                   />
-                  <Text style={styles.sectionTitle}>{g.title}</Text>
+                  <Text style={styles.sectionTitle} numberOfLines={1}>
+                    {t.cyber && <Text style={styles.slash}>{'// '}</Text>}
+                    {g.title}
+                  </Text>
                   {!!g.badge && <Text style={styles.badge}>{g.badge}</Text>}
                   {!!g.focused && <Icon name="focus" size={14} color={t.colors.accent} />}
                   {!!g.status && (
-                    <View style={[styles.dot, { backgroundColor: t.status(g.status) }]} />
+                    <View style={[styles.dot, { backgroundColor: t.status(g.status) }, t.boxGlow(t.status(g.status), 9)]} />
                   )}
                   <Text style={styles.groupCount}>
                     {blockedInGroup > 0 ? `${blockedInGroup}·` : ''}
@@ -325,10 +328,10 @@ export default function RosterScreen() {
             const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
             return (
               <Pressable
-                style={styles.row}
+                style={[styles.row, a.status === 'blocked' && styles.rowBlocked]}
                 onPress={() => router.push(`/agent/${encodeURIComponent(a.paneId)}`)}
               >
-                <View style={[styles.statusDot, { backgroundColor: t.status(a.status) }]} />
+                <View style={[styles.statusDot, { backgroundColor: t.status(a.status) }, t.boxGlow(t.status(a.status), 10)]} />
                 <View style={styles.rowBody}>
                   <View style={styles.rowTitleRow}>
                     <Text style={styles.rowTitle} numberOfLines={1}>
@@ -362,7 +365,7 @@ export default function RosterScreen() {
                     </View>
                   )}
                 </View>
-                <Text style={[styles.stateWord, { color: t.status(a.status) }]}>
+                <Text style={[styles.stateWord, { color: t.status(a.status) }, t.glow(t.status(a.status), 6)]}>
                   {STATUS_WORD[a.status] ?? a.status}
                 </Text>
               </Pressable>
@@ -398,7 +401,8 @@ const makeStyles = (t: Tokens) =>
   gateTitle: { color: t.colors.text, fontSize: 20, ...t.font('ui', '700') },
   gateSub: { ...t.font('ui'), color: t.colors.sub, textAlign: 'center', marginBottom: 12 },
   primaryBtn: {
-    backgroundColor: t.colors.accent,
+    backgroundColor: t.colors.hot,
+    ...t.boxGlow(t.colors.hot),
     paddingHorizontal: 20,
     paddingVertical: 12,
     borderRadius: t.radius.md,
@@ -422,22 +426,25 @@ const makeStyles = (t: Tokens) =>
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: t.colors.hairline,
-    backgroundColor: t.colors.surface,
+    backgroundColor: t.glass,
   },
   connRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   dot: {
     ...t.dot(8),
-    backgroundColor: t.colors.sub,
+    backgroundColor: t.cyber ? t.colors.red : t.colors.sub,
+    ...t.boxGlow(t.colors.red, 10),
   },
-  dotOk: { backgroundColor: t.colors.done },
-  connLabel: { ...t.font('ui'), color: t.colors.sub, fontSize: 13 },
+  dotOk: { backgroundColor: t.colors.done, ...t.boxGlow(t.colors.done, 9) },
+  connLabel: { ...t.font('ui'), ...t.hud, color: t.colors.sub, fontSize: t.cyber ? 12 : 13 },
   blockedBadge: {
-    backgroundColor: alpha(t.colors.blocked, 0.25),
+    backgroundColor: alpha(t.colors.blocked, t.cyber ? 0.14 : 0.25),
+    borderWidth: t.cyber ? 1 : 0,
+    borderColor: alpha(t.colors.blocked, 0.5),
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: t.r(999),
   },
-  blockedBadgeText: { color: t.colors.blocked, fontSize: 12, ...t.font('ui', '700') },
+  blockedBadgeText: { color: t.colors.blocked, fontSize: t.cyber ? 11 : 12, ...t.font('ui', '700'), ...t.hud, ...t.glow(t.colors.blocked, 6) },
   settingsBtn: {
     width: 36,
     height: 36,
@@ -449,7 +456,7 @@ const makeStyles = (t: Tokens) =>
     gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: t.colors.surface,
+    backgroundColor: t.glass,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: t.colors.hairline,
   },
@@ -457,14 +464,18 @@ const makeStyles = (t: Tokens) =>
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: t.r(999),
-    backgroundColor: t.colors.surface2,
+    backgroundColor: t.cyber ? 'transparent' : t.colors.surface2,
+    borderWidth: t.cyber ? 1 : 0,
+    borderColor: alpha(t.colors.accent, 0.3),
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
   },
-  modeOn: { backgroundColor: t.colors.accent },
-  modeText: { color: t.colors.sub, fontSize: 12, ...t.font('ui', '600') },
-  modeTextOn: { color: t.colors.accentInk },
+  modeOn: t.cyber
+    ? { backgroundColor: alpha(t.colors.accent, 0.16), borderColor: t.colors.accent, ...t.boxGlow(t.colors.accent, 14) }
+    : { backgroundColor: t.colors.accent },
+  modeText: { color: t.colors.sub, fontSize: t.cyber ? 11 : 12, ...t.font('ui', '600'), ...t.hud },
+  modeTextOn: t.cyber ? { color: t.colors.accent, ...t.glow(t.colors.accent, 8) } : { color: t.colors.accentInk },
   list: { paddingBottom: 100 },
   emptyBox: { alignItems: 'center', marginTop: 32, gap: 12, paddingHorizontal: 24 },
   empty: { ...t.font('ui'), color: t.colors.sub, textAlign: 'center' },
@@ -473,14 +484,15 @@ const makeStyles = (t: Tokens) =>
     alignItems: 'center',
     paddingHorizontal: 10,
     paddingVertical: 8,
-    backgroundColor: t.colors.surface,
+    backgroundColor: t.glass,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: t.colors.hairline,
   },
   sectionMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
-  sectionTitle: { color: t.colors.text, ...t.font('ui', '700'), fontSize: 13, flex: 1 },
-  badge: { ...t.font('ui'), color: t.colors.sub, fontSize: 11 },
-  groupCount: { ...t.font('ui'), color: t.colors.sub, fontSize: 11, fontVariant: ['tabular-nums'] },
+  sectionTitle: { color: t.colors.text, ...t.font('ui', '700'), fontSize: 13, flex: 1, ...(t.cyber ? { ...t.font('mono'), letterSpacing: 1.6 } : {}) },
+  slash: { color: t.colors.red, opacity: 0.75 },
+  badge: { ...t.font('ui'), ...t.hud, color: t.colors.sub, fontSize: 11 },
+  groupCount: { ...t.font('ui'), ...t.hud, color: t.colors.sub, fontSize: 11, fontVariant: ['tabular-nums'] },
   tabHead: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -488,29 +500,31 @@ const makeStyles = (t: Tokens) =>
     paddingHorizontal: 18,
     paddingTop: 8,
     paddingBottom: 2,
-    backgroundColor: t.colors.bg,
+    backgroundColor: t.canvas,
   },
-  tabTitle: { color: t.colors.sub, fontSize: 11, ...t.font('ui', '700'), textTransform: 'uppercase' },
+  tabTitle: { color: t.colors.sub, fontSize: 11, ...t.font('ui', '700'), textTransform: 'uppercase', ...t.hud },
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
   tag: {
     color: t.colors.sub,
-    ...t.font('ui'),
+    ...t.font(t.cyber ? 'mono' : 'ui'),
     fontSize: 10,
-    backgroundColor: t.colors.surface2,
+    backgroundColor: t.glass2,
     paddingHorizontal: 6,
     paddingVertical: 1,
     borderRadius: t.r(4),
     overflow: 'hidden',
   },
   tagWarn: { color: t.colors.working },
-  stateWord: { fontSize: 11, ...t.font('ui', '700'), textTransform: 'lowercase' },
+  stateWord: { fontSize: 11, ...t.font('ui', '700'), textTransform: 'lowercase', ...t.hud },
   quickBtn: {
     width: 32,
     height: 32,
     borderRadius: t.r(16),
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: t.colors.surface2,
+    backgroundColor: t.cyber ? 'transparent' : t.colors.surface2,
+    borderWidth: t.cyber ? 1 : 0,
+    borderColor: alpha(t.colors.accent, 0.3),
   },
   row: {
     flexDirection: 'row',
@@ -520,14 +534,18 @@ const makeStyles = (t: Tokens) =>
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: t.colors.hairline,
+    borderLeftWidth: t.cyber ? 2 : 0,
+    borderLeftColor: 'transparent',
   },
+  rowBlocked: { backgroundColor: alpha(t.colors.blocked, 0.1), borderLeftColor: t.colors.blocked },
   statusDot: t.dot(10),
   rowBody: { flex: 1, minWidth: 0 },
   rowTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  rowTitle: { color: t.colors.text, fontSize: 15, ...t.font('ui', '600'), flexShrink: 1 },
-  rowSub: { ...t.font('ui'), color: t.colors.sub, fontSize: 12, marginTop: 2 },
+  rowTitle: { color: t.colors.text, fontSize: 15, ...t.font('ui', '600'), flexShrink: 1, ...t.phosphor },
+  rowSub: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: 12, marginTop: 2 },
   blockedChip: {
     backgroundColor: t.colors.blocked,
+    ...t.boxGlow(t.colors.blocked, 10),
     width: 22,
     height: 22,
     borderRadius: t.r(11),
@@ -541,7 +559,8 @@ const makeStyles = (t: Tokens) =>
     width: 56,
     height: 56,
     borderRadius: t.r(28),
-    backgroundColor: t.colors.accent,
+    backgroundColor: t.cyber ? t.colors.hot : t.colors.accent,
+    ...t.boxGlow(t.colors.hot, 16, 0.6),
     alignItems: 'center',
     justifyContent: 'center',
     elevation: 6,

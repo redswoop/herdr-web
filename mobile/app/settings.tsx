@@ -15,7 +15,7 @@ import { useBoot } from '../src/boot';
 import { palettesFor, type Theme } from '@herdr/shared/palettes';
 import { paletteOf, setPalette, setTheme } from '../src/prefs';
 import { loadSettings, saveSettings } from '../src/settings-store';
-import { useStyles, useTheme, type Tokens } from '../src/theme';
+import { alpha, useStyles, useTheme, type Tokens } from '../src/theme';
 
 const APP_VERSION = Constants.expoConfig?.version ?? '?';
 const BUILD_NUMBER =
@@ -208,28 +208,33 @@ const makeStyles = (t: Tokens) =>
     padding: 3,
     gap: 3,
   },
-  segBtn: { flex: 1, paddingVertical: 9, alignItems: 'center', borderRadius: t.r(11) },
-  segBtnOn: { backgroundColor: t.colors.accent },
-  segText: { ...t.font('ui', '600'), color: t.colors.sub, fontSize: 14 },
-  segTextOn: { color: t.colors.accentInk },
+  segBtn: { flex: 1, paddingVertical: 9, alignItems: 'center', borderRadius: t.r(11), borderWidth: t.cyber ? 1 : 0, borderColor: 'transparent' },
+  segBtnOn: t.cyber
+    ? { backgroundColor: alpha(t.colors.accent, 0.16), borderColor: t.colors.accent, ...t.boxGlow(t.colors.accent, 14) }
+    : { backgroundColor: t.colors.accent },
+  segText: { ...t.font('ui', '600'), ...t.hud, color: t.colors.sub, fontSize: t.cyber ? 12 : 14 },
+  segTextOn: t.cyber ? { color: t.colors.accent, ...t.glow(t.colors.accent, 8) } : { color: t.colors.accentInk },
   swatches: { gap: 8, paddingVertical: 2 },
   swatch: {
     width: 104,
     padding: 10,
     gap: 8,
-    backgroundColor: t.colors.surface,
+    backgroundColor: t.glass,
     borderRadius: t.radius.md,
     borderWidth: 1,
-    borderColor: t.colors.hairline,
+    borderColor: t.cyber ? alpha(t.colors.red, 0.3) : t.colors.hairline,
   },
-  swatchOn: { borderColor: t.colors.accent },
+  swatchOn: t.cyber ? { borderColor: t.colors.red, ...t.boxGlow(t.colors.red, 14, 0.5) } : { borderColor: t.colors.accent },
   chips: { flexDirection: 'row', gap: 4 },
-  chip: { flex: 1, height: 18, borderRadius: t.r(4) },
-  swatchName: { ...t.font('ui', '600'), color: t.colors.sub, fontSize: 12 },
-  swatchNameOn: { color: t.colors.text },
+  chip: { flex: 1, height: 18, borderRadius: t.r(4), transform: t.cyber ? [{ skewX: '-12deg' }] : [] },
+  swatchName: t.cyber
+    ? { ...t.font('display', '700'), color: t.colors.sub, fontSize: 10, letterSpacing: 1, textTransform: 'uppercase' }
+    : { ...t.font('ui', '600'), color: t.colors.sub, fontSize: 12 },
+  swatchNameOn: { color: t.colors.text, ...t.glow(t.colors.red, 8) },
   hint: { ...t.font('ui'), color: t.colors.sub, fontSize: 13, marginBottom: 12, lineHeight: 18 },
   label: {
-    color: t.colors.sub,
+    color: t.cyber ? t.colors.red : t.colors.sub,
+    opacity: t.cyber ? 0.85 : 1,
     fontSize: t.cyber ? 11 : 12,
     ...t.font(t.cyber ? 'display' : 'ui', '700'),
     letterSpacing: t.cyber ? 1.5 : 0,
@@ -237,7 +242,9 @@ const makeStyles = (t: Tokens) =>
     marginTop: 8,
   },
   input: {
-    backgroundColor: t.colors.surface2,
+    backgroundColor: t.cyber ? alpha('#000000', 0.45) : t.colors.surface2,
+    borderWidth: t.cyber ? 1 : 0,
+    borderColor: alpha(t.colors.accent, 0.25),
     borderRadius: t.radius.md,
     color: t.colors.text,
     ...t.font('ui'),
@@ -249,15 +256,16 @@ const makeStyles = (t: Tokens) =>
   ok: { ...t.font('ui'), color: t.colors.done, marginTop: 8 },
   btn: {
     marginTop: 16,
-    backgroundColor: t.colors.accent,
+    backgroundColor: t.cyber ? t.colors.hot : t.colors.accent,
+    ...t.boxGlow(t.colors.hot, 14, 0.5),
     borderRadius: t.radius.md,
     paddingVertical: 14,
     alignItems: 'center',
   },
   btnDisabled: { opacity: 0.5 },
-  btnText: { color: t.colors.accentInk, ...t.font('ui', '700'), fontSize: 16 },
+  btnText: { color: t.cyber ? '#000000' : t.colors.accentInk, ...t.font('ui', '700'), fontSize: t.cyber ? 14 : 16, ...t.hud },
   labLink: { marginTop: 24, alignItems: 'center', padding: 10 },
-  labText: { ...t.font('ui'), color: t.colors.accent, fontSize: 13 },
+  labText: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.accent, fontSize: 13, ...t.glow(t.colors.accent, 6) },
   version: {
     marginTop: 8,
     color: t.colors.sub,

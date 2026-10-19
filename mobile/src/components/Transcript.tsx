@@ -25,7 +25,7 @@ import {
   type Step,
   type TEvent,
 } from '@herdr/shared';
-import { useStyles, useTheme, type Tokens } from '../theme';
+import { alpha, mix, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 import { MdView } from './MdView';
 import { SegText } from './SegText';
@@ -156,6 +156,7 @@ const EventNode = memo(function EventNode({
   ev: TEvent;
   onOpenFile: (path: string) => void;
 }) {
+  const t = useTheme();
   const styles = useStyles(makeStyles);
   if (ev.kind === 'interrupted') {
     return <Text style={styles.interrupt}>⏹ interrupted</Text>;
@@ -168,6 +169,7 @@ const EventNode = memo(function EventNode({
         style={({ pressed }) => [styles.msg, styles.user, pressed && styles.copyPress]}
         onLongPress={() => Clipboard.setStringAsync(ev.text)}
       >
+        {t.cyber && <Text style={styles.you}>▸ YOU</Text>}
         <MdView src={ev.text} onOpenFile={onOpenFile} />
       </Pressable>
     );
@@ -178,6 +180,7 @@ const EventNode = memo(function EventNode({
         style={({ pressed }) => [styles.msg, styles.assistant, pressed && styles.copyPress]}
         onLongPress={() => Clipboard.setStringAsync(ev.text)}
       >
+        {t.cyber && <View style={styles.diamond} />}
         <MdView src={ev.text} onOpenFile={onOpenFile} />
       </Pressable>
     );
@@ -394,17 +397,49 @@ const makeStyles = (t: Tokens) =>
   empty: { ...t.font('ui'), color: t.colors.sub, textAlign: 'center' },
   msg: { borderRadius: t.r(14), padding: 12, maxWidth: '92%' },
   copyPress: { opacity: 0.6 }, // long-press feedback: copying, not selecting
-  user: { alignSelf: 'flex-end', backgroundColor: t.colors.surface3 },
-  assistant: { alignSelf: 'flex-start', backgroundColor: t.colors.surface },
+  user: t.cyber
+    ? {
+        alignSelf: 'flex-end',
+        backgroundColor: mix(t.colors.surface, t.colors.red, 0.14),
+        borderRightWidth: 2,
+        borderRightColor: t.colors.red,
+        paddingTop: 8,
+        boxShadow: `inset 0 0 24px ${alpha(t.colors.red, 0.12)}`,
+      }
+    : { alignSelf: 'flex-end', backgroundColor: t.colors.surface3 },
+  you: { ...t.font('mono'), fontSize: 10, letterSpacing: 3, color: t.colors.red, marginBottom: 5, ...t.glow(t.colors.red, 8) },
+  assistant: t.cyber
+    ? {
+        alignSelf: 'flex-start',
+        backgroundColor: 'transparent',
+        borderLeftWidth: 1,
+        borderLeftColor: alpha(t.colors.accent, 0.3),
+        paddingLeft: 13,
+        paddingVertical: 2,
+        paddingRight: 2,
+        borderRadius: 0,
+      }
+    : { alignSelf: 'flex-start', backgroundColor: t.colors.surface },
+  diamond: {
+    position: 'absolute',
+    left: -4,
+    top: 7,
+    width: 7,
+    height: 7,
+    backgroundColor: t.colors.accent,
+    transform: [{ rotate: '45deg' }],
+    ...t.boxGlow(t.colors.accent, 8, 0.9),
+  },
   interrupt: {
     alignSelf: 'center',
-    color: t.colors.working,
+    color: t.cyber ? t.colors.red : t.colors.working,
     ...t.font('ui'),
+    ...t.hud,
     fontSize: 12,
     marginVertical: 8,
   },
   activity: {
-    backgroundColor: t.colors.surface,
+    backgroundColor: t.glass,
     borderRadius: t.r(12),
     padding: 10,
     marginVertical: 2,
@@ -414,13 +449,14 @@ const makeStyles = (t: Tokens) =>
   liveDot: {
     ...t.dot(8),
     backgroundColor: t.colors.working,
+    ...t.boxGlow(t.colors.working, 9, 0.8),
   },
-  actCount: { color: t.colors.text, ...t.font('ui', '600'), fontSize: 13 },
-  actNames: { ...t.font('ui'), color: t.colors.sub, fontSize: 12, flex: 1 },
-  actDur: { ...t.font('ui'), color: t.colors.sub, fontSize: 11 },
+  actCount: { color: t.colors.text, ...t.font('ui', '600'), fontSize: 13, ...(t.cyber ? { ...t.font('mono'), letterSpacing: 0.8 } : {}) },
+  actNames: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: 12, flex: 1 },
+  actDur: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: 11 },
   step: { marginTop: 6, paddingLeft: 8 },
   stepHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  stepName: { color: t.colors.accent, fontSize: 12, ...t.font('ui', '600') },
+  stepName: { color: t.colors.accent, fontSize: 12, ...t.font('ui', '600'), ...t.glow(t.colors.accent, 6) },
   stepSum: { ...t.font('ui'), color: t.colors.sub, fontSize: 12, flex: 1 },
   stepFile: { color: t.colors.accent, textDecorationLine: 'underline' },
   pending: { color: t.colors.working },
@@ -434,7 +470,7 @@ const makeStyles = (t: Tokens) =>
   aux: { padding: 6 },
   auxSum: { ...t.font('ui'), color: t.colors.sub, fontSize: 12 },
   cmd: {
-    backgroundColor: t.colors.surface2,
+    backgroundColor: t.glass2,
     borderRadius: t.r(10),
     padding: 8,
     alignSelf: 'flex-start',
@@ -446,18 +482,20 @@ const makeStyles = (t: Tokens) =>
   turnMeta: {
     alignSelf: 'center',
     color: t.colors.sub,
-    ...t.font('ui'),
+    ...t.font(t.cyber ? 'mono' : 'ui'),
     fontSize: 11,
     marginVertical: 4,
   },
   mineCancellable: { borderWidth: 1, borderColor: t.colors.working },
   mine: {
     alignSelf: 'flex-end',
-    backgroundColor: t.colors.accent,
+    backgroundColor: t.cyber ? mix(t.colors.surface, t.colors.red, 0.3) : t.colors.accent,
+    borderRightWidth: t.cyber ? 2 : 0,
+    borderRightColor: t.colors.red,
     borderRadius: t.r(14),
     padding: 12,
     maxWidth: '85%',
   },
-  mineText: { ...t.font('ui'), color: t.colors.accentInk, fontSize: 15 },
-  mineStatus: { ...t.font('ui'), color: t.colors.accentInk, opacity: 0.7, fontSize: 11, marginTop: 4 },
+  mineText: { ...t.font('ui'), color: t.cyber ? t.colors.text : t.colors.accentInk, fontSize: 15 },
+  mineStatus: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.cyber ? t.colors.red : t.colors.accentInk, opacity: 0.8, fontSize: 11, marginTop: 4, ...t.hud },
 });

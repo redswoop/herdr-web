@@ -1,7 +1,7 @@
 import { createContext, memo, useContext, useMemo } from 'react';
 import { Linking, Platform, StyleSheet, Text, View } from 'react-native';
 import { parseMd, type Block, type Inline } from '@herdr/shared';
-import { useStyles, useTheme, type Tokens } from '../theme';
+import { alpha, mix, useStyles, useTheme, type Tokens } from '../theme';
 import { chunkFrags, splitInlineSegs, splitPlain } from './segment';
 
 /** Render-lab knobs (app/lab.tsx). Production never provides this context, so
@@ -204,22 +204,27 @@ const makeStyles = (t: Tokens) =>
   StyleSheet.create({
   wrap: { gap: 6 },
   block: {},
-  base: { ...t.font('ui'), color: t.colors.text, fontSize: 15, lineHeight: 22 },
-  baseNoLh: { ...t.font('ui'), color: t.colors.text, fontSize: 15 },
-  strong: { ...t.font('ui', '700'), color: t.colors.text },
+  base: { ...t.font('ui'), color: t.colors.text, fontSize: 15, lineHeight: 22, ...t.phosphor },
+  baseNoLh: { ...t.font('ui'), color: t.colors.text, fontSize: 15, ...t.phosphor },
+  strong: { ...t.font('ui', '700'), color: t.cyber ? mix(t.colors.text, '#ffffff', 0.5) : t.colors.text, ...t.glow(alpha(t.colors.accent, 0.35), 8) },
   code: {
     ...t.font('mono'),
-    backgroundColor: t.colors.surface3,
-    color: t.colors.accent,
+    backgroundColor: t.cyber ? alpha(t.colors.accent, 0.1) : t.colors.surface3,
+    color: t.cyber ? mix(t.colors.accent, t.colors.text, 0.2) : t.colors.accent,
     fontSize: 13,
+    ...t.glow(t.colors.accent, 6),
   },
   codeNoBg: { backgroundColor: undefined },
   codeNoFont: { fontFamily: undefined },
-  link: { color: t.colors.accent, textDecorationLine: 'underline' },
+  link: { color: t.colors.accent, textDecorationLine: 'underline', ...t.glow(t.colors.accent, 6) },
   codeBlock: {
-    backgroundColor: t.colors.surface2,
+    backgroundColor: t.cyber ? alpha('#000000', 0.5) : t.colors.surface2,
     borderRadius: t.r(10),
     padding: 10,
+    borderWidth: t.cyber ? 1 : 0,
+    borderColor: t.colors.hairline,
+    borderLeftWidth: t.cyber ? 2 : 0,
+    borderLeftColor: t.colors.accent,
   },
   codeBlockText: {
     ...t.font('mono'),
@@ -234,7 +239,7 @@ const makeStyles = (t: Tokens) =>
     padding: 6,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: t.colors.hairline,
-    backgroundColor: t.colors.surface2,
+    backgroundColor: t.glass2,
   },
   td: {
     flex: 1,
