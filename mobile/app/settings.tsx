@@ -112,6 +112,9 @@ export default function SettingsScreen() {
           <Text style={styles.btnText}>save & probe</Text>
         )}
       </Pressable>
+      <Pressable style={styles.labLink} onPress={() => router.push('/lab')}>
+        <Text style={styles.labText}>render lab → the empty-bubble diagnostics</Text>
+      </Pressable>
       <Text style={styles.version}>
         Capra {APP_VERSION}
         {BUILD_NUMBER ? ` (${BUILD_NUMBER})` : ''}
@@ -156,8 +159,10 @@ const styles = StyleSheet.create({
   },
   btnDisabled: { opacity: 0.5 },
   btnText: { color: colors.accentInk, fontWeight: '700', fontSize: 16 },
+  labLink: { marginTop: 24, alignItems: 'center', padding: 10 },
+  labText: { color: colors.accent, fontSize: 13 },
   version: {
-    marginTop: 32,
+    marginTop: 8,
     color: colors.sub,
     fontSize: 12,
     textAlign: 'center',

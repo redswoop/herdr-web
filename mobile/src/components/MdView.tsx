@@ -1,8 +1,36 @@
-import { memo, useMemo } from 'react';
+import { createContext, memo, useContext, useMemo } from 'react';
 import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { parseMd, type Block, type Inline } from '@herdr/shared';
 import { colors } from '../theme';
-import { splitInlineSegs, splitPlain, wrapLongLines } from './segment';
+import { chunkFrags, splitInlineSegs, splitPlain, wrapLongLines } from './segment';
+
+/** Render-lab knobs (app/lab.tsx). Production never provides this context, so
+ *  every flag sits at its default and the transcript renders exactly as before.
+ *  Each flag isolates one suspect for the iOS empty-bubble bug: a long
+ *  span-heavy paragraph draws as a sized, blank box while flat Texts beside it
+ *  draw fine. */
+export interface MdLab {
+  /** inline-code spans keep their backgroundColor (a nested-Text background
+   *  fragment is the prime suspect) */
+  codeBg: boolean;
+  /** inline-code spans use fontFamily 'monospace' (not a real iOS family) */
+  codeFont: boolean;
+  /** the root Text carries lineHeight */
+  lineHeight: boolean;
+  /** cap nested spans per root Text; null = only the char/line segmenter */
+  maxFrags: number | null;
+  /** collapse every paragraph to one plain string in one Text — no nesting,
+   *  no onPress, no per-span styles */
+  flatten: boolean;
+}
+export const MD_LAB_DEFAULT: MdLab = {
+  codeBg: true,
+  codeFont: true,
+  lineHeight: true,
+  maxFrags: null,
+  flatten: false,
+};
+export const MdLabContext = createContext<MdLab>(MD_LAB_DEFAULT);
 
 // Long paragraphs are split into stacked <Text> segments (see SegText.tsx) —
 // one unbounded <Text> past the iOS layer size limit draws as an empty box.
@@ -13,7 +41,9 @@ function Inlines({
   nodes: Inline[];
   onOpenFile?: (path: string) => void;
 }) {
-  const segs = splitInlineSegs(nodes);
+  const { maxFrags } = useContext(MdLabContext);
+  let segs = splitInlineSegs(nodes);
+  if (maxFrags) segs = segs.flatMap((seg) => chunkFrags(seg, maxFrags));
   if (segs.length === 1) return <InlineSeg nodes={segs[0]} onOpenFile={onOpenFile} />;
   return (
     <View>
@@ -36,8 +66,12 @@ function InlineSeg({
   nodes: Inline[];
   onOpenFile?: (path: string) => void;
 }) {
+  const lab = useContext(MdLabContext);
+  const base = lab.lineHeight ? styles.base : styles.baseNoLh;
+  if (lab.flatten) return <Text style={base}>{nodes.map((n) => n.text).join('')}</Text>;
+  const code = [styles.code, !lab.codeBg && styles.codeNoBg, !lab.codeFont && styles.codeNoFont];
   return (
-    <Text style={styles.base}>
+    <Text style={base}>
       {nodes.map((n, i) => {
         switch (n.type) {
           case 'text':
@@ -52,7 +86,7 @@ function InlineSeg({
             return (
               <Text
                 key={i}
-                style={styles.code}
+                style={code}
                 onPress={
                   n.href
                     ? () => Linking.openURL(n.href!).catch(() => {})
@@ -164,6 +198,7 @@ const styles = StyleSheet.create({
   wrap: { gap: 6 },
   block: {},
   base: { color: colors.text, fontSize: 15, lineHeight: 22 },
+  baseNoLh: { color: colors.text, fontSize: 15 },
   strong: { fontWeight: '700', color: colors.text },
   code: {
     fontFamily: 'monospace',
@@ -171,6 +206,8 @@ const styles = StyleSheet.create({
     color: colors.accent,
     fontSize: 13,
   },
+  codeNoBg: { backgroundColor: undefined },
+  codeNoFont: { fontFamily: undefined },
   link: { color: colors.accent, textDecorationLine: 'underline' },
   codeBlock: {
     backgroundColor: colors.surface2,

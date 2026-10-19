@@ -22,6 +22,7 @@ export default function RootLayout() {
           >
             <Stack.Screen name="index" options={{ title: 'Capra' }} />
             <Stack.Screen name="settings" options={{ title: 'settings', presentation: 'modal' }} />
+            <Stack.Screen name="lab" options={{ title: 'render lab' }} />
             <Stack.Screen
               name="new-chat"
               options={{ title: 'new chat', presentation: 'modal', headerShown: false }}

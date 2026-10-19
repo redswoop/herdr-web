@@ -109,3 +109,13 @@ export function splitInlineSegs(nodes: Inline[]): Inline[][] {
   flush();
   return segs.length ? segs : [nodes];
 }
+
+/** Lab only: cap the nested spans per root <Text>. Cuts fall on span
+ *  boundaries, so a chunk edge mid-sentence becomes a visual line break —
+ *  acceptable for a diagnostic, not for the transcript. */
+export function chunkFrags(seg: Inline[], max: number): Inline[][] {
+  if (max < 1 || seg.length <= max) return [seg];
+  const out: Inline[][] = [];
+  for (let i = 0; i < seg.length; i += max) out.push(seg.slice(i, i + max));
+  return out;
+}
