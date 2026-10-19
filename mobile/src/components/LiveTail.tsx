@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { agentPath, get, getPlatform, stripChrome } from '@herdr/shared';
-import { colors } from '../theme';
+import { useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 
 const OPEN_KEY = 'herdr.liveTail';
 
 export function LiveTail({ paneId }: { paneId: string }) {
+  const t = useTheme();
+  const styles = useStyles(makeStyles);
   const kv = getPlatform().kv;
   const [open, setOpen] = useState(() => kv.get(OPEN_KEY) !== 'closed');
   const [text, setText] = useState<string | null>(null);
@@ -61,7 +63,7 @@ export function LiveTail({ paneId }: { paneId: string }) {
             ? 'streaming from the TUI — transcript catches up as steps complete'
             : 'tap to watch the TUI while it works'}
         </Text>
-        <Icon name={open ? 'chevron-down' : 'chevron-up'} size={16} color={colors.sub} />
+        <Icon name={open ? 'chevron-down' : 'chevron-up'} size={16} color={t.colors.sub} />
       </Pressable>
       {open && text !== null && (
         <ScrollView ref={scrollRef} style={styles.body} nestedScrollEnabled>
@@ -72,11 +74,12 @@ export function LiveTail({ paneId }: { paneId: string }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (t: Tokens) =>
+  StyleSheet.create({
   wrap: {
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.hairline,
-    backgroundColor: colors.surface,
+    borderTopColor: t.colors.hairline,
+    backgroundColor: t.colors.surface,
     maxHeight: 180,
   },
   head: {
@@ -88,18 +91,16 @@ const styles = StyleSheet.create({
   },
   headLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   liveDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: colors.working,
+    ...t.dot(7),
+    backgroundColor: t.colors.working,
   },
-  title: { color: colors.sub, fontSize: 12, fontWeight: '600', textTransform: 'uppercase' },
-  sub: { color: colors.sub, fontSize: 11, flex: 1, opacity: 0.8 },
-  chev: { color: colors.sub },
+  title: { color: t.colors.sub, fontSize: 12, ...t.font('ui', '600'), textTransform: 'uppercase' },
+  sub: { ...t.font('ui'), color: t.colors.sub, fontSize: 11, flex: 1, opacity: 0.8 },
+  chev: { color: t.colors.sub },
   body: { paddingHorizontal: 12, paddingBottom: 8, maxHeight: 140 },
   pre: {
-    fontFamily: 'monospace',
-    color: colors.sub,
+    ...t.font('mono'),
+    color: t.colors.sub,
     fontSize: 11,
     lineHeight: 16,
   },

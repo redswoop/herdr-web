@@ -2,8 +2,10 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { useURL } from 'expo-linking';
 import { hydrateKv, initNativePlatform } from './platform.native';
+import { loadAsync as loadFonts } from 'expo-font';
 import { adoptDeepLink, adoptUrlSettings, loadSettings } from './settings-store';
-import { colors } from './theme';
+import { currentTokens, initPrefs, pullPrefs, subscribePrefs } from './prefs';
+import { DEFAULT_TOKENS, FONT_FILES, ThemeProvider, useTokensFrom } from './theme';
 
 interface BootCtx {
   /** Bump after settings change so hooks remount against the new API config. */
@@ -27,6 +29,9 @@ export function BootProvider({ children }: { children: ReactNode }) {
       await adoptUrlSettings(); // ?server=&token= wins over stored settings
       const s = await loadSettings();
       initNativePlatform({ baseUrl: s.baseUrl, token: s.token || null });
+      initPrefs(); // cached skin first; the server's answer lands when it lands
+      // bundled faces, a few hundred KB: wait rather than flash system type
+      await loadFonts(FONT_FILES).catch(() => {});
       setReady(true);
     })();
   }, []);
@@ -34,6 +39,7 @@ export function BootProvider({ children }: { children: ReactNode }) {
   const remount = useCallback(async () => {
     const s = await loadSettings();
     initNativePlatform({ baseUrl: s.baseUrl, token: s.token || null });
+    void pullPrefs(); // a different daemon may dress differently
     setGen((g) => g + 1);
   }, []);
 
@@ -49,19 +55,24 @@ export function BootProvider({ children }: { children: ReactNode }) {
     });
   }, [ready, url, remount]);
 
+  // prefs.ts owns the tokens; this is the one place react learns of a flip
+  const tokens = useTokensFrom(currentTokens, subscribePrefs);
+
   if (!ready) {
     return (
-      <View style={styles.boot}>
-        <ActivityIndicator color={colors.accent} size="large" />
+      <View style={[styles.boot, { backgroundColor: tokens.colors.bg }]}>
+        <ActivityIndicator color={tokens.colors.accent} size="large" />
       </View>
     );
   }
 
   return (
     <BootContext.Provider value={{ remount, gen }}>
-      <View key={gen} style={styles.fill}>
-        {children}
-      </View>
+      <ThemeProvider tokens={tokens}>
+        <View key={gen} style={[styles.fill, { backgroundColor: tokens.colors.bg }]}>
+          {children}
+        </View>
+      </ThemeProvider>
     </BootContext.Provider>
   );
 }
@@ -69,7 +80,7 @@ export function BootProvider({ children }: { children: ReactNode }) {
 const styles = StyleSheet.create({
   boot: {
     flex: 1,
-    backgroundColor: colors.bg,
+    backgroundColor: DEFAULT_TOKENS.colors.bg,
     alignItems: 'center',
     justifyContent: 'center',
   },

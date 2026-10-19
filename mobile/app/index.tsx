@@ -26,7 +26,7 @@ import {
 } from '@herdr/shared';
 import { Icon } from '../src/components/Icon';
 import { Overview } from '../src/components/Overview';
-import { colors, radius, statusColor } from '../src/theme';
+import { alpha, useStyles, useTheme, type Tokens } from '../src/theme';
 
 const GROUPBY_KEY = 'herdr.groupBy';
 const CLOSED_KEY = 'herdr.groupsClosed';
@@ -51,6 +51,8 @@ function loadHomeView(): 'list' | 'cards' {
 }
 
 export default function RosterScreen() {
+  const t = useTheme();
+  const styles = useStyles(makeStyles);
   const { roster, connected, authNeeded } = useRoster();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -159,7 +161,7 @@ export default function RosterScreen() {
         </Text>
         <Link href="/settings" asChild>
           <Pressable style={styles.primaryBtn}>
-            <Icon name="settings" size={18} color={colors.accentInk} />
+            <Icon name="settings" size={18} color={t.colors.accentInk} />
             <Text style={styles.primaryBtnText}>open settings</Text>
           </Pressable>
         </Link>
@@ -188,7 +190,7 @@ export default function RosterScreen() {
         </View>
         <Link href="/settings" asChild>
           <Pressable hitSlop={12} style={styles.settingsBtn} accessibilityLabel="settings">
-            <Icon name="settings" size={20} color={colors.accent} />
+            <Icon name="settings" size={20} color={t.colors.accent} />
           </Pressable>
         </Link>
       </View>
@@ -202,7 +204,7 @@ export default function RosterScreen() {
           <Icon
             name="list"
             size={15}
-            color={homeView === 'list' ? colors.accentInk : colors.sub}
+            color={homeView === 'list' ? t.colors.accentInk : t.colors.sub}
           />
           <Text style={[styles.modeText, homeView === 'list' && styles.modeTextOn]}>list</Text>
         </Pressable>
@@ -214,7 +216,7 @@ export default function RosterScreen() {
           <Icon
             name="grid"
             size={15}
-            color={homeView === 'cards' ? colors.accentInk : colors.sub}
+            color={homeView === 'cards' ? t.colors.accentInk : t.colors.sub}
           />
           <Text style={[styles.modeText, homeView === 'cards' && styles.modeTextOn]}>cards</Text>
         </Pressable>
@@ -260,7 +262,7 @@ export default function RosterScreen() {
               </Text>
               {!roster.herdrDown && (
                 <Pressable style={styles.primaryBtn} onPress={() => openNew()}>
-                  <Icon name="plus" size={18} color={colors.accentInk} />
+                  <Icon name="plus" size={18} color={t.colors.accentInk} />
                   <Text style={styles.primaryBtnText}>start a chat</Text>
                 </Pressable>
               )}
@@ -276,13 +278,13 @@ export default function RosterScreen() {
                   <Icon
                     name={collapsed ? 'chevron-right' : 'chevron-down'}
                     size={16}
-                    color={colors.sub}
+                    color={t.colors.sub}
                   />
                   <Text style={styles.sectionTitle}>{g.title}</Text>
                   {!!g.badge && <Text style={styles.badge}>{g.badge}</Text>}
-                  {!!g.focused && <Icon name="focus" size={14} color={colors.accent} />}
+                  {!!g.focused && <Icon name="focus" size={14} color={t.colors.accent} />}
                   {!!g.status && (
-                    <View style={[styles.dot, { backgroundColor: statusColor(g.status) }]} />
+                    <View style={[styles.dot, { backgroundColor: t.status(g.status) }]} />
                   )}
                   <Text style={styles.groupCount}>
                     {blockedInGroup > 0 ? `${blockedInGroup}·` : ''}
@@ -299,9 +301,9 @@ export default function RosterScreen() {
                     accessibilityLabel="new session here (long-press to customize)"
                   >
                     {spawning === g.key ? (
-                      <ActivityIndicator size="small" color={colors.accent} />
+                      <ActivityIndicator size="small" color={t.colors.accent} />
                     ) : (
-                      <Icon name="plus" size={18} color={colors.accent} />
+                      <Icon name="plus" size={18} color={t.colors.accent} />
                     )}
                   </Pressable>
                 )}
@@ -313,7 +315,7 @@ export default function RosterScreen() {
               return (
                 <View style={styles.tabHead}>
                   <Text style={styles.tabTitle}>{item.title}</Text>
-                  {item.focused && <Icon name="focus" size={14} color={colors.accent} />}
+                  {item.focused && <Icon name="focus" size={14} color={t.colors.accent} />}
                 </View>
               );
             }
@@ -326,13 +328,13 @@ export default function RosterScreen() {
                 style={styles.row}
                 onPress={() => router.push(`/agent/${encodeURIComponent(a.paneId)}`)}
               >
-                <View style={[styles.statusDot, { backgroundColor: statusColor(a.status) }]} />
+                <View style={[styles.statusDot, { backgroundColor: t.status(a.status) }]} />
                 <View style={styles.rowBody}>
                   <View style={styles.rowTitleRow}>
                     <Text style={styles.rowTitle} numberOfLines={1}>
                       {chipName(a)}
                     </Text>
-                    {a.focused ? <Icon name="focus" size={13} color={colors.accent} /> : null}
+                    {a.focused ? <Icon name="focus" size={13} color={t.colors.accent} /> : null}
                   </View>
                   <Text style={styles.rowSub} numberOfLines={1}>
                     {[
@@ -360,7 +362,7 @@ export default function RosterScreen() {
                     </View>
                   )}
                 </View>
-                <Text style={[styles.stateWord, { color: statusColor(a.status) }]}>
+                <Text style={[styles.stateWord, { color: t.status(a.status) }]}>
                   {STATUS_WORD[a.status] ?? a.status}
                 </Text>
               </Pressable>
@@ -374,17 +376,18 @@ export default function RosterScreen() {
         onPress={() => openNew()}
         accessibilityLabel="new chat"
       >
-        <Icon name="plus" size={28} color={colors.accentInk} />
+        <Icon name="plus" size={28} color={t.colors.accentInk} />
       </Pressable>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
+const makeStyles = (t: Tokens) =>
+  StyleSheet.create({
+  root: { flex: 1, backgroundColor: t.colors.bg },
   center: {
     flex: 1,
-    backgroundColor: colors.bg,
+    backgroundColor: t.colors.bg,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 32,
@@ -392,24 +395,24 @@ const styles = StyleSheet.create({
   },
   gateArt: { width: 180, height: 180, marginBottom: 4 },
   emptyArt: { width: 140, height: 140, opacity: 0.95 },
-  gateTitle: { color: colors.text, fontSize: 20, fontWeight: '700' },
-  gateSub: { color: colors.sub, textAlign: 'center', marginBottom: 12 },
+  gateTitle: { color: t.colors.text, fontSize: 20, ...t.font('ui', '700') },
+  gateSub: { ...t.font('ui'), color: t.colors.sub, textAlign: 'center', marginBottom: 12 },
   primaryBtn: {
-    backgroundColor: colors.accent,
+    backgroundColor: t.colors.accent,
     paddingHorizontal: 20,
     paddingVertical: 12,
-    borderRadius: radius.md,
+    borderRadius: t.radius.md,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  primaryBtnText: { color: colors.accentInk, fontWeight: '700' },
-  banner: { backgroundColor: colors.working, padding: 8 },
+  primaryBtnText: { color: t.colors.accentInk, ...t.font('ui', '700') },
+  banner: { backgroundColor: t.colors.working, padding: 8 },
   bannerText: {
-    color: colors.accentInk,
+    color: t.colors.accentInk,
     textAlign: 'center',
     fontSize: 13,
-    fontWeight: '600',
+    ...t.font('ui', '600'),
   },
   toolbar: {
     flexDirection: 'row',
@@ -418,25 +421,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.hairline,
-    backgroundColor: colors.surface,
+    borderBottomColor: t.colors.hairline,
+    backgroundColor: t.colors.surface,
   },
   connRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.sub,
+    ...t.dot(8),
+    backgroundColor: t.colors.sub,
   },
-  dotOk: { backgroundColor: colors.done },
-  connLabel: { color: colors.sub, fontSize: 13 },
+  dotOk: { backgroundColor: t.colors.done },
+  connLabel: { ...t.font('ui'), color: t.colors.sub, fontSize: 13 },
   blockedBadge: {
-    backgroundColor: 'rgba(247,118,142,0.25)',
+    backgroundColor: alpha(t.colors.blocked, 0.25),
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 999,
+    borderRadius: t.r(999),
   },
-  blockedBadgeText: { color: colors.blocked, fontSize: 12, fontWeight: '700' },
+  blockedBadgeText: { color: t.colors.blocked, fontSize: 12, ...t.font('ui', '700') },
   settingsBtn: {
     width: 36,
     height: 36,
@@ -448,38 +449,38 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: colors.surface,
+    backgroundColor: t.colors.surface,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.hairline,
+    borderBottomColor: t.colors.hairline,
   },
   modeChip: {
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: colors.surface2,
+    borderRadius: t.r(999),
+    backgroundColor: t.colors.surface2,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
   },
-  modeOn: { backgroundColor: colors.accent },
-  modeText: { color: colors.sub, fontSize: 12, fontWeight: '600' },
-  modeTextOn: { color: colors.accentInk },
+  modeOn: { backgroundColor: t.colors.accent },
+  modeText: { color: t.colors.sub, fontSize: 12, ...t.font('ui', '600') },
+  modeTextOn: { color: t.colors.accentInk },
   list: { paddingBottom: 100 },
   emptyBox: { alignItems: 'center', marginTop: 32, gap: 12, paddingHorizontal: 24 },
-  empty: { color: colors.sub, textAlign: 'center' },
+  empty: { ...t.font('ui'), color: t.colors.sub, textAlign: 'center' },
   sectionHead: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 10,
     paddingVertical: 8,
-    backgroundColor: colors.surface,
+    backgroundColor: t.colors.surface,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.hairline,
+    borderBottomColor: t.colors.hairline,
   },
   sectionMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
-  sectionTitle: { color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 },
-  badge: { color: colors.sub, fontSize: 11 },
-  groupCount: { color: colors.sub, fontSize: 11, fontVariant: ['tabular-nums'] },
+  sectionTitle: { color: t.colors.text, ...t.font('ui', '700'), fontSize: 13, flex: 1 },
+  badge: { ...t.font('ui'), color: t.colors.sub, fontSize: 11 },
+  groupCount: { ...t.font('ui'), color: t.colors.sub, fontSize: 11, fontVariant: ['tabular-nums'] },
   tabHead: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -487,28 +488,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingTop: 8,
     paddingBottom: 2,
-    backgroundColor: colors.bg,
+    backgroundColor: t.colors.bg,
   },
-  tabTitle: { color: colors.sub, fontSize: 11, fontWeight: '700', textTransform: 'uppercase' },
+  tabTitle: { color: t.colors.sub, fontSize: 11, ...t.font('ui', '700'), textTransform: 'uppercase' },
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
   tag: {
-    color: colors.sub,
+    color: t.colors.sub,
+    ...t.font('ui'),
     fontSize: 10,
-    backgroundColor: colors.surface2,
+    backgroundColor: t.colors.surface2,
     paddingHorizontal: 6,
     paddingVertical: 1,
-    borderRadius: 4,
+    borderRadius: t.r(4),
     overflow: 'hidden',
   },
-  tagWarn: { color: colors.working },
-  stateWord: { fontSize: 11, fontWeight: '700', textTransform: 'lowercase' },
+  tagWarn: { color: t.colors.working },
+  stateWord: { fontSize: 11, ...t.font('ui', '700'), textTransform: 'lowercase' },
   quickBtn: {
     width: 32,
     height: 32,
-    borderRadius: 16,
+    borderRadius: t.r(16),
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.surface2,
+    backgroundColor: t.colors.surface2,
   },
   row: {
     flexDirection: 'row',
@@ -517,29 +519,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.hairline,
+    borderBottomColor: t.colors.hairline,
   },
-  statusDot: { width: 10, height: 10, borderRadius: 5 },
+  statusDot: t.dot(10),
   rowBody: { flex: 1, minWidth: 0 },
   rowTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  rowTitle: { color: colors.text, fontSize: 15, fontWeight: '600', flexShrink: 1 },
-  rowSub: { color: colors.sub, fontSize: 12, marginTop: 2 },
+  rowTitle: { color: t.colors.text, fontSize: 15, ...t.font('ui', '600'), flexShrink: 1 },
+  rowSub: { ...t.font('ui'), color: t.colors.sub, fontSize: 12, marginTop: 2 },
   blockedChip: {
-    backgroundColor: colors.blocked,
+    backgroundColor: t.colors.blocked,
     width: 22,
     height: 22,
-    borderRadius: 11,
+    borderRadius: t.r(11),
     alignItems: 'center',
     justifyContent: 'center',
   },
-  blockedChipText: { color: colors.accentInk, fontWeight: '800' },
+  blockedChipText: { color: t.colors.accentInk, ...t.font('ui', '700') },
   fab: {
     position: 'absolute',
     right: 18,
     width: 56,
     height: 56,
-    borderRadius: 28,
-    backgroundColor: colors.accent,
+    borderRadius: t.r(28),
+    backgroundColor: t.colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
     elevation: 6,

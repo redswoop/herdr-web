@@ -21,7 +21,7 @@ import {
   type RestoredDraft,
 } from '@herdr/shared';
 import { fileRawUrl } from '../api-urls';
-import { colors, radius } from '../theme';
+import { alpha, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 
 const KEYS = [
@@ -129,6 +129,8 @@ export function Composer({
   onToggleKeys: () => void;
   onKeyTap?: () => void;
 }) {
+  const t = useTheme();
+  const styles = useStyles(makeStyles);
   const kv = getPlatform().kv;
   const [text, setTextState] = useState(() => kv.get(textKey(paneId)) ?? '');
   const [atts, setAtts] = useState<Attachment[]>(() => loadAtts(paneId));
@@ -337,14 +339,14 @@ export function Composer({
                 <Image source={{ uri: a.uri }} style={styles.attImg} />
               ) : (
                 <View style={styles.attFile}>
-                  <Icon name="file" size={20} color={colors.accent} />
+                  <Icon name="file" size={20} color={t.colors.accent} />
                   <Text style={styles.attFileName} numberOfLines={2}>
                     {a.name ? basename(a.name) : 'file'}
                   </Text>
                 </View>
               )}
               <Pressable style={styles.attX} onPress={() => removeAtt(a.id)} hitSlop={6}>
-                <Icon name="close" size={12} color={colors.accentInk} />
+                <Icon name="close" size={12} color={t.colors.accentInk} />
               </Pressable>
             </View>
           ))}
@@ -410,7 +412,7 @@ export function Composer({
           }}
           accessibilityLabel="attach menu"
         >
-          <Icon name="attach" size={22} color={menuOpen || showKeys ? colors.accent : colors.sub} />
+          <Icon name="attach" size={22} color={menuOpen || showKeys ? t.colors.accent : t.colors.sub} />
         </Pressable>
 
         <View style={styles.inputWrap}>
@@ -423,7 +425,7 @@ export function Composer({
               setSelection(undefined);
             }}
             placeholder="prompt…"
-            placeholderTextColor={colors.sub}
+            placeholderTextColor={t.colors.sub}
             multiline
             scrollEnabled
             textAlignVertical="top"
@@ -446,7 +448,7 @@ export function Composer({
               }}
               accessibilityLabel="clear draft"
             >
-              <Icon name="close" size={14} color={colors.text} />
+              <Icon name="close" size={14} color={t.colors.text} />
             </Pressable>
           )}
         </View>
@@ -461,7 +463,7 @@ export function Composer({
           onPress={stop ? onInterrupt : send}
           accessibilityLabel={stop ? 'stop' : 'send'}
         >
-          <Icon name={stop ? 'stop' : 'send'} size={18} color={colors.accentInk} />
+          <Icon name={stop ? 'stop' : 'send'} size={18} color={t.colors.accentInk} />
         </Pressable>
       </View>
     </View>
@@ -479,19 +481,22 @@ function MenuRow({
   onPress: () => void;
   accent?: boolean;
 }) {
+  const t = useTheme();
+  const styles = useStyles(makeStyles);
   return (
     <Pressable style={styles.menuRow} onPress={onPress}>
-      <Icon name={icon} size={18} color={accent ? colors.accent : colors.text} />
+      <Icon name={icon} size={18} color={accent ? t.colors.accent : t.colors.text} />
       <Text style={[styles.menuLabel, accent && styles.menuLabelOn]}>{label}</Text>
     </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (t: Tokens) =>
+  StyleSheet.create({
   wrap: {
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.hairline,
-    backgroundColor: colors.surface,
+    borderTopColor: t.colors.hairline,
+    backgroundColor: t.colors.surface,
     paddingBottom: 8,
     paddingTop: 6,
   },
@@ -505,9 +510,9 @@ const styles = StyleSheet.create({
   att: {
     width: 56,
     height: 56,
-    borderRadius: 10,
+    borderRadius: t.r(10),
     overflow: 'hidden',
-    backgroundColor: colors.surface3,
+    backgroundColor: t.colors.surface3,
   },
   attUploading: { opacity: 0.5 },
   attImg: { width: '100%', height: '100%' },
@@ -519,7 +524,8 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   attFileName: {
-    color: colors.sub,
+    color: t.colors.sub,
+    ...t.font('ui'),
     fontSize: 9,
     textAlign: 'center',
   },
@@ -529,7 +535,7 @@ const styles = StyleSheet.create({
     right: 2,
     width: 18,
     height: 18,
-    borderRadius: 9,
+    borderRadius: t.r(9),
     backgroundColor: 'rgba(0,0,0,0.55)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -543,20 +549,20 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
   },
   keyBtn: {
-    backgroundColor: colors.surface3,
+    backgroundColor: t.colors.surface3,
     paddingHorizontal: 10,
     paddingVertical: 8,
-    borderRadius: radius.sm,
+    borderRadius: t.radius.sm,
   },
-  keyLabel: { color: colors.text, fontSize: 13, fontWeight: '600' },
+  keyLabel: { color: t.colors.text, fontSize: 13, ...t.font('ui', '600') },
 
   menu: {
     marginHorizontal: 10,
     marginBottom: 6,
-    backgroundColor: colors.surface2,
-    borderRadius: radius.md,
+    backgroundColor: t.colors.surface2,
+    borderRadius: t.radius.md,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.hairline,
+    borderColor: t.colors.hairline,
     overflow: 'hidden',
   },
   menuRow: {
@@ -566,10 +572,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.hairline,
+    borderBottomColor: t.colors.hairline,
   },
-  menuLabel: { color: colors.text, fontSize: 15, fontWeight: '500' },
-  menuLabelOn: { color: colors.accent },
+  menuLabel: { color: t.colors.text, fontSize: 15, ...t.font('ui', '500') },
+  menuLabelOn: { color: t.colors.accent },
 
   row: {
     flexDirection: 'row',
@@ -580,14 +586,14 @@ const styles = StyleSheet.create({
   iconBtn: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: t.r(20),
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.surface2,
+    backgroundColor: t.colors.surface2,
     marginBottom: 2,
   },
   iconBtnOn: {
-    backgroundColor: 'rgba(122,162,247,0.18)',
+    backgroundColor: alpha(t.colors.accent, 0.18),
   },
 
   inputWrap: {
@@ -597,9 +603,10 @@ const styles = StyleSheet.create({
   },
   input: {
     height: INPUT_H,
-    backgroundColor: colors.surface2,
-    borderRadius: radius.md,
-    color: colors.text,
+    backgroundColor: t.colors.surface2,
+    borderRadius: t.radius.md,
+    color: t.colors.text,
+    ...t.font('ui'),
     fontSize: 16,
     lineHeight: 22,
     paddingHorizontal: 14,
@@ -613,7 +620,7 @@ const styles = StyleSheet.create({
     top: 8,
     width: 24,
     height: 24,
-    borderRadius: 12,
+    borderRadius: t.r(12),
     backgroundColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -622,12 +629,12 @@ const styles = StyleSheet.create({
   send: {
     width: 40,
     height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.accent,
+    borderRadius: t.r(20),
+    backgroundColor: t.colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 2,
   },
-  sendStop: { backgroundColor: colors.blocked },
+  sendStop: { backgroundColor: t.colors.blocked },
   sendDisabled: { opacity: 0.4 },
 });

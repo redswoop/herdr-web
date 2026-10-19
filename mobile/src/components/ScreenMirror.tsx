@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { agentPath, chromeVisible, get } from '@herdr/shared';
-import { colors } from '../theme';
+import { alpha, useStyles, type Tokens } from '../theme';
 
 /**
  * Live mirror of the pane while a local TUI dialog is up (/model, /resume, …).
@@ -21,6 +21,7 @@ export function ScreenMirror({
   onClose: () => void;
   onGone?: (finalScreen: string) => void;
 }) {
+  const styles = useStyles(makeStyles);
   const [text, setText] = useState<string | null>(null);
   const chromeRuns = useRef(0);
   const closedRef = useRef(false);
@@ -89,11 +90,12 @@ export function ScreenMirror({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (t: Tokens) =>
+  StyleSheet.create({
   wrap: {
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.working,
-    backgroundColor: colors.surface,
+    borderTopColor: t.colors.working,
+    backgroundColor: t.colors.surface,
     maxHeight: 220,
   },
   banner: {
@@ -102,14 +104,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: 'rgba(224,175,104,0.15)',
+    backgroundColor: alpha(t.colors.working, 0.15),
   },
-  bannerText: { color: colors.working, fontSize: 12, fontWeight: '600', flex: 1 },
-  hide: { color: colors.accent, fontSize: 13 },
+  bannerText: { color: t.colors.working, fontSize: 12, ...t.font('ui', '600'), flex: 1 },
+  hide: { ...t.font('ui'), color: t.colors.accent, fontSize: 13 },
   body: { paddingHorizontal: 12, paddingBottom: 8, maxHeight: 180 },
   pre: {
-    fontFamily: 'monospace',
-    color: colors.text,
+    ...t.font('mono'),
+    color: t.colors.text,
     fontSize: 11,
     lineHeight: 16,
   },

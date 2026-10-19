@@ -3,9 +3,10 @@ import { StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { getPlatform, useRoster } from '@herdr/shared';
 import { FileViewer } from '../../../src/components/FileViewer';
-import { colors } from '../../../src/theme';
+import { useStyles, type Tokens } from '../../../src/theme';
 
 export default function FileScreen() {
+  const styles = useStyles(makeStyles);
   const { paneId: rawPane, path: rawPath } = useLocalSearchParams<{
     paneId: string;
     path: string;
@@ -60,6 +61,7 @@ export default function FileScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
+const makeStyles = (t: Tokens) =>
+  StyleSheet.create({
+  root: { flex: 1, backgroundColor: t.colors.bg },
 });

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { AnswerBody, BlockedCtx } from '@herdr/shared';
-import { colors, radius } from '../theme';
+import { useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 
 export function BlockedCard({
@@ -11,6 +11,8 @@ export function BlockedCard({
   ctx: BlockedCtx;
   onAnswer: (body: AnswerBody) => Promise<boolean>;
 }) {
+  const t = useTheme();
+  const styles = useStyles(makeStyles);
   const [busy, setBusy] = useState<string | null>(null);
   const [fb, setFb] = useState('');
 
@@ -41,7 +43,7 @@ export function BlockedCard({
       onPress={() => answer(id, { keys, expect: expect ?? null })}
     >
       {busy === id ? (
-        <ActivityIndicator color={colors.text} />
+        <ActivityIndicator color={t.colors.text} />
       ) : (
         <>
           <Text style={styles.optLabel}>{label}</Text>
@@ -95,7 +97,7 @@ export function BlockedCard({
                   onPress={() => answer(String(o.n), { option: o.n })}
                 >
                   {busy === String(o.n) ? (
-                    <ActivityIndicator color={colors.text} />
+                    <ActivityIndicator color={t.colors.text} />
                   ) : (
                     <>
                       <Text style={styles.optLabel}>{`${o.selected ? '❯ ' : ''}${o.label}`}</Text>
@@ -115,7 +117,7 @@ export function BlockedCard({
               <TextInput
                 style={styles.fb}
                 placeholder="type your own answer…"
-                placeholderTextColor={colors.sub}
+                placeholderTextColor={t.colors.sub}
                 value={fb}
                 editable={busy === null}
                 multiline
@@ -129,7 +131,7 @@ export function BlockedCard({
                 }}
               >
                 {busy === 'fb' ? (
-                  <ActivityIndicator color={colors.text} />
+                  <ActivityIndicator color={t.colors.text} />
                 ) : (
                   <Text style={styles.optLabel}>send answer</Text>
                 )}
@@ -170,7 +172,7 @@ export function BlockedCard({
               onPress={() => answer(String(o.n), { option: o.n })}
             >
               {busy === String(o.n) ? (
-                <ActivityIndicator color={colors.text} />
+                <ActivityIndicator color={t.colors.text} />
               ) : (
                 <>
                   <Text style={styles.optLabel}>{o.label}</Text>
@@ -182,7 +184,7 @@ export function BlockedCard({
           <TextInput
             style={styles.fb}
             placeholder={grok ? 'tell grok what to change…' : 'tell claude what to change…'}
-            placeholderTextColor={colors.sub}
+            placeholderTextColor={t.colors.sub}
             value={fb}
             editable={busy === null}
             multiline
@@ -196,7 +198,7 @@ export function BlockedCard({
             }}
           >
             {busy === 'fb' ? (
-              <ActivityIndicator color={colors.text} />
+              <ActivityIndicator color={t.colors.text} />
             ) : (
               <Text style={styles.optLabel}>send feedback (keeps planning)</Text>
             )}
@@ -211,7 +213,7 @@ export function BlockedCard({
       <View style={styles.card}>
         <View style={styles.question}>
           <View style={styles.qRow}>
-            <Icon name="lock" size={16} color={colors.blocked} />
+            <Icon name="lock" size={16} color={t.colors.blocked} />
             <Text style={styles.qText}>
               wants to run <Text style={styles.tool}>{ctx.tool}</Text>
             </Text>
@@ -241,44 +243,46 @@ export function BlockedCard({
   return null;
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (t: Tokens) =>
+  StyleSheet.create({
   card: {
-    backgroundColor: colors.surface,
+    backgroundColor: t.colors.surface,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.blocked,
+    borderTopColor: t.colors.blocked,
     padding: 12,
     gap: 10,
   },
   question: { gap: 8 },
   qRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  qText: { color: colors.text, fontSize: 15, fontWeight: '600', flex: 1 },
+  qText: { color: t.colors.text, fontSize: 15, ...t.font('ui', '600'), flex: 1 },
   detail: {
-    fontFamily: 'monospace',
-    color: colors.sub,
+    ...t.font('mono'),
+    color: t.colors.sub,
     fontSize: 12,
-    backgroundColor: colors.surface2,
+    backgroundColor: t.colors.surface2,
     padding: 8,
-    borderRadius: radius.sm,
+    borderRadius: t.radius.sm,
   },
-  tool: { color: colors.accent, fontFamily: 'monospace' },
+  tool: { color: t.colors.accent, ...t.font('mono'), },
   option: {
-    backgroundColor: colors.surface2,
-    borderRadius: radius.md,
+    backgroundColor: t.colors.surface2,
+    borderRadius: t.radius.md,
     padding: 12,
     borderWidth: 1,
-    borderColor: colors.hairline,
+    borderColor: t.colors.hairline,
   },
-  confirm: { borderColor: colors.done },
-  deny: { borderColor: colors.blocked },
+  confirm: { borderColor: t.colors.done },
+  deny: { borderColor: t.colors.blocked },
   busy: { opacity: 0.6 },
-  optLabel: { color: colors.text, fontSize: 15, fontWeight: '600' },
-  optDesc: { color: colors.sub, fontSize: 12, marginTop: 2 },
+  optLabel: { color: t.colors.text, fontSize: 15, ...t.font('ui', '600') },
+  optDesc: { ...t.font('ui'), color: t.colors.sub, fontSize: 12, marginTop: 2 },
   fb: {
-    backgroundColor: colors.surface2,
-    color: colors.text,
-    borderRadius: radius.md,
+    backgroundColor: t.colors.surface2,
+    color: t.colors.text,
+    borderRadius: t.radius.md,
     padding: 10,
     minHeight: 48,
+    ...t.font('ui'),
     fontSize: 14,
   },
 });

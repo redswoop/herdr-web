@@ -1,7 +1,7 @@
 import { createContext, memo, useContext, useMemo } from 'react';
 import { Linking, Platform, StyleSheet, Text, View } from 'react-native';
 import { parseMd, type Block, type Inline } from '@herdr/shared';
-import { colors } from '../theme';
+import { useStyles, useTheme, type Tokens } from '../theme';
 import { chunkFrags, splitInlineSegs, splitPlain } from './segment';
 
 /** Render-lab knobs (app/lab.tsx). Production never provides this context, so
@@ -66,6 +66,7 @@ function InlineSeg({
   nodes: Inline[];
   onOpenFile?: (path: string) => void;
 }) {
+  const styles = useStyles(makeStyles);
   const lab = useContext(MdLabContext);
   const base = lab.lineHeight ? styles.base : styles.baseNoLh;
   if (lab.flatten) return <Text style={base}>{nodes.map((n) => n.text).join('')}</Text>;
@@ -131,6 +132,8 @@ function BlockView({
   block: Block;
   onOpenFile?: (path: string) => void;
 }) {
+  const t = useTheme();
+  const styles = useStyles(makeStyles);
   // NO ScrollView in here, ever. Code blocks and tables used to sit in a
   // horizontal ScrollView; under Fabric (RN 0.86) a ScrollView nested in a
   // FlatList cell makes every ancestor View's Yoga height grow on each
@@ -184,6 +187,7 @@ export const MdView = memo(function MdView({
   src: string;
   onOpenFile?: (path: string) => void;
 }) {
+  const styles = useStyles(makeStyles);
   const blocks = useMemo(() => parseMd(src), [src]);
   return (
     <View style={styles.wrap}>
@@ -196,29 +200,30 @@ export const MdView = memo(function MdView({
   );
 });
 
-const styles = StyleSheet.create({
+const makeStyles = (t: Tokens) =>
+  StyleSheet.create({
   wrap: { gap: 6 },
   block: {},
-  base: { color: colors.text, fontSize: 15, lineHeight: 22 },
-  baseNoLh: { color: colors.text, fontSize: 15 },
-  strong: { fontWeight: '700', color: colors.text },
+  base: { ...t.font('ui'), color: t.colors.text, fontSize: 15, lineHeight: 22 },
+  baseNoLh: { ...t.font('ui'), color: t.colors.text, fontSize: 15 },
+  strong: { ...t.font('ui', '700'), color: t.colors.text },
   code: {
-    fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }),
-    backgroundColor: colors.surface3,
-    color: colors.accent,
+    ...t.font('mono'),
+    backgroundColor: t.colors.surface3,
+    color: t.colors.accent,
     fontSize: 13,
   },
   codeNoBg: { backgroundColor: undefined },
   codeNoFont: { fontFamily: undefined },
-  link: { color: colors.accent, textDecorationLine: 'underline' },
+  link: { color: t.colors.accent, textDecorationLine: 'underline' },
   codeBlock: {
-    backgroundColor: colors.surface2,
-    borderRadius: 10,
+    backgroundColor: t.colors.surface2,
+    borderRadius: t.r(10),
     padding: 10,
   },
   codeBlockText: {
-    fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }),
-    color: colors.text,
+    ...t.font('mono'),
+    color: t.colors.text,
     fontSize: 12,
     lineHeight: 18,
   },
@@ -228,13 +233,13 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 6,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.hairline,
-    backgroundColor: colors.surface2,
+    borderColor: t.colors.hairline,
+    backgroundColor: t.colors.surface2,
   },
   td: {
     flex: 1,
     padding: 6,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.hairline,
+    borderColor: t.colors.hairline,
   },
 });

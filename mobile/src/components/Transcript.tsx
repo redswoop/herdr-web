@@ -25,7 +25,7 @@ import {
   type Step,
   type TEvent,
 } from '@herdr/shared';
-import { colors } from '../theme';
+import { useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 import { MdView } from './MdView';
 import { SegText } from './SegText';
@@ -51,6 +51,7 @@ export function Transcript({
   onInterrupt: () => void;
   onOpenFile: (path: string) => void;
 }) {
+  const styles = useStyles(makeStyles);
   const nodes = useMemo(() => buildNodes(items, working), [items, working]);
   // inverted list: reverse so newest is near index 0 (keyboard side)
   const data = useMemo(() => {
@@ -133,6 +134,7 @@ export function Transcript({
 }
 
 function WorkingPill() {
+  const styles = useStyles(makeStyles);
   const [i] = useState(() => Math.floor(Math.random() * HERDING.length));
   return (
     <View style={styles.activity}>
@@ -154,6 +156,7 @@ const EventNode = memo(function EventNode({
   ev: TEvent;
   onOpenFile: (path: string) => void;
 }) {
+  const styles = useStyles(makeStyles);
   if (ev.kind === 'interrupted') {
     return <Text style={styles.interrupt}>⏹ interrupted</Text>;
   }
@@ -185,6 +188,7 @@ const EventNode = memo(function EventNode({
 });
 
 function Details({ label, body }: { label: string; body: string }) {
+  const styles = useStyles(makeStyles);
   const [open, setOpen] = useState(false);
   return (
     <View style={styles.aux}>
@@ -205,6 +209,8 @@ function ActivityGroup({
   live: boolean;
   onOpenFile: (path: string) => void;
 }) {
+  const t = useTheme();
+  const styles = useStyles(makeStyles);
   const [open, setOpen] = useState(false);
   const tools = node.steps.filter((s) => s.type === 'tool');
   const thoughts = node.steps.length - tools.length;
@@ -229,7 +235,7 @@ function ActivityGroup({
         <Icon
           name={open ? 'chevron-down' : 'chevron-right'}
           size={14}
-          color={colors.sub}
+          color={t.colors.sub}
           style={styles.chev}
         />
         {live ? (
@@ -250,6 +256,7 @@ function ActivityGroup({
 }
 
 function StepRow({ step, onOpenFile }: { step: Step; onOpenFile: (path: string) => void }) {
+  const styles = useStyles(makeStyles);
   const [open, setOpen] = useState(false);
   if (step.type === 'thought' || step.type === 'result') {
     return (
@@ -305,6 +312,7 @@ function CommandPill({
   out: string;
   err: string;
 }) {
+  const styles = useStyles(makeStyles);
   const [open, setOpen] = useState(false);
   const label = [name || 'command output', args].filter(Boolean).join(' ');
   return (
@@ -330,6 +338,7 @@ const TurnMeta = memo(function TurnMeta({
   tok: number;
   ctx: number | null;
 }) {
+  const styles = useStyles(makeStyles);
   const parts = [
     dur !== null ? fmtDur(dur) : null,
     tok > 0 ? `${fmtTok(tok)} tokens` : null,
@@ -350,6 +359,8 @@ const MineBubble = memo(function MineBubble({
   onInterrupt: () => void;
   onOpenFile?: (path: string) => void;
 }) {
+  const t = useTheme();
+  const styles = useStyles(makeStyles);
   // View (not Pressable) so message text stays selectable; hold-to-stop lives
   // on the status line only; bubble-body long-press copies (the status Text
   // captures its own long-press first, so stop and copy don't collide).
@@ -375,77 +386,78 @@ const MineBubble = memo(function MineBubble({
   );
 });
 
-const styles = StyleSheet.create({
+const makeStyles = (t: Tokens) =>
+  StyleSheet.create({
   list: { flex: 1 },
   listContent: { paddingHorizontal: 14, paddingVertical: 10, gap: 8 },
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  empty: { color: colors.sub, textAlign: 'center' },
-  msg: { borderRadius: 14, padding: 12, maxWidth: '92%' },
+  empty: { ...t.font('ui'), color: t.colors.sub, textAlign: 'center' },
+  msg: { borderRadius: t.r(14), padding: 12, maxWidth: '92%' },
   copyPress: { opacity: 0.6 }, // long-press feedback: copying, not selecting
-  user: { alignSelf: 'flex-end', backgroundColor: colors.surface3 },
-  assistant: { alignSelf: 'flex-start', backgroundColor: colors.surface },
+  user: { alignSelf: 'flex-end', backgroundColor: t.colors.surface3 },
+  assistant: { alignSelf: 'flex-start', backgroundColor: t.colors.surface },
   interrupt: {
     alignSelf: 'center',
-    color: colors.working,
+    color: t.colors.working,
+    ...t.font('ui'),
     fontSize: 12,
     marginVertical: 8,
   },
   activity: {
-    backgroundColor: colors.surface,
-    borderRadius: 12,
+    backgroundColor: t.colors.surface,
+    borderRadius: t.r(12),
     padding: 10,
     marginVertical: 2,
   },
   actHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  chev: { color: colors.sub, width: 14 },
+  chev: { color: t.colors.sub, width: 14 },
   liveDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.working,
+    ...t.dot(8),
+    backgroundColor: t.colors.working,
   },
-  actCount: { color: colors.text, fontWeight: '600', fontSize: 13 },
-  actNames: { color: colors.sub, fontSize: 12, flex: 1 },
-  actDur: { color: colors.sub, fontSize: 11 },
+  actCount: { color: t.colors.text, ...t.font('ui', '600'), fontSize: 13 },
+  actNames: { ...t.font('ui'), color: t.colors.sub, fontSize: 12, flex: 1 },
+  actDur: { ...t.font('ui'), color: t.colors.sub, fontSize: 11 },
   step: { marginTop: 6, paddingLeft: 8 },
   stepHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  stepName: { color: colors.accent, fontSize: 12, fontWeight: '600' },
-  stepSum: { color: colors.sub, fontSize: 12, flex: 1 },
-  stepFile: { color: colors.accent, textDecorationLine: 'underline' },
-  pending: { color: colors.working },
+  stepName: { color: t.colors.accent, fontSize: 12, ...t.font('ui', '600') },
+  stepSum: { ...t.font('ui'), color: t.colors.sub, fontSize: 12, flex: 1 },
+  stepFile: { color: t.colors.accent, textDecorationLine: 'underline' },
+  pending: { color: t.colors.working },
   pre: {
-    fontFamily: 'monospace',
-    color: colors.sub,
+    ...t.font('mono'),
+    color: t.colors.sub,
     fontSize: 11,
     marginTop: 4,
   },
-  detailLabel: { color: colors.sub, fontSize: 11, marginTop: 6 },
+  detailLabel: { ...t.font('ui'), color: t.colors.sub, fontSize: 11, marginTop: 6 },
   aux: { padding: 6 },
-  auxSum: { color: colors.sub, fontSize: 12 },
+  auxSum: { ...t.font('ui'), color: t.colors.sub, fontSize: 12 },
   cmd: {
-    backgroundColor: colors.surface2,
-    borderRadius: 10,
+    backgroundColor: t.colors.surface2,
+    borderRadius: t.r(10),
     padding: 8,
     alignSelf: 'flex-start',
   },
   cmdHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  cmdGlyph: { color: colors.accent },
-  cmdName: { color: colors.text, fontSize: 13, fontFamily: 'monospace' },
-  cmdErr: { color: colors.working, fontWeight: '700' },
+  cmdGlyph: { color: t.colors.accent },
+  cmdName: { color: t.colors.text, fontSize: 13, ...t.font('mono'), },
+  cmdErr: { color: t.colors.working, ...t.font('ui', '700') },
   turnMeta: {
     alignSelf: 'center',
-    color: colors.sub,
+    color: t.colors.sub,
+    ...t.font('ui'),
     fontSize: 11,
     marginVertical: 4,
   },
-  mineCancellable: { borderWidth: 1, borderColor: colors.working },
+  mineCancellable: { borderWidth: 1, borderColor: t.colors.working },
   mine: {
     alignSelf: 'flex-end',
-    backgroundColor: colors.accent,
-    borderRadius: 14,
+    backgroundColor: t.colors.accent,
+    borderRadius: t.r(14),
     padding: 12,
     maxWidth: '85%',
   },
-  mineText: { color: colors.accentInk, fontSize: 15 },
-  mineStatus: { color: colors.accentInk, opacity: 0.7, fontSize: 11, marginTop: 4 },
+  mineText: { ...t.font('ui'), color: t.colors.accentInk, fontSize: 15 },
+  mineStatus: { ...t.font('ui'), color: t.colors.accentInk, opacity: 0.7, fontSize: 11, marginTop: 4 },
 });

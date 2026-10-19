@@ -26,9 +26,11 @@ import { Composer } from '../../../src/components/Composer';
 import { LiveTail } from '../../../src/components/LiveTail';
 import { ScreenMirror } from '../../../src/components/ScreenMirror';
 import { Transcript } from '../../../src/components/Transcript';
-import { colors, statusColor } from '../../../src/theme';
+import { alpha, useStyles, useTheme, type Tokens } from '../../../src/theme';
 
 export default function AgentScreen() {
+  const t = useTheme();
+  const styles = useStyles(makeStyles);
   const { paneId: raw } = useLocalSearchParams<{ paneId: string }>();
   const paneId = decodeURIComponent(raw ?? '');
   const { roster } = useRoster();
@@ -62,7 +64,7 @@ export default function AgentScreen() {
       title: agent ? agent.label || agent.title || paneId : paneId,
       headerRight: () => (
         <View style={styles.headerRight}>
-          <View style={[styles.statusChip, { backgroundColor: statusColor(status) }]}>
+          <View style={[styles.statusChip, { backgroundColor: t.status(status) }]}>
             <Text style={styles.statusChipText}>{status ?? '—'}</Text>
           </View>
         </View>
@@ -255,27 +257,29 @@ export default function AgentScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
+const makeStyles = (t: Tokens) =>
+  StyleSheet.create({
+  root: { flex: 1, backgroundColor: t.colors.bg },
   headerRight: { marginRight: 4 },
   statusChip: {
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 999,
+    borderRadius: t.r(999),
   },
-  statusChipText: { color: colors.accentInk, fontSize: 11, fontWeight: '700' },
+  statusChipText: { color: t.colors.accentInk, fontSize: 11, ...t.font('ui', '700') },
   blockedBanner: {
-    backgroundColor: 'rgba(247,118,142,0.2)',
+    backgroundColor: alpha(t.colors.blocked, 0.2),
     padding: 8,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
   },
-  blockedText: { color: colors.blocked, textAlign: 'center', fontWeight: '600', fontSize: 13 },
-  peekBtn: { color: colors.accent, fontSize: 13, fontWeight: '600' },
+  blockedText: { color: t.colors.blocked, textAlign: 'center', ...t.font('ui', '600'), fontSize: 13 },
+  peekBtn: { color: t.colors.accent, fontSize: 13, ...t.font('ui', '600') },
   cwd: {
-    color: colors.sub,
+    color: t.colors.sub,
+    ...t.font('ui'),
     fontSize: 11,
     paddingHorizontal: 14,
     paddingVertical: 4,

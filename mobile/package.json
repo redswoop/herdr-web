@@ -17,6 +17,9 @@
     "eas:configure": "npx eas-cli@latest build:configure"
   },
   "dependencies": {
+    "@expo-google-fonts/chakra-petch": "^0.4.1",
+    "@expo-google-fonts/orbitron": "^0.4.2",
+    "@expo-google-fonts/share-tech-mono": "^0.4.1",
     "@expo/vector-icons": "^15.1.1",
     "@herdr/shared": "*",
     "@react-native-async-storage/async-storage": "2.2.0",
@@ -25,6 +28,7 @@
     "expo-clipboard": "~57.0.1",
     "expo-constants": "~57.0.8",
     "expo-document-picker": "^57.0.1",
+    "expo-font": "~57.0.1",
     "expo-image": "~57.0.1",
     "expo-image-picker": "~57.0.7",
     "expo-linking": "~57.0.4",

@@ -14,7 +14,7 @@ import * as Sharing from 'expo-sharing';
 import type { FileInfo } from '@herdr/shared';
 import { getPlatform } from '@herdr/shared';
 import { fileInfoUrl, fileRawUrl } from '../api-urls';
-import { colors, radius } from '../theme';
+import { useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 import { MdView } from './MdView';
 import { SegText } from './SegText';
@@ -46,6 +46,8 @@ export function FileViewer({
   onLoaded: (resolvedPath: string) => void;
   onRemoveHist: (path: string) => void;
 }) {
+  const t = useTheme();
+  const styles = useStyles(makeStyles);
   const [info, setInfo] = useState<FileInfo | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [raw, setRaw] = useState(false);
@@ -98,7 +100,7 @@ export function FileViewer({
     <View style={styles.root}>
       <View style={styles.bar}>
         <Pressable onPress={onClose} hitSlop={10} style={styles.barBtn} accessibilityLabel="close">
-          <Icon name="back" size={22} color={colors.accent} />
+          <Icon name="back" size={22} color={t.colors.accent} />
         </Pressable>
         <TextInput
           style={styles.path}
@@ -116,7 +118,7 @@ export function FileViewer({
         )}
         {(info?.kind === 'binary' || info?.kind === 'image') && (
           <Pressable style={styles.barBtn} onPress={shareFile} accessibilityLabel="share file">
-            <Icon name="share" size={18} color={colors.accent} />
+            <Icon name="share" size={18} color={t.colors.accent} />
           </Pressable>
         )}
         {history.length > 0 && (
@@ -125,7 +127,7 @@ export function FileViewer({
             onPress={() => setHistOpen((o) => !o)}
             accessibilityLabel="file history"
           >
-            <Icon name="history" size={18} color={colors.accent} />
+            <Icon name="history" size={18} color={t.colors.accent} />
           </Pressable>
         )}
       </View>
@@ -146,7 +148,7 @@ export function FileViewer({
                 </Text>
               </Pressable>
               <Pressable onPress={() => onRemoveHist(p)} hitSlop={8} accessibilityLabel="remove">
-                <Icon name="close" size={16} color={colors.sub} />
+                <Icon name="close" size={16} color={t.colors.sub} />
               </Pressable>
             </View>
           ))}
@@ -157,7 +159,7 @@ export function FileViewer({
         {err && <Text style={styles.empty}>{err}</Text>}
         {!err && !info && (
           <View style={styles.loading}>
-            <ActivityIndicator color={colors.accent} />
+            <ActivityIndicator color={t.colors.accent} />
           </View>
         )}
 
@@ -194,7 +196,7 @@ export function FileViewer({
           <View style={styles.dir}>
             {info.path !== '/' && (
               <Pressable style={styles.dirRow} onPress={() => onNavigate(parent(info.path))}>
-                <Icon name="folder" size={18} color={colors.working} />
+                <Icon name="folder" size={18} color={t.colors.working} />
                 <Text style={styles.dirName}>..</Text>
               </Pressable>
             )}
@@ -207,7 +209,7 @@ export function FileViewer({
                 <Icon
                   name={e.dir ? 'folder' : 'file'}
                   size={18}
-                  color={e.dir ? colors.working : colors.sub}
+                  color={e.dir ? t.colors.working : t.colors.sub}
                 />
                 <Text style={styles.dirName}>
                   {e.name}
@@ -229,34 +231,35 @@ export function FileViewer({
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
+const makeStyles = (t: Tokens) =>
+  StyleSheet.create({
+  root: { flex: 1, backgroundColor: t.colors.bg },
   bar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 8,
     paddingVertical: 8,
-    backgroundColor: colors.surface,
+    backgroundColor: t.colors.surface,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.hairline,
+    borderBottomColor: t.colors.hairline,
   },
   barBtn: { paddingHorizontal: 8, paddingVertical: 6 },
-  barBtnText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
+  barBtnText: { color: t.colors.accent, fontSize: 14, ...t.font('ui', '600') },
   path: {
     flex: 1,
-    backgroundColor: colors.surface2,
-    borderRadius: radius.sm,
-    color: colors.text,
+    backgroundColor: t.colors.surface2,
+    borderRadius: t.radius.sm,
+    color: t.colors.text,
     fontSize: 12,
-    fontFamily: 'monospace',
+    ...t.font('mono'),
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
   hist: {
-    backgroundColor: colors.surface2,
+    backgroundColor: t.colors.surface2,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.hairline,
+    borderBottomColor: t.colors.hairline,
     maxHeight: 180,
   },
   histRow: {
@@ -265,22 +268,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.hairline,
+    borderBottomColor: t.colors.hairline,
   },
-  histPath: { color: colors.text, fontSize: 12, fontFamily: 'monospace' },
+  histPath: { color: t.colors.text, fontSize: 12, ...t.font('mono'), },
 
   body: { flex: 1 },
   bodyContent: { padding: 14, paddingBottom: 40 },
   loading: { padding: 40, alignItems: 'center' },
-  empty: { color: colors.sub, textAlign: 'center', marginTop: 40 },
+  empty: { ...t.font('ui'), color: t.colors.sub, textAlign: 'center', marginTop: 40 },
   pre: {
-    fontFamily: 'monospace',
-    color: colors.text,
+    ...t.font('mono'),
+    color: t.colors.text,
     fontSize: 12,
     lineHeight: 18,
   },
-  note: { color: colors.sub, fontSize: 12, marginTop: 12 },
-  img: { width: '100%', height: 360, borderRadius: radius.md },
+  note: { ...t.font('ui'), color: t.colors.sub, fontSize: 12, marginTop: 12 },
+  img: { width: '100%', height: 360, borderRadius: t.radius.md },
   dir: { gap: 2 },
   dirRow: {
     flexDirection: 'row',
@@ -288,15 +291,16 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.hairline,
+    borderBottomColor: t.colors.hairline,
   },
-  dirName: { color: colors.text, fontSize: 15, flex: 1 },
+  dirName: { ...t.font('ui'), color: t.colors.text, fontSize: 15, flex: 1 },
   meta: {
-    color: colors.sub,
+    color: t.colors.sub,
+    ...t.font('ui'),
     fontSize: 11,
     padding: 10,
     textAlign: 'center',
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.hairline,
+    borderTopColor: t.colors.hairline,
   },
 });

@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -11,8 +12,10 @@ import {
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { useBoot } from '../src/boot';
+import { palettesFor, type Theme } from '@herdr/shared/palettes';
+import { paletteOf, setPalette, setTheme } from '../src/prefs';
 import { loadSettings, saveSettings } from '../src/settings-store';
-import { colors, radius } from '../src/theme';
+import { useStyles, useTheme, type Tokens } from '../src/theme';
 
 const APP_VERSION = Constants.expoConfig?.version ?? '?';
 const BUILD_NUMBER =
@@ -20,6 +23,8 @@ const BUILD_NUMBER =
   String(Constants.expoConfig?.android?.versionCode ?? '');
 
 export default function SettingsScreen() {
+  const t = useTheme();
+  const styles = useStyles(makeStyles);
   const router = useRouter();
   const { remount } = useBoot();
   const [baseUrl, setBaseUrl] = useState('');
@@ -37,7 +42,7 @@ export default function SettingsScreen() {
 
   const probe = async () => {
     const url = baseUrl.trim().replace(/\/$/, '');
-    const t = token.trim();
+    const tok = token.trim();
     // On web an empty URL is a real setting: relative /api against whatever
     // origin served the page (the dev-origin proxy fronts both). Native has no
     // origin to be relative to, so it still needs an absolute URL.
@@ -49,7 +54,7 @@ export default function SettingsScreen() {
     setError(null);
     setOk(null);
     try {
-      const q = t ? `?token=${encodeURIComponent(t)}` : '';
+      const q = tok ? `?token=${encodeURIComponent(tok)}` : '';
       const r = await fetch(`${url}/api/roster${q}`);
       if (r.status === 401) {
         setError("that token didn't match");
@@ -57,7 +62,7 @@ export default function SettingsScreen() {
         return;
       }
       if (!r.ok) throw new Error(r.statusText || `HTTP ${r.status}`);
-      await saveSettings({ baseUrl: url, token: t });
+      await saveSettings({ baseUrl: url, token: tok });
       await remount();
       setOk('connected — roster looks good');
       setTimeout(() => router.replace('/'), 300);
@@ -72,7 +77,7 @@ export default function SettingsScreen() {
   const blocked = busy || (!baseUrl.trim() && Platform.OS !== 'web');
 
   return (
-    <View style={styles.root}>
+    <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <Text style={styles.hint}>
         Use your tailscale-serve HTTPS URL so ATS stays happy in release builds.
       </Text>
@@ -82,7 +87,7 @@ export default function SettingsScreen() {
         value={baseUrl}
         onChangeText={setBaseUrl}
         placeholder="https://stormer.….ts.net"
-        placeholderTextColor={colors.sub}
+        placeholderTextColor={t.colors.sub}
         autoCapitalize="none"
         autoCorrect={false}
         autoComplete="off"
@@ -94,7 +99,7 @@ export default function SettingsScreen() {
         value={token}
         onChangeText={setToken}
         placeholder="HERDR_WEB_TOKEN"
-        placeholderTextColor={colors.sub}
+        placeholderTextColor={t.colors.sub}
         autoCapitalize="none"
         autoCorrect={false}
         secureTextEntry
@@ -107,11 +112,12 @@ export default function SettingsScreen() {
         onPress={probe}
       >
         {busy ? (
-          <ActivityIndicator color={colors.accentInk} />
+          <ActivityIndicator color={t.colors.accentInk} />
         ) : (
           <Text style={styles.btnText}>save & probe</Text>
         )}
       </Pressable>
+      <Appearance />
       <Pressable style={styles.labLink} onPress={() => router.push('/lab')}>
         <Text style={styles.labText}>render lab → the empty-bubble diagnostics</Text>
       </Pressable>
@@ -121,49 +127,141 @@ export default function SettingsScreen() {
         {' · '}
         {String(Constants.expoConfig?.extra?.gitSha ?? '?')}
       </Text>
+    </ScrollView>
+  );
+}
+
+const THEMES: { id: Theme; label: string }[] = [
+  { id: 'default', label: 'stock' },
+  { id: 'cyber', label: 'cyber' },
+];
+
+/** theme + palette: the pick syncs to every device through /api/prefs */
+function Appearance() {
+  const t = useTheme();
+  const styles = useStyles(makeStyles);
+  const presets = palettesFor(t.theme);
+  const current = paletteOf(t.theme);
+  return (
+    <View style={styles.section}>
+      <Text style={styles.label}>appearance</Text>
+      <View style={styles.seg}>
+        {THEMES.map((th) => {
+          const on = th.id === t.theme;
+          return (
+            <Pressable
+              key={th.id}
+              style={[styles.segBtn, on && styles.segBtnOn]}
+              onPress={() => setTheme(th.id)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: on }}
+            >
+              <Text style={[styles.segText, on && styles.segTextOn]}>{th.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      {presets.length > 0 && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.swatches}>
+          {presets.map((p) => {
+            const on = p.id === current;
+            // the stock preset's colours are the stylesheet's own, not in p.colors
+            const c = p.stock ? t.theme === 'cyber' ? { red: '#ff6a5c', accent: '#5fe3d4', hot: '#fcee0a' } : {} : p.colors;
+            return (
+              <Pressable
+                key={p.id}
+                style={[styles.swatch, on && styles.swatchOn]}
+                onPress={() => setPalette(t.theme, p.id)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: on }}
+                accessibilityLabel={`${p.name}: ${p.tag}`}
+              >
+                <View style={styles.chips}>
+                  {[c.red, c.accent, c.hot].map((hex, i) => (
+                    <View key={i} style={[styles.chip, { backgroundColor: hex ?? t.colors.sub }]} />
+                  ))}
+                </View>
+                <Text style={[styles.swatchName, on && styles.swatchNameOn]} numberOfLines={1}>
+                  {p.name}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      )}
+      {current === 'custom' && presets.length > 0 && (
+        <Text style={styles.hint}>custom colours, set from the web prefs panel</Text>
+      )}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: colors.bg,
-    padding: 20,
-    gap: 8,
+const makeStyles = (t: Tokens) =>
+  StyleSheet.create({
+  root: { flex: 1, backgroundColor: t.colors.bg },
+  content: { padding: 20, gap: 8 },
+  section: { marginTop: 20, gap: 10 },
+  seg: {
+    flexDirection: 'row',
+    backgroundColor: t.colors.surface2,
+    borderRadius: t.radius.md,
+    padding: 3,
+    gap: 3,
   },
-  hint: { color: colors.sub, fontSize: 13, marginBottom: 12, lineHeight: 18 },
+  segBtn: { flex: 1, paddingVertical: 9, alignItems: 'center', borderRadius: t.r(11) },
+  segBtnOn: { backgroundColor: t.colors.accent },
+  segText: { ...t.font('ui', '600'), color: t.colors.sub, fontSize: 14 },
+  segTextOn: { color: t.colors.accentInk },
+  swatches: { gap: 8, paddingVertical: 2 },
+  swatch: {
+    width: 104,
+    padding: 10,
+    gap: 8,
+    backgroundColor: t.colors.surface,
+    borderRadius: t.radius.md,
+    borderWidth: 1,
+    borderColor: t.colors.hairline,
+  },
+  swatchOn: { borderColor: t.colors.accent },
+  chips: { flexDirection: 'row', gap: 4 },
+  chip: { flex: 1, height: 18, borderRadius: t.r(4) },
+  swatchName: { ...t.font('ui', '600'), color: t.colors.sub, fontSize: 12 },
+  swatchNameOn: { color: t.colors.text },
+  hint: { ...t.font('ui'), color: t.colors.sub, fontSize: 13, marginBottom: 12, lineHeight: 18 },
   label: {
-    color: colors.sub,
-    fontSize: 12,
-    fontWeight: '600',
+    color: t.colors.sub,
+    fontSize: t.cyber ? 11 : 12,
+    ...t.font(t.cyber ? 'display' : 'ui', '700'),
+    letterSpacing: t.cyber ? 1.5 : 0,
     textTransform: 'uppercase',
     marginTop: 8,
   },
   input: {
-    backgroundColor: colors.surface2,
-    borderRadius: radius.md,
-    color: colors.text,
+    backgroundColor: t.colors.surface2,
+    borderRadius: t.radius.md,
+    color: t.colors.text,
+    ...t.font('ui'),
     fontSize: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
-  error: { color: colors.blocked, marginTop: 8 },
-  ok: { color: colors.done, marginTop: 8 },
+  error: { ...t.font('ui'), color: t.colors.blocked, marginTop: 8 },
+  ok: { ...t.font('ui'), color: t.colors.done, marginTop: 8 },
   btn: {
     marginTop: 16,
-    backgroundColor: colors.accent,
-    borderRadius: radius.md,
+    backgroundColor: t.colors.accent,
+    borderRadius: t.radius.md,
     paddingVertical: 14,
     alignItems: 'center',
   },
   btnDisabled: { opacity: 0.5 },
-  btnText: { color: colors.accentInk, fontWeight: '700', fontSize: 16 },
+  btnText: { color: t.colors.accentInk, ...t.font('ui', '700'), fontSize: 16 },
   labLink: { marginTop: 24, alignItems: 'center', padding: 10 },
-  labText: { color: colors.accent, fontSize: 13 },
+  labText: { ...t.font('ui'), color: t.colors.accent, fontSize: 13 },
   version: {
     marginTop: 8,
-    color: colors.sub,
+    color: t.colors.sub,
+    ...t.font('ui'),
     fontSize: 12,
     textAlign: 'center',
   },

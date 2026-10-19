@@ -23,7 +23,7 @@ import {
   type SpawnTarget,
   type WorktreeEntry,
 } from '@herdr/shared';
-import { colors, radius } from '../theme';
+import { alpha, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 
 type Dest =
@@ -58,6 +58,8 @@ export function NewChatSheet({
   onClose: () => void;
   onCreated: (paneId: string) => void;
 }) {
+  const t = useTheme();
+  const styles = useStyles(makeStyles);
   const workspaces = roster.workspaces ?? [];
   const [kinds, setKinds] = useState<AgentKind[] | null>(null);
   const [kind, setKind] = useState('');
@@ -191,6 +193,7 @@ export function NewChatSheet({
     extra?: string;
     onPick?: () => void;
   }) => {
+    const styles = useStyles(makeStyles);
     const on = key === destKey(d);
     return (
       <Pressable
@@ -217,7 +220,7 @@ export function NewChatSheet({
       <View style={styles.head}>
         <Text style={styles.title}>new chat</Text>
         <Pressable onPress={onClose} hitSlop={12} disabled={busy} accessibilityLabel="close">
-          <Icon name="close" size={22} color={colors.sub} />
+          <Icon name="close" size={22} color={t.colors.sub} />
         </Pressable>
       </View>
 
@@ -253,7 +256,7 @@ export function NewChatSheet({
                 onPress={() => openRepo(p)}
               >
                 <View style={styles.destLabelRow}>
-                  {p.repo ? <Icon name="folder" size={14} color={colors.accent} /> : null}
+                  {p.repo ? <Icon name="folder" size={14} color={t.colors.accent} /> : null}
                   <Text style={styles.destLabel} numberOfLines={1}>
                     {p.name}
                     {p.live > 0 ? ` · ${p.live} live` : ''}
@@ -289,7 +292,7 @@ export function NewChatSheet({
                           value={branch}
                           onChangeText={setBranch}
                           placeholder="branch name"
-                          placeholderTextColor={colors.sub}
+                          placeholderTextColor={t.colors.sub}
                           autoCapitalize="none"
                           autoCorrect={false}
                         />
@@ -309,7 +312,7 @@ export function NewChatSheet({
           onFocus={() => setDest({ type: 'path' })}
           onChangeText={setCwd}
           placeholder="~ (herdr default)"
-          placeholderTextColor={colors.sub}
+          placeholderTextColor={t.colors.sub}
           autoCapitalize="none"
           autoCorrect={false}
         />
@@ -356,7 +359,7 @@ export function NewChatSheet({
               </Text>
             </Pressable>
           ))}
-          {!kinds && <ActivityIndicator color={colors.accent} />}
+          {!kinds && <ActivityIndicator color={t.colors.accent} />}
         </View>
 
         <Text style={styles.sec}>name</Text>
@@ -365,7 +368,7 @@ export function NewChatSheet({
           value={name}
           onChangeText={setName}
           placeholder="optional — tab & agent name"
-          placeholderTextColor={colors.sub}
+          placeholderTextColor={t.colors.sub}
           autoCorrect={false}
         />
         {!!name.trim() && cleanAgentName(name) !== name.trim() && (
@@ -380,7 +383,7 @@ export function NewChatSheet({
             <Switch
               value={yolo}
               onValueChange={setYolo}
-              trackColor={{ true: colors.working, false: colors.surface3 }}
+              trackColor={{ true: t.colors.working, false: t.colors.surface3 }}
             />
             <Text style={styles.checkLabel}>
               auto-approve tools{' '}
@@ -395,7 +398,7 @@ export function NewChatSheet({
           value={argsText}
           onChangeText={setArgsText}
           placeholder="optional — e.g. --resume <id>"
-          placeholderTextColor={colors.sub}
+          placeholderTextColor={t.colors.sub}
           autoCapitalize="none"
           autoCorrect={false}
         />
@@ -413,7 +416,7 @@ export function NewChatSheet({
           onPress={submit}
         >
           {busy ? (
-            <ActivityIndicator color={colors.accentInk} />
+            <ActivityIndicator color={t.colors.accentInk} />
           ) : (
             <Text style={styles.btnPrimaryText}>start {kind || 'chat'}</Text>
           )}
@@ -423,8 +426,9 @@ export function NewChatSheet({
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
+const makeStyles = (t: Tokens) =>
+  StyleSheet.create({
+  root: { flex: 1, backgroundColor: t.colors.bg },
   head: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -432,116 +436,118 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.hairline,
-    backgroundColor: colors.surface,
+    borderBottomColor: t.colors.hairline,
+    backgroundColor: t.colors.surface,
   },
-  title: { color: colors.text, fontSize: 18, fontWeight: '700' },
+  title: { color: t.colors.text, fontSize: 18, ...t.font('ui', '700') },
 
   scroll: { flex: 1 },
   scrollContent: { padding: 14, paddingBottom: 40, gap: 6 },
   sec: {
-    color: colors.sub,
+    color: t.colors.sub,
     fontSize: 11,
-    fontWeight: '700',
+    ...t.font('ui', '700'),
     textTransform: 'uppercase',
     marginTop: 14,
     marginBottom: 4,
   },
-  note: { color: colors.sub, fontSize: 13, paddingVertical: 6 },
+  note: { ...t.font('ui'), color: t.colors.sub, fontSize: 13, paddingVertical: 6 },
   dest: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: colors.surface,
-    borderRadius: radius.sm,
+    backgroundColor: t.colors.surface,
+    borderRadius: t.radius.sm,
     paddingHorizontal: 12,
     paddingVertical: 12,
     borderWidth: 1,
-    borderColor: colors.hairline,
+    borderColor: t.colors.hairline,
     marginBottom: 4,
   },
-  destOn: { borderColor: colors.accent, backgroundColor: colors.surface2 },
+  destOn: { borderColor: t.colors.accent, backgroundColor: t.colors.surface2 },
   destLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 },
-  destLabel: { color: colors.text, fontSize: 14, fontWeight: '600', flex: 1 },
-  destLabelOn: { color: colors.accent },
-  destExtra: { color: colors.sub, fontSize: 11, maxWidth: '40%' },
+  destLabel: { color: t.colors.text, fontSize: 14, ...t.font('ui', '600'), flex: 1 },
+  destLabelOn: { color: t.colors.accent },
+  destExtra: { ...t.font('ui'), color: t.colors.sub, fontSize: 11, maxWidth: '40%' },
   subs: { paddingLeft: 12, marginBottom: 4 },
   branch: {
-    backgroundColor: colors.surface2,
-    borderRadius: radius.sm,
-    color: colors.text,
+    backgroundColor: t.colors.surface2,
+    borderRadius: t.radius.sm,
+    color: t.colors.text,
     paddingHorizontal: 12,
     paddingVertical: 10,
     marginBottom: 4,
-    fontFamily: 'monospace',
+    ...t.font('mono'),
   },
   input: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.sm,
-    color: colors.text,
+    backgroundColor: t.colors.surface,
+    borderRadius: t.radius.sm,
+    color: t.colors.text,
     paddingHorizontal: 12,
     paddingVertical: 12,
     borderWidth: 1,
-    borderColor: colors.hairline,
+    borderColor: t.colors.hairline,
+    ...t.font('ui'),
     fontSize: 15,
   },
   chips: { marginTop: 6, maxHeight: 36 },
   chip: {
-    backgroundColor: colors.surface3,
-    borderRadius: 999,
+    backgroundColor: t.colors.surface3,
+    borderRadius: t.r(999),
     paddingHorizontal: 10,
     paddingVertical: 6,
     marginRight: 6,
   },
-  chipText: { color: colors.sub, fontSize: 12 },
+  chipText: { ...t.font('ui'), color: t.colors.sub, fontSize: 12 },
   kindRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   kindChip: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.sm,
+    backgroundColor: t.colors.surface,
+    borderRadius: t.radius.sm,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderWidth: 1,
-    borderColor: colors.hairline,
+    borderColor: t.colors.hairline,
   },
-  kindOn: { borderColor: colors.accent, backgroundColor: colors.surface2 },
+  kindOn: { borderColor: t.colors.accent, backgroundColor: t.colors.surface2 },
   kindOff: { opacity: 0.4 },
-  kindText: { color: colors.text, fontWeight: '600' },
-  kindTextOn: { color: colors.accent },
-  kindTextOff: { color: colors.sub },
-  hint: { color: colors.sub, fontSize: 12, marginTop: 4 },
-  mono: { fontFamily: 'monospace' },
+  kindText: { color: t.colors.text, ...t.font('ui', '600') },
+  kindTextOn: { color: t.colors.accent },
+  kindTextOff: { color: t.colors.sub },
+  hint: { ...t.font('ui'), color: t.colors.sub, fontSize: 12, marginTop: 4 },
+  mono: { ...t.font('mono'), },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 },
-  checkLabel: { color: colors.text, flex: 1, fontSize: 14 },
+  checkLabel: { ...t.font('ui'), color: t.colors.text, flex: 1, fontSize: 14 },
   error: {
-    color: colors.blocked,
+    ...t.font('ui'),
+    color: t.colors.blocked,
     marginTop: 12,
-    backgroundColor: 'rgba(247,118,142,0.12)',
+    backgroundColor: alpha(t.colors.blocked, 0.12),
     padding: 10,
-    borderRadius: radius.sm,
+    borderRadius: t.radius.sm,
   },
   foot: {
     flexDirection: 'row',
     gap: 10,
     padding: 14,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.hairline,
-    backgroundColor: colors.surface,
+    borderTopColor: t.colors.hairline,
+    backgroundColor: t.colors.surface,
   },
   btnGhost: {
     flex: 1,
     paddingVertical: 14,
     alignItems: 'center',
-    borderRadius: radius.md,
-    backgroundColor: colors.surface2,
+    borderRadius: t.radius.md,
+    backgroundColor: t.colors.surface2,
   },
-  btnGhostText: { color: colors.text, fontWeight: '600' },
+  btnGhostText: { color: t.colors.text, ...t.font('ui', '600') },
   btnPrimary: {
     flex: 2,
     paddingVertical: 14,
     alignItems: 'center',
-    borderRadius: radius.md,
-    backgroundColor: colors.accent,
+    borderRadius: t.radius.md,
+    backgroundColor: t.colors.accent,
   },
-  btnPrimaryText: { color: colors.accentInk, fontWeight: '700', fontSize: 16 },
+  btnPrimaryText: { color: t.colors.accentInk, ...t.font('ui', '700'), fontSize: 16 },
   btnDisabled: { opacity: 0.45 },
 });

@@ -2,9 +2,10 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useRoster, type SpawnTarget } from '@herdr/shared';
 import { NewChatSheet } from '../src/components/NewChatSheet';
 import { View, StyleSheet } from 'react-native';
-import { colors } from '../src/theme';
+import { useStyles, type Tokens } from '../src/theme';
 
 export default function NewChatScreen() {
+  const styles = useStyles(makeStyles);
   const router = useRouter();
   const { roster } = useRoster();
   const params = useLocalSearchParams<{ workspaceId?: string; cwd?: string }>();
@@ -31,6 +32,7 @@ export default function NewChatScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
+const makeStyles = (t: Tokens) =>
+  StyleSheet.create({
+  root: { flex: 1, backgroundColor: t.colors.bg },
 });

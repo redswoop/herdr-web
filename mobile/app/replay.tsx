@@ -12,7 +12,7 @@ import {
   type TEvent,
 } from '@herdr/shared';
 import { Transcript, transcriptDebug } from '../src/components/Transcript';
-import { colors } from '../src/theme';
+import { useStyles, type Tokens } from '../src/theme';
 
 /* Render lab, part two: replay a real pane's transcript through the real
    <Transcript> the way useAgentSession feeds it — one bulk apply for the
@@ -31,6 +31,7 @@ import { colors } from '../src/theme';
 const noop = () => {};
 
 export default function ReplayScreen() {
+  const styles = useStyles(makeStyles);
   const params = useLocalSearchParams<{ pane?: string; turns?: string; ms?: string; loop?: string; end?: string; nomvcp?: string; noinv?: string }>();
   const pane = params.pane ?? '';
   const turns = Math.max(1, Number(params.turns) || 2);
@@ -137,7 +138,8 @@ export default function ReplayScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
-  hint: { color: colors.sub, fontSize: 11, paddingHorizontal: 14, paddingVertical: 4 },
+const makeStyles = (t: Tokens) =>
+  StyleSheet.create({
+  root: { flex: 1, backgroundColor: t.colors.bg },
+  hint: { ...t.font('ui'), color: t.colors.sub, fontSize: 11, paddingHorizontal: 14, paddingVertical: 4 },
 });

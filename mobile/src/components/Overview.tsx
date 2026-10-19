@@ -18,7 +18,7 @@ import {
   type Roster,
   type SpawnTarget,
 } from '@herdr/shared';
-import { colors, radius, statusColor } from '../theme';
+import { useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 
 const STATUS_ORDER: Record<string, number> = {
@@ -85,6 +85,8 @@ export function Overview({
   onNewChat: (target?: SpawnTarget) => void;
   onQuickChat: (target: SpawnTarget) => Promise<void>;
 }) {
+  const t = useTheme();
+  const styles = useStyles(makeStyles);
   const [projects, setProjects] = useState<Project[]>([]);
   const [spawning, setSpawning] = useState<string | null>(null);
 
@@ -145,7 +147,7 @@ export function Overview({
           <View style={styles.cardHead}>
             <View style={styles.cardTitleRow}>
               {c.repo ? (
-                <Icon name="folder" size={14} color={colors.accent} />
+                <Icon name="folder" size={14} color={t.colors.accent} />
               ) : null}
               <Text style={styles.cardTitle} numberOfLines={1}>
                 {c.title}
@@ -165,22 +167,22 @@ export function Overview({
                 accessibilityLabel="new session here (long-press to customize)"
               >
                 {spawning === c.key ? (
-                  <ActivityIndicator size="small" color={colors.accent} />
+                  <ActivityIndicator size="small" color={t.colors.accent} />
                 ) : (
-                  <Icon name="plus" size={18} color={colors.accent} />
+                  <Icon name="plus" size={18} color={t.colors.accent} />
                 )}
               </Pressable>
             )}
           </View>
           {c.agents.map((a) => (
             <Pressable key={a.paneId} style={styles.agentRow} onPress={() => onSelect(a.paneId)}>
-              <View style={[styles.dot, { backgroundColor: statusColor(a.status) }]} />
+              <View style={[styles.dot, { backgroundColor: t.status(a.status) }]} />
               <View style={{ flex: 1 }}>
                 <View style={styles.agentNameRow}>
                   <Text style={styles.agentName} numberOfLines={1}>
                     {chipName(a)}
                   </Text>
-                  {a.focused ? <Icon name="focus" size={13} color={colors.accent} /> : null}
+                  {a.focused ? <Icon name="focus" size={13} color={t.colors.accent} /> : null}
                 </View>
                 <Text style={styles.agentSub}>
                   {STATUS_WORD[a.status] ?? a.status}
@@ -206,7 +208,7 @@ export function Overview({
                 accessibilityLabel={`${p.name} — tap to start, long-press to customize`}
               >
                 <View style={styles.dormantInner}>
-                  {p.repo ? <Icon name="folder" size={12} color={colors.accent} /> : null}
+                  {p.repo ? <Icon name="folder" size={12} color={t.colors.accent} /> : null}
                   <Text style={styles.dormantName} numberOfLines={1}>
                     {spawning === p.key ? '…' : p.name}
                   </Text>
@@ -224,30 +226,31 @@ export function Overview({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (t: Tokens) =>
+  StyleSheet.create({
   root: { flex: 1 },
   content: { padding: 14, paddingBottom: 100, gap: 10 },
   head: { marginBottom: 6 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  mark: { width: 36, height: 36, borderRadius: 10 },
-  title: { color: colors.text, fontSize: 22, fontWeight: '700' },
-  summary: { color: colors.sub, fontSize: 13, marginTop: 4 },
+  mark: { width: 36, height: 36, borderRadius: t.r(10) },
+  title: { color: t.colors.text, fontSize: 22, ...t.font('ui', '700') },
+  summary: { ...t.font('ui'), color: t.colors.sub, fontSize: 13, marginTop: 4 },
   card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
+    backgroundColor: t.colors.surface,
+    borderRadius: t.radius.md,
     padding: 12,
     borderWidth: 1,
-    borderColor: colors.hairline,
+    borderColor: t.colors.hairline,
   },
   cardHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
   cardTitleRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
-  cardTitle: { color: colors.text, fontWeight: '700', fontSize: 15, flexShrink: 1 },
-  cardPath: { color: colors.sub, fontSize: 11, maxWidth: '35%' },
+  cardTitle: { color: t.colors.text, ...t.font('ui', '700'), fontSize: 15, flexShrink: 1 },
+  cardPath: { ...t.font('ui'), color: t.colors.sub, fontSize: 11, maxWidth: '35%' },
   cardPlus: {
     width: 28,
     height: 28,
-    borderRadius: 14,
-    backgroundColor: colors.surface2,
+    borderRadius: t.r(14),
+    backgroundColor: t.colors.surface2,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -258,29 +261,29 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.hairline,
+    borderTopColor: t.colors.hairline,
   },
-  dot: { width: 8, height: 8, borderRadius: 4 },
-  agentName: { color: colors.text, fontSize: 14, fontWeight: '600', flexShrink: 1 },
-  agentSub: { color: colors.sub, fontSize: 11 },
+  dot: t.dot(8),
+  agentName: { color: t.colors.text, fontSize: 14, ...t.font('ui', '600'), flexShrink: 1 },
+  agentSub: { ...t.font('ui'), color: t.colors.sub, fontSize: 11 },
   sec: {
-    color: colors.sub,
+    color: t.colors.sub,
     fontSize: 11,
-    fontWeight: '700',
+    ...t.font('ui', '700'),
     textTransform: 'uppercase',
     marginTop: 12,
   },
   dormantRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   dormant: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.sm,
+    backgroundColor: t.colors.surface,
+    borderRadius: t.radius.sm,
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderWidth: 1,
-    borderColor: colors.hairline,
+    borderColor: t.colors.hairline,
     maxWidth: '48%',
   },
   dormantInner: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  dormantName: { color: colors.text, fontWeight: '600', fontSize: 13, flexShrink: 1 },
-  empty: { color: colors.sub, textAlign: 'center', marginTop: 40 },
+  dormantName: { color: t.colors.text, ...t.font('ui', '600'), fontSize: 13, flexShrink: 1 },
+  empty: { ...t.font('ui'), color: t.colors.sub, textAlign: 'center', marginTop: 40 },
 });

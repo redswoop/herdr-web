@@ -1,6 +1,6 @@
 import { StyleSheet, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors } from '../theme';
+import { useTheme } from '../theme';
 
 /** Named glyphs used across the app — maps to Ionicons for crisp, tintable UI. */
 export type IconName =
@@ -65,7 +65,7 @@ const MAP: Record<IconName, keyof typeof Ionicons.glyphMap> = {
 export function Icon({
   name,
   size = 20,
-  color = colors.sub,
+  color,
   style,
 }: {
   name: IconName;
@@ -73,11 +73,12 @@ export function Icon({
   color?: string;
   style?: StyleProp<TextStyle | ViewStyle>;
 }) {
+  const t = useTheme();
   return (
     <Ionicons
       name={MAP[name]}
       size={size}
-      color={color}
+      color={color ?? t.colors.sub}
       style={style as TextStyle}
     />
   );

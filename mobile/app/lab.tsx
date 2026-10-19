@@ -4,7 +4,7 @@ import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-n
 import * as Clipboard from 'expo-clipboard';
 import { MD_LAB_DEFAULT, MdLabContext, MdView, type MdLab } from '../src/components/MdView';
 import { BLACK_BOX_REPLY, BLACK_BOX_REPLY_2 } from '../src/lab-fixture';
-import { colors } from '../src/theme';
+import { useStyles, type Tokens } from '../src/theme';
 
 /* Render lab for the iOS empty-bubble bug. The same known-bad reply is drawn
    once per variant, each isolating one suspect; the flat header Text above
@@ -25,6 +25,7 @@ const VARIANTS: { id: string; title: string; why: string; lab: Partial<MdLab>; s
 ];
 
 function Variant({ v }: { v: (typeof VARIANTS)[number] }) {
+  const styles = useStyles(makeStyles);
   return (
     <View style={styles.variant}>
       <Text style={styles.title}>{v.title}</Text>
@@ -51,6 +52,7 @@ function Variant({ v }: { v: (typeof VARIANTS)[number] }) {
 }
 
 export default function LabScreen() {
+  const styles = useStyles(makeStyles);
   // deep-link driveable: capra://lab?inv=1&v=nofont (so a Simulator can be
   // stepped through the variants with simctl openurl, no tapping)
   const params = useLocalSearchParams<{ inv?: string; v?: string }>();
@@ -106,24 +108,25 @@ export default function LabScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
+const makeStyles = (t: Tokens) =>
+  StyleSheet.create({
+  root: { flex: 1, backgroundColor: t.colors.bg },
   content: { padding: 14, gap: 18 },
   controls: { gap: 8 },
-  hint: { color: colors.sub, fontSize: 13, lineHeight: 18 },
+  hint: { ...t.font('ui'), color: t.colors.sub, fontSize: 13, lineHeight: 18 },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: {
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: colors.surface2,
+    borderRadius: t.r(999),
+    backgroundColor: t.colors.surface2,
   },
-  chipOn: { backgroundColor: colors.accent },
-  chipText: { color: colors.text, fontSize: 12, fontWeight: '600' },
+  chipOn: { backgroundColor: t.colors.accent },
+  chipText: { color: t.colors.text, fontSize: 12, ...t.font('ui', '600') },
   variant: { gap: 6 },
-  title: { color: colors.accent, fontSize: 15, fontWeight: '700' },
-  why: { color: colors.sub, fontSize: 12 },
-  bubble: { borderRadius: 14, padding: 12, backgroundColor: colors.surface },
+  title: { color: t.colors.accent, fontSize: 15, ...t.font('ui', '700') },
+  why: { ...t.font('ui'), color: t.colors.sub, fontSize: 12 },
+  bubble: { borderRadius: t.r(14), padding: 12, backgroundColor: t.colors.surface },
   copyPress: { opacity: 0.7 },
-  foot: { color: colors.sub, fontSize: 11 },
+  foot: { ...t.font('ui'), color: t.colors.sub, fontSize: 11 },
 });
