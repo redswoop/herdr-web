@@ -1,19 +1,23 @@
-import { useEffect } from 'react';
+import { useEffect, type CSSProperties } from 'react';
 import { useTheme, type Theme } from '../theme';
 import {
   COLOR_ROLES,
   FONT_AREAS,
   FONT_MAX,
   FONT_MIN,
+  baseOf,
   colorOf,
   defaultColor,
   inputFloor,
+  paletteOf,
   resetColors,
   setColor,
   setFont,
+  setPalette,
   setTheme,
   usePrefs,
 } from '../prefs';
+import { palettesFor, type Palette } from '../palettes';
 
 const THEMES: { key: Theme; label: string }[] = [
   { key: 'default', label: 'Stock' },
@@ -24,7 +28,10 @@ const THEMES: { key: Theme; label: string }[] = [
 export function PrefsDialog({ onClose }: { onClose: () => void }) {
   const theme = useTheme();
   const { fonts, colors } = usePrefs();
-  const custom = !!colors[theme];
+  const presets = palettesFor(theme);
+  const pick = paletteOf(theme);
+  const base = baseOf(theme);
+  const custom = pick === 'custom' && !!colors[theme];
 
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -58,19 +65,63 @@ export function PrefsDialog({ onClose }: { onClose: () => void }) {
           </div>
         </section>
 
+        {presets.length > 0 && (
+          <section className="prefs-sec">
+            <div className="prefs-label">
+              palette <span className="prefs-note">· all devices</span>
+            </div>
+            <div className="palette-grid">
+              {presets.map((p) => (
+                <PaletteTile key={p.id} p={p} on={pick === p.id} onPick={() => setPalette(theme, p.id)} />
+              ))}
+              {custom && (
+                <PaletteTile
+                  p={{
+                    id: 'custom',
+                    name: 'Custom',
+                    tag: `from ${base?.name ?? 'stock'}`,
+                    colors: Object.fromEntries(
+                      ['red', 'accent', 'hot', 'working', 'text', 'sub', 'bg'].map((k) => [
+                        k,
+                        colorOf(theme, k) ?? defaultColor(theme, k),
+                      ]),
+                    ),
+                  }}
+                  on
+                  onPick={() => {}}
+                />
+              )}
+              {!custom && colors[theme] && (
+                <button type="button" className="palette-tile custom-back" onClick={() => setPalette(theme, 'custom')}>
+                  <span className="palette-name">Custom</span>
+                  <span className="palette-tag">back to your colors</span>
+                </button>
+              )}
+            </div>
+          </section>
+        )}
+
         <section className="prefs-sec">
           <div className="prefs-label">
-            colors <span className="prefs-note">· {THEMES.find((t) => t.key === theme)?.label} · all devices</span>
+            colors{' '}
+            <span className="prefs-note">
+              ·{' '}
+              {presets.length
+                ? pick === 'custom'
+                  ? `custom, from ${base?.name}`
+                  : `${base?.name} · tweak one to fork it`
+                : `${THEMES.find((t) => t.key === theme)?.label} · all devices`}
+            </span>
             {custom && (
               <button type="button" className="prefs-reset" onClick={() => resetColors(theme)}>
-                reset all
+                {presets.length ? `back to ${base?.name}` : 'reset all'}
               </button>
             )}
           </div>
           <div className="prefs-colors">
             {COLOR_ROLES[theme].map((r) => {
               const mine = colorOf(theme, r.key);
-              const v = mine ?? defaultColor(r.key);
+              const v = mine ?? defaultColor(theme, r.key);
               return (
                 <label key={r.key} className={`prefs-color ${mine ? 'set' : ''}`} title={v}>
                   <input type="color" value={v} onChange={(e) => setColor(theme, r.key, e.target.value)} />
@@ -79,7 +130,7 @@ export function PrefsDialog({ onClose }: { onClose: () => void }) {
                     <button
                       type="button"
                       className="prefs-undo"
-                      title="back to the theme's color"
+                      title={base ? `back to ${base.name}'s color` : "back to the theme's color"}
                       aria-label={`reset ${r.label}`}
                       onClick={(e) => {
                         e.preventDefault();
@@ -136,5 +187,34 @@ export function PrefsDialog({ onClose }: { onClose: () => void }) {
         </footer>
       </div>
     </div>
+  );
+}
+
+/** a palette drawn in its own colors, so the tile is the preview */
+function PaletteTile({ p, on, onPick }: { p: Palette; on: boolean; onPick: () => void }) {
+  const c = p.colors;
+  const style = {
+    '--p-bg': c.bg,
+    '--p-red': c.red,
+    '--p-text': c.text,
+    '--p-sub': c.sub,
+  } as CSSProperties;
+  return (
+    <button
+      type="button"
+      className={`palette-tile ${on ? 'on' : ''}`}
+      style={style}
+      aria-pressed={on}
+      title={p.tag}
+      onClick={onPick}
+    >
+      <span className="palette-name">{p.name}</span>
+      <span className="palette-tag">{p.tag}</span>
+      <span className="palette-swatches">
+        {[c.red, c.accent, c.hot, c.working].map((v, i) => (
+          <i key={i} style={{ background: v, color: v }} />
+        ))}
+      </span>
+    </button>
   );
 }

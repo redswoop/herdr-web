@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { apiUrl, get } from './api';
 import { applyTheme, currentTheme, saveTheme, type Theme } from './theme';
 import { setRainColors } from './cyber-fx';
+import { findPalette, palettesFor } from './palettes';
 
 /* Appearance prefs. Theme + per-theme colors follow you across devices
    (stored server-side, cached locally so boot doesn't flash). Text sizes are
@@ -10,6 +11,8 @@ import { setRainColors } from './cyber-fx';
 export type FontKey = 'ui' | 'chat' | 'input' | 'code';
 export type Fonts = Record<FontKey, number>;
 export type Colors = Partial<Record<Theme, Record<string, string>>>;
+/** per theme: a palette id or 'custom' (base palette + the overrides in Colors) */
+export type Picks = Partial<Record<Theme, string>>;
 
 export const FONT_AREAS: { key: FontKey; label: string; hint: string }[] = [
   { key: 'ui', label: 'Interface', hint: 'lists, headers, buttons' },
@@ -49,11 +52,14 @@ export const COLOR_ROLES: Record<Theme, { key: string; label: string }[]> = {
 
 const FONTS_COOKIE = 'herdr.fonts';
 const COLORS_CACHE = 'herdr.colors';
+const PICKS_CACHE = 'herdr.palette';
 const EVENT = 'herdr-prefs';
 const DEFAULT_FONTS: Fonts = { ui: 1, chat: 1, input: 1, code: 1 };
 
 let fonts: Fonts = { ...DEFAULT_FONTS };
 let colors: Colors = {};
+let palette: Picks = {};
+let base: Picks = {}; // the preset a custom set was forked from
 
 /* ---------------- fonts (cookie, this device) ---------------- */
 
@@ -87,6 +93,29 @@ export function setFont(k: FontKey, v: number) {
 
 /* ---------------- colors (server, cached) ---------------- */
 
+/** what this theme is showing: a preset id, or 'custom'. A theme with no
+ *  presets is always custom; colors saved before presets existed read as a
+ *  custom set on the stock palette, so nothing shifts under anyone. */
+export function paletteOf(t: Theme): string {
+  const all = palettesFor(t);
+  if (!all.length) return 'custom';
+  const p = palette[t];
+  if (p === 'custom' || all.some((x) => x.id === p)) return p!;
+  return colors[t] ? 'custom' : all[0].id;
+}
+
+/** the preset under the knobs: the one picked, or the one custom forked from */
+export function baseOf(t: Theme) {
+  const p = paletteOf(t);
+  return findPalette(t, p === 'custom' ? base[t] : p);
+}
+
+function effective(t: Theme): Record<string, string> {
+  const b = baseOf(t);
+  const fromBase = b && !b.stock ? b.colors : {};
+  return paletteOf(t) === 'custom' ? { ...fromBase, ...(colors[t] ?? {}) } : fromBase;
+}
+
 const applied = new Set<string>();
 
 function applyColors(t: Theme = currentTheme()) {
@@ -97,7 +126,7 @@ function applyColors(t: Theme = currentTheme()) {
     root.style.setProperty(k, v);
     applied.add(k);
   };
-  const c = colors[t] ?? {};
+  const c = effective(t);
   for (const [k, v] of Object.entries(c)) set(`--${k}`, v);
   // the surface ramp and button ink are derived, so one knob stays coherent
   if (c.bg) {
@@ -111,13 +140,16 @@ function applyColors(t: Theme = currentTheme()) {
     ?.setAttribute('content', c.bg ?? (t === 'cyber' ? '#0b0607' : '#0e0e13'));
   if (t === 'cyber') {
     const red = cssVar('--red') || '#ff6a5c';
-    const hot = mix(red, '#ffd27a', 0.5);
+    const hot = mix(red, cssVar('--hot') || '#ffd27a', 0.5);
     setRainColors({ stream: red, head: mix(red, '#ffffff', 0.75), hot, hotHead: mix(hot, '#ffffff', 0.7) });
   }
 }
 
-/** the color a role has with no override — read live so it never drifts from the CSS */
-export function defaultColor(key: string): string {
+/** a knob's color with no override: the base preset's, else the stylesheet's
+ *  (read live so it never drifts from the CSS) */
+export function defaultColor(t: Theme, key: string): string {
+  const b = baseOf(t);
+  if (b && !b.stock && b.colors[key]) return b.colors[key];
   const root = document.documentElement;
   const prop = `--${key}`;
   const mine = root.style.getPropertyValue(prop);
@@ -127,27 +159,45 @@ export function defaultColor(key: string): string {
   return /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : '#888888';
 }
 
+/** the custom override for a knob, if custom is what's showing */
 export function colorOf(t: Theme, key: string): string | null {
-  return colors[t]?.[key] ?? null;
+  return paletteOf(t) === 'custom' ? (colors[t]?.[key] ?? null) : null;
 }
 
-/** null clears the override back to the theme's own color */
+/** null clears the override back to the base preset's color. Touching a knob
+ *  while on a preset forks it: custom starts as that preset, plus this one. */
 export function setColor(t: Theme, key: string, v: string | null) {
+  const p = paletteOf(t);
+  if (p !== 'custom') {
+    base = { ...base, [t]: p };
+    palette = { ...palette, [t]: 'custom' };
+    colors = { ...colors, [t]: {} };
+  }
   const next = { ...(colors[t] ?? {}) };
   if (v) next[key] = v.toLowerCase();
   else delete next[key];
   colors = { ...colors, [t]: next };
   if (!Object.keys(next).length) delete colors[t];
-  if (t === currentTheme()) applyColors(t);
-  cacheColors();
-  push();
-  changed();
+  saved(t);
 }
 
+/** pick a preset, or 'custom' to go back to your own set */
+export function setPalette(t: Theme, id: string) {
+  palette = { ...palette, [t]: id };
+  saved(t);
+}
+
+/** drop the custom set and land back on the preset it came from */
 export function resetColors(t: Theme) {
+  const b = baseOf(t);
   delete colors[t];
   colors = { ...colors };
-  applyColors(t);
+  palette = { ...palette, [t]: b?.id ?? 'custom' };
+  saved(t);
+}
+
+function saved(t: Theme) {
+  if (t === currentTheme()) applyColors(t);
   cacheColors();
   push();
   changed();
@@ -163,6 +213,7 @@ export function setTheme(t: Theme) {
 function cacheColors() {
   try {
     localStorage.setItem(COLORS_CACHE, JSON.stringify(colors));
+    localStorage.setItem(PICKS_CACHE, JSON.stringify({ palette, base }));
   } catch {}
 }
 
@@ -175,7 +226,7 @@ function push() {
     fetch(apiUrl('/api/prefs'), {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ theme: currentTheme(), colors }),
+      body: JSON.stringify({ theme: currentTheme(), colors, palette, base }),
     }).catch(() => {});
   }, 400); // color pickers fire per pixel of drag
 }
@@ -184,10 +235,14 @@ async function pull() {
   try {
     const r = await get('/api/prefs');
     if (!r.ok) return;
-    const { prefs } = (await r.json()) as { prefs: { theme: Theme; colors: Colors } | null };
+    const { prefs } = (await r.json()) as {
+      prefs: { theme: Theme; colors: Colors; palette?: Picks; base?: Picks } | null;
+    };
     if (!prefs) return push(); // first device to ask seeds the server
-    if (JSON.stringify(prefs.colors) !== JSON.stringify(colors)) {
-      colors = prefs.colors;
+    // a server that predates palettes omits the fields: keep our picks, don't zero them
+    const theirs = { colors: prefs.colors, palette: prefs.palette ?? palette, base: prefs.base ?? base };
+    if (JSON.stringify(theirs) !== JSON.stringify({ colors, palette, base })) {
+      ({ colors, palette, base } = theirs);
       cacheColors();
       applyColors();
       changed();
@@ -205,6 +260,7 @@ export function initPrefs() {
   fonts = loadFonts();
   try {
     colors = JSON.parse(localStorage.getItem(COLORS_CACHE) ?? '{}') ?? {};
+    ({ palette = {}, base = {} } = JSON.parse(localStorage.getItem(PICKS_CACHE) ?? '{}') ?? {});
   } catch {}
   applyFonts();
   applyColors();
@@ -221,7 +277,7 @@ function changed() {
 }
 
 /** re-render on any prefs change; returns the current snapshot */
-export function usePrefs(): { fonts: Fonts; colors: Colors } {
+export function usePrefs(): { fonts: Fonts; colors: Colors; palette: Picks } {
   const [, bump] = useState(0);
   useEffect(() => {
     const on = () => bump((n) => n + 1);
@@ -232,7 +288,7 @@ export function usePrefs(): { fonts: Fonts; colors: Colors } {
       removeEventListener('herdr-theme', on);
     };
   }, []);
-  return { fonts, colors };
+  return { fonts, colors, palette };
 }
 
 /* ---------------- color math ---------------- */

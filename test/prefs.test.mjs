@@ -10,11 +10,19 @@ test('cleanPrefs keeps well-formed theme + hex colors only', () => {
       default: { accent: '#12345' },
       neon: { red: '#ffffff' },
     },
+    palette: { cyber: 'custom', default: '<script>', neon: 'arasaka' },
+    base: { cyber: 'arasaka' },
   });
-  assert.deepEqual(p, { theme: 'cyber', colors: { cyber: { red: '#ff9a3c' } } });
+  assert.deepEqual(p, {
+    theme: 'cyber',
+    colors: { cyber: { red: '#ff9a3c' } },
+    palette: { cyber: 'custom' },
+    base: { cyber: 'arasaka' },
+  });
 });
 
 test('cleanPrefs falls back to the stock theme', () => {
-  assert.deepEqual(cleanPrefs({ theme: 'vaporwave' }), { theme: 'default', colors: {} });
-  assert.deepEqual(cleanPrefs(null), { theme: 'default', colors: {} });
+  const empty = { theme: 'default', colors: {}, palette: {}, base: {} };
+  assert.deepEqual(cleanPrefs({ theme: 'vaporwave' }), empty);
+  assert.deepEqual(cleanPrefs(null), empty);
 });

@@ -38,7 +38,7 @@
   --input: "Chakra Petch", -apple-system, system-ui, sans-serif;
   --grid: color-mix(in srgb, var(--red) 3%, transparent);
   --glow: 0 0 3px color-mix(in srgb, currentColor 70%, transparent), 0 0 14px color-mix(in srgb, currentColor 45%, transparent);
-  --phosphor: 0 0 1px rgba(255, 200, 170, 0.35), 0 0 12px color-mix(in srgb, var(--red) 14%, transparent);
+  --phosphor: 0 0 1px color-mix(in srgb, var(--text) 35%, transparent), 0 0 12px color-mix(in srgb, var(--red) 14%, transparent);
 
   color-scheme: dark;
   caret-color: var(--accent);
@@ -48,7 +48,7 @@
     letter-spacing: 0.01em;
     background:
       radial-gradient(140% 55% at 50% -10%, color-mix(in srgb, var(--red) 22%, transparent), transparent 65%),
-      radial-gradient(90% 50% at 100% 100%, rgba(255, 150, 80, 0.08), transparent 60%),
+      radial-gradient(90% 50% at 100% 100%, color-mix(in srgb, color-mix(in srgb, var(--red), var(--hot)) 8%, transparent), transparent 60%),
       radial-gradient(70% 40% at 0% 70%, color-mix(in srgb, var(--accent) 4%, transparent), transparent 60%),
       var(--bg);
   }
@@ -59,7 +59,7 @@
     pointer-events: none;
     background:
       repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0) 0 2px, rgba(0, 0, 0, 0.13) 2px 3px),
-      radial-gradient(ellipse at center, transparent 50%, rgba(20, 2, 2, 0.55) 100%);
+      radial-gradient(ellipse at center, transparent 50%, color-mix(in srgb, color-mix(in srgb, var(--bg) 60%, #000) 55%, transparent) 100%);
     mix-blend-mode: multiply;
   }
   & ::selection { background: var(--red); color: #000; }
@@ -136,7 +136,7 @@
     border-left-color: var(--blocked);
   }
   & .session .title { letter-spacing: 0.01em; }
-  & .session.active .title { color: #fff; text-shadow: 0 0 10px color-mix(in srgb, var(--accent) 40%, transparent); }
+  & .session.active .title { color: color-mix(in srgb, var(--text) 40%, #fff); text-shadow: 0 0 10px color-mix(in srgb, var(--accent) 40%, transparent); }
   & .state-word {
     font-family: var(--mono); font-weight: 400; letter-spacing: 0.14em;
     text-shadow: 0 0 6px currentColor;
@@ -160,6 +160,20 @@
     padding-left: 12px; padding-right: 12px;
   }
   & .seg { border: 0; }
+  & .palette-tile {
+    border-radius: 0; clip-path: var(--chamfer); --cut: 8px;
+    border-color: color-mix(in srgb, var(--p-red, var(--red)) 30%, transparent);
+    background:
+      radial-gradient(120% 80% at 0% 0%, color-mix(in srgb, var(--p-red, var(--red)) 16%, transparent), transparent 70%),
+      var(--p-bg, var(--surface-2));
+  }
+  & .palette-tile.on { outline: 0; border-color: var(--p-red, var(--red)); box-shadow: inset 0 0 18px -6px var(--p-red, var(--red)); }
+  & .palette-name {
+    font-family: var(--display); font-size: calc(11px * var(--fs)); letter-spacing: 0.1em; text-transform: uppercase;
+    text-shadow: 0 0 8px color-mix(in srgb, var(--p-red, var(--red)) 60%, transparent);
+  }
+  & .palette-tag { font-family: var(--mono); }
+  & .palette-swatches i { border-radius: 0; transform: skewX(-12deg); }
   & .mode-pop, & .file-hist {
     border-color: color-mix(in srgb, var(--accent) 40%, transparent);
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 12px 40px rgba(0, 0, 0, 0.7), 0 0 24px -8px var(--accent);
@@ -202,18 +216,18 @@
     box-shadow: 0 0 8px var(--accent);
   }
   & .msg.assistant pre, & .aux .body pre, & .file-md pre, & .step-detail pre, & .command-pill .cmd-out {
-    background: #020309;
+    background: color-mix(in srgb, var(--bg) 35%, #000);
     border: 1px solid var(--hairline);
     border-left: 2px solid var(--accent);
     font-family: var(--mono);
   }
   & .msg code, & .file-md code {
     background: color-mix(in srgb, var(--accent) 9%, transparent);
-    color: #8ff9ff;
+    color: color-mix(in srgb, var(--accent) 80%, var(--text));
     border-radius: 0;
   }
   & .msg pre code { background: none; color: inherit; }
-  & .msg strong { color: #fff6ea; text-shadow: 0 0 8px color-mix(in srgb, var(--accent) 35%, transparent); }
+  & .msg strong { color: color-mix(in srgb, var(--text) 50%, #fff); text-shadow: 0 0 8px color-mix(in srgb, var(--accent) 35%, transparent); }
   & .msg h1, & .msg h2, & .msg h3, & .file-md h1, & .file-md h2, & .file-md h3 {
     font-family: var(--display); font-weight: 700;
     letter-spacing: 0.06em; text-transform: uppercase;
@@ -247,8 +261,8 @@
 
   /* terminal mirrors get the phosphor treatment */
   & .screen, & .perm-detail {
-    background: #010205;
-    color: #bdf9fb;
+    background: color-mix(in srgb, var(--bg) 25%, #000);
+    color: color-mix(in srgb, var(--accent) 45%, var(--text));
     text-shadow: 0 0 4px color-mix(in srgb, var(--accent) 35%, transparent);
     font-family: var(--mono);
   }
@@ -271,7 +285,7 @@
       var(--surface);
     box-shadow: 0 -12px 40px -12px color-mix(in srgb, var(--blocked) 60%, transparent);
   }
-  & .blocked-card .q-text { color: #fff6ea; }
+  & .blocked-card .q-text { color: color-mix(in srgb, var(--text) 50%, #fff); }
   & button.option {
     border: 0;
     border-left: 2px solid var(--accent);
@@ -498,7 +512,7 @@
     position: absolute; left: 0; right: 0; height: 2px;
     pointer-events: none;
     background:
-      linear-gradient(90deg, transparent, #ffe2dc, transparent) -60% 0 / 30% 100% no-repeat,
+      linear-gradient(90deg, transparent, color-mix(in srgb, var(--red) 25%, #fff), transparent) -60% 0 / 30% 100% no-repeat,
       color-mix(in srgb, var(--red) 70%, transparent);
     box-shadow: 0 0 12px color-mix(in srgb, var(--red) 45%, transparent);
     animation: cy-flow 5s cubic-bezier(0.6, 0, 0.4, 1) infinite;
@@ -593,14 +607,14 @@
   padding: 24px;
   background:
     repeating-linear-gradient(to bottom, transparent 0 2px, rgba(0, 0, 0, 0.35) 2px 3px),
-    radial-gradient(ellipse at center, #1a0d0d, #080607 70%);
+    radial-gradient(ellipse at center, color-mix(in srgb, var(--bg, #0b0607), var(--red, #ff5f56) 8%), color-mix(in srgb, var(--bg, #0b0607) 70%, #000) 70%);
   transition: opacity 0.4s, filter 0.4s;
 }
 .cy-boot.out { opacity: 0; filter: blur(4px) brightness(2); }
 .cy-boot pre {
   margin: 0; max-width: 100%;
   font: calc(13px * var(--fs))/1.7 "Share Tech Mono", ui-monospace, monospace;
-  color: #ece3d6;
+  color: var(--text, #ece3d6);
   text-shadow: 0 0 8px color-mix(in srgb, var(--red) 45%, transparent);
   white-space: pre-wrap;
 }
@@ -610,8 +624,8 @@
   margin-top: 14px;
   font: 900 calc(20px * var(--fs))/1.2 "Orbitron", system-ui, sans-serif;
   letter-spacing: 0.16em;
-  color: #fcee0a;
-  text-shadow: 0 0 14px rgba(252, 238, 10, 0.6), 2px 0 var(--accent, #5ef6ff);
+  color: var(--hot, #fcee0a);
+  text-shadow: 0 0 14px color-mix(in srgb, var(--hot, #fcee0a) 60%, transparent), 2px 0 var(--accent, #5ef6ff);
 }
 
 @keyframes cy-flow {
@@ -683,7 +697,7 @@
     background: linear-gradient(90deg, color-mix(in srgb, var(--red) 16%, transparent), transparent 85%);
     border-left-color: var(--red);
   }
-  & .session.active .title { color: #fff1e4; }
+  & .session.active .title { color: color-mix(in srgb, var(--text) 60%, #fff); }
   & .home-toggle button.on { box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 55%, transparent); }
   & .ov-card::after, & .modal::after, & .blocked-card::after { filter: drop-shadow(0 0 3px var(--b)) drop-shadow(0 0 10px var(--b)); }
   & .ov-card { box-shadow: inset 0 1px 30px -12px color-mix(in srgb, var(--red) 35%, transparent); }
