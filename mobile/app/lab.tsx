@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useLocalSearchParams } from 'expo-router';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { MD_LAB_DEFAULT, MdLabContext, MdView, type MdLab } from '../src/components/MdView';
-import { BLACK_BOX_REPLY } from '../src/lab-fixture';
+import { BLACK_BOX_REPLY, BLACK_BOX_REPLY_2 } from '../src/lab-fixture';
 import { colors } from '../src/theme';
 
 /* Render lab for the iOS empty-bubble bug. The same known-bad reply is drawn
@@ -10,7 +12,10 @@ import { colors } from '../src/theme';
    shows glyphs names the cause. Toggle "inverted FlatList" to host the
    variants the way the transcript does, in case the list itself matters. */
 
-const VARIANTS: { id: string; title: string; why: string; lab: Partial<MdLab> }[] = [
+const VARIANTS: { id: string; title: string; why: string; lab: Partial<MdLab>; src?: string; press?: boolean }[] = [
+  { id: 'g', title: 'G · reply 2, plain View', why: '648-char reply that boxed on a fresh load (code block, 2 long lines)', lab: {}, src: BLACK_BOX_REPLY_2 },
+  { id: 'h', title: 'H · reply 2, transcript bubble', why: 'same, inside the Pressable+onLongPress bubble the transcript uses', lab: {}, src: BLACK_BOX_REPLY_2, press: true },
+  { id: 'i', title: 'I · reply 1, transcript bubble', why: 'the 3964-char reply inside the transcript bubble', lab: {}, press: true },
   { id: 'asis', title: 'A · as-is', why: 'exactly what the transcript renders', lab: {} },
   { id: 'nobg', title: 'B · no code-span background', why: 'nested Text backgroundColor fragment', lab: { codeBg: false } },
   { id: 'nofont', title: 'C · system font on code spans', why: "fontFamily 'monospace' is not an iOS family", lab: { codeFont: false } },
@@ -24,24 +29,43 @@ function Variant({ v }: { v: (typeof VARIANTS)[number] }) {
     <View style={styles.variant}>
       <Text style={styles.title}>{v.title}</Text>
       <Text style={styles.why}>{v.why}</Text>
-      <View style={styles.bubble}>
-        <MdLabContext.Provider value={{ ...MD_LAB_DEFAULT, ...v.lab }}>
-          <MdView src={BLACK_BOX_REPLY} />
-        </MdLabContext.Provider>
-      </View>
+      {v.press ? (
+        <Pressable
+          style={({ pressed }) => [styles.bubble, pressed && styles.copyPress]}
+          onLongPress={() => Clipboard.setStringAsync(v.src ?? BLACK_BOX_REPLY)}
+        >
+          <MdLabContext.Provider value={{ ...MD_LAB_DEFAULT, ...v.lab }}>
+            <MdView src={v.src ?? BLACK_BOX_REPLY} />
+          </MdLabContext.Provider>
+        </Pressable>
+      ) : (
+        <View style={styles.bubble}>
+          <MdLabContext.Provider value={{ ...MD_LAB_DEFAULT, ...v.lab }}>
+            <MdView src={v.src ?? BLACK_BOX_REPLY} />
+          </MdLabContext.Provider>
+        </View>
+      )}
       <Text style={styles.foot}>↑ {v.title} — if the bubble above is blank, this variant did not fix it</Text>
     </View>
   );
 }
 
 export default function LabScreen() {
-  const [inverted, setInverted] = useState(false);
-  const [only, setOnly] = useState<string | null>(null);
+  // deep-link driveable: capra://lab?inv=1&v=nofont (so a Simulator can be
+  // stepped through the variants with simctl openurl, no tapping)
+  const params = useLocalSearchParams<{ inv?: string; v?: string }>();
+  const [inverted, setInverted] = useState(params.inv === '1');
+  const [only, setOnly] = useState<string | null>(params.v ?? null);
+  useEffect(() => {
+    setInverted(params.inv === '1');
+    setOnly(params.v && VARIANTS.some((x) => x.id === params.v) ? params.v : null);
+  }, [params.inv, params.v]);
   const shown = only ? VARIANTS.filter((v) => v.id === only) : VARIANTS;
   const header = (
     <View style={styles.controls}>
       <Text style={styles.hint}>
         {BLACK_BOX_REPLY.length} chars · the reply that boxed on 2026-10-19. Flat text like this line is the control.
+        {' '}params inv={String(params.inv)} v={String(params.v)}
       </Text>
       <View style={styles.row}>
         <Pressable style={[styles.chip, inverted && styles.chipOn]} onPress={() => setInverted((x) => !x)}>
@@ -100,5 +124,6 @@ const styles = StyleSheet.create({
   title: { color: colors.accent, fontSize: 15, fontWeight: '700' },
   why: { color: colors.sub, fontSize: 12 },
   bubble: { borderRadius: 14, padding: 12, backgroundColor: colors.surface },
+  copyPress: { opacity: 0.7 },
   foot: { color: colors.sub, fontSize: 11 },
 });

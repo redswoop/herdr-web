@@ -30,6 +30,10 @@ import { Icon } from './Icon';
 import { MdView } from './MdView';
 import { SegText } from './SegText';
 
+/** render-lab diagnostics (app/replay.tsx flips it): log every cell's measured
+ *  height to Metro so a blank/giant cell can be identified without a screenshot */
+export const transcriptDebug = { log: false, noMvcp: false, noInverted: false };
+
 export function Transcript({
   items,
   error,
@@ -76,12 +80,36 @@ export function Transcript({
       style={styles.list}
       contentContainerStyle={styles.listContent}
       data={data}
-      inverted
+      inverted={!transcriptDebug.noInverted}
       keyExtractor={(n, i) => ('key' in n ? n.key : `w${i}`)}
-      maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 120 }}
+      maintainVisibleContentPosition={
+        transcriptDebug.noMvcp ? undefined : { minIndexForVisible: 0, autoscrollToTopThreshold: 120 }
+      }
       keyboardDismissMode="interactive"
       keyboardShouldPersistTaps="handled"
       renderItem={({ item: n }) => {
+        const key = 'key' in n ? n.key : 'working';
+        const cell = renderNode(n);
+        if (!transcriptDebug.log) return cell;
+        return (
+          <View
+            onLayout={(e) => {
+              const l = e.nativeEvent.layout;
+              const what =
+                n.type === 'item'
+                  ? `${n.item.type === 'mine' ? 'mine' : n.item.ev.kind} ${n.item.type === 'mine' ? n.item.mine.text.length : n.item.ev.text.length}ch`
+                  : n.type;
+              console.log(`[cell] ${key} ${what} h=${Math.round(l.height)} y=${Math.round(l.y)} w=${Math.round(l.width)}`);
+            }}
+          >
+            {cell}
+          </View>
+        );
+      }}
+    />
+  );
+
+  function renderNode(n: (typeof data)[number]) {
         if (n.type === 'working') return <WorkingPill />;
         if (n.type === 'group') {
           return <ActivityGroup node={n} live={working && n === nodes[nodes.length - 1]} onOpenFile={onOpenFile} />;
@@ -101,9 +129,7 @@ export function Transcript({
         ) : (
           <EventNode ev={it.ev} onOpenFile={onOpenFile} />
         );
-      }}
-    />
-  );
+  }
 }
 
 function WorkingPill() {

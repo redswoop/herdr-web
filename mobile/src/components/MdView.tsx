@@ -1,8 +1,8 @@
 import { createContext, memo, useContext, useMemo } from 'react';
-import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Platform, StyleSheet, Text, View } from 'react-native';
 import { parseMd, type Block, type Inline } from '@herdr/shared';
 import { colors } from '../theme';
-import { chunkFrags, splitInlineSegs, splitPlain, wrapLongLines } from './segment';
+import { chunkFrags, splitInlineSegs, splitPlain } from './segment';
 
 /** Render-lab knobs (app/lab.tsx). Production never provides this context, so
  *  every flag sits at its default and the transcript renders exactly as before.
@@ -131,41 +131,43 @@ function BlockView({
   block: Block;
   onOpenFile?: (path: string) => void;
 }) {
+  // NO ScrollView in here, ever. Code blocks and tables used to sit in a
+  // horizontal ScrollView; under Fabric (RN 0.86) a ScrollView nested in a
+  // FlatList cell makes every ancestor View's Yoga height grow on each
+  // re-layout (hundreds of thousands of points after a few SSE batches), which
+  // draws as the giant empty bubble. Reproduced with app/replay.tsx: removing
+  // the ScrollView fixes it; a fixed-height ScrollView, Yoga overflow:scroll on
+  // a plain View, inverted off, maintainVisibleContentPosition off, gap→margin
+  // all don't. So long code lines wrap and tables are a flex grid.
   if (block.type === 'code') {
-    // horizontal scroll = no wrapping = Text as wide as the longest line, and
-    // the iOS layer cap applies to width too — hard-wrap oversized lines first
     return (
-      <ScrollView horizontal style={styles.codeBlock} nestedScrollEnabled>
-        <View>
-          {splitPlain(wrapLongLines(block.text)).map((s, i) => (
-            <Text key={i} style={styles.codeBlockText}>{s}</Text>
-          ))}
-        </View>
-      </ScrollView>
+      <View style={styles.codeBlock}>
+        {splitPlain(block.text).map((s, i) => (
+          <Text key={i} style={styles.codeBlockText}>{s}</Text>
+        ))}
+      </View>
     );
   }
   if (block.type === 'table') {
     return (
-      <ScrollView horizontal style={styles.tableWrap} nestedScrollEnabled>
-        <View>
-          <View style={styles.tableRow}>
-            {block.header.map((cell, j) => (
-              <View key={j} style={styles.th}>
+      <View style={styles.tableWrap}>
+        <View style={styles.tableRow}>
+          {block.header.map((cell, j) => (
+            <View key={j} style={styles.th}>
+              <Inlines nodes={cell} onOpenFile={onOpenFile} />
+            </View>
+          ))}
+        </View>
+        {block.rows.map((row, ri) => (
+          <View key={ri} style={styles.tableRow}>
+            {row.map((cell, j) => (
+              <View key={j} style={styles.td}>
                 <Inlines nodes={cell} onOpenFile={onOpenFile} />
               </View>
             ))}
           </View>
-          {block.rows.map((row, ri) => (
-            <View key={ri} style={styles.tableRow}>
-              {row.map((cell, j) => (
-                <View key={j} style={styles.td}>
-                  <Inlines nodes={cell} onOpenFile={onOpenFile} />
-                </View>
-              ))}
-            </View>
-          ))}
-        </View>
-      </ScrollView>
+        ))}
+      </View>
     );
   }
   return <Inlines nodes={block.inlines} onOpenFile={onOpenFile} />;
@@ -201,7 +203,7 @@ const styles = StyleSheet.create({
   baseNoLh: { color: colors.text, fontSize: 15 },
   strong: { fontWeight: '700', color: colors.text },
   code: {
-    fontFamily: 'monospace',
+    fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }),
     backgroundColor: colors.surface3,
     color: colors.accent,
     fontSize: 13,
@@ -213,10 +215,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface2,
     borderRadius: 10,
     padding: 10,
-    maxWidth: '100%',
   },
   codeBlockText: {
-    fontFamily: 'monospace',
+    fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }),
     color: colors.text,
     fontSize: 12,
     lineHeight: 18,
@@ -224,14 +225,14 @@ const styles = StyleSheet.create({
   tableWrap: { marginVertical: 4 },
   tableRow: { flexDirection: 'row' },
   th: {
-    minWidth: 80,
+    flex: 1,
     padding: 6,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.hairline,
     backgroundColor: colors.surface2,
   },
   td: {
-    minWidth: 80,
+    flex: 1,
     padding: 6,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.hairline,
