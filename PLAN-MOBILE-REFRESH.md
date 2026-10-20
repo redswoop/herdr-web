@@ -32,9 +32,15 @@ off (rule in theme.ts). `34887c1`/`32cc1da` motion diet: perpetual
 Reanimated loops cost ~20% of a core idle (packets, not the rain); packets
 run only while working and rest on a JS timer, rain steps 8×/s. `00b1652`
 text size knobs: the four web areas in shared/src/fonts.ts, per device,
-settings steppers, live. Phase 4 is now complete. Open: push (phase 5), a
-motion setting (full/calm/off) + Reduce Motion, alt icon/splash, ticker and
-scramble, the notify.test.mjs ordering flake.
+settings steppers, live. Phase 4 is now complete. Then `f579357` autocorrect
+switch + no dead band above the keyboard, `fcde912` one-frame composer +
+shrink after send, and `252bf8e` **over-the-air updates**: expo-updates on
+the production channel, `ios-update.yml` publishes on every push, the
+native TestFlight build (`ios-testflight.yml`) runs only on `[build]` in
+the commit subject (free EAS plan, 30 builds/month). Open: push (phase 5),
+a motion setting (full/calm/off) + Reduce Motion, alt icon/splash, ticker
+and scramble, local `eas build --local` on the Mac, the notify.test.mjs
+ordering flake.
 
 
 - `mobile/` on `main` is the real app. The `~/src/herdr-web2` clone on branch `react-native` is a stale July snapshot; ignore it.
