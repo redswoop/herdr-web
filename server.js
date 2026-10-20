@@ -1036,15 +1036,25 @@ async function createChat({ kind, name, cwd, workspaceId, label, args, worktree,
 // (herdr 0.8+ no longer sets interactive_ready on a fresh idle launch — see
 // isPromptable.) Poll agent.get so createChat doesn't hand back a pane the
 // client can't talk to yet.
-async function waitAgentPromptable(paneId, { timeoutMs = 15_000 } = {}) {
+// Promptable by status isn't the whole story: agent.prompt is also refused
+// while `launch_pending` is set, and a hook-authority agent (pi, codex) sits
+// on idle+launch_pending until its own startup report lands, ~4-7s after
+// agent.start. A client that sends its first message the moment create
+// returns hit that window every time. Hold on for the flag too, but only
+// for a while — a pane whose report got lost is still alive (see promptRaw).
+async function waitAgentPromptable(paneId, { timeoutMs = 15_000, pendingMs = 10_000 } = {}) {
   const deadline = Date.now() + timeoutMs;
   let last = null;
+  let promptableAt = 0;
   while (Date.now() < deadline) {
     try {
       const r = await rpc('agent.get', { target: paneId });
       const a = r.agent ?? r;
       last = a;
-      if (isPromptable(a)) return a;
+      if (isPromptable(a)) {
+        promptableAt ||= Date.now();
+        if (!a.launch_pending || Date.now() - promptableAt > pendingMs) return a;
+      }
     } catch (e) {
       last = e;
     }
@@ -1156,11 +1166,38 @@ async function agentRpc(method, params) {
     try {
       return await rpc(method, params);
     } catch (e) {
-      if (!/not an active named agent/i.test(String(e.message ?? e))) throw e;
+      if (!isNotReady(e)) throw e;
       if (Date.now() >= deadline) throw e;
       await new Promise((r) => setTimeout(r, 300));
     }
   }
+}
+
+const isNotReady = (e) => /not an active named agent/i.test(String(e?.message ?? e));
+
+// agent.prompt refused for a pane that is plainly alive. Agents whose
+// integration holds "full lifecycle hook authority" (pi, codex: herdr skips
+// screen detection for them) only leave launch_pending when a state report
+// arrives FROM INSIDE THE PANE — outside pane.report_agent calls are
+// accepted but don't clear it (measured 2026-10-19), and pi's extension
+// sends its one startup report with a two-second budget and no retry. Lose
+// that report and the pane is a healthy idle TUI herdr refuses prompts for
+// until the launch record expires minutes later (seen live: a web-launched
+// pi, every prompt 500). The raw channel is never gated, so paste the prompt
+// straight into the composer: the turn it starts makes the extension report
+// `working` from inside, which clears the flag for every later prompt.
+async function promptRaw(paneId, text) {
+  let a = null;
+  try {
+    const r = await rpc('agent.get', { target: paneId });
+    a = r.agent ?? r;
+  } catch {}
+  if (!a?.launch_pending || !a.screen_detection_skipped || a.agent_status !== 'idle') return false;
+  await rpc('pane.send_text', { pane_id: paneId, text: `\x1b[200~${text}\x1b[201~` });
+  await new Promise((r) => setTimeout(r, 150));
+  await rpc('pane.send_keys', { pane_id: paneId, keys: ['enter'] });
+  console.error(`prompt pasted raw into ${paneId}: ${a.agent} still launch_pending`);
+  return true;
 }
 
 // ---------- file viewer ----------
@@ -1686,8 +1723,12 @@ const server = http.createServer(async (req, res) => {
         if (!text?.trim()) throw httpErr(400, 'empty prompt');
         // a fullscreen viewer left open on the pane would eat the prompt
         await dismissOverlay(paneId, roster.agents.find((x) => x.paneId === paneId)?.agent);
-        await agentRpc('agent.prompt', { target: paneId, text });
-        verifyPromptLanded(paneId, text); // fire-and-forget — don't hold the response
+        try {
+          await agentRpc('agent.prompt', { target: paneId, text });
+          verifyPromptLanded(paneId, text); // fire-and-forget — don't hold the response
+        } catch (e) {
+          if (!isNotReady(e) || !(await promptRaw(paneId, text))) throw e;
+        }
         // a session switch is only visible in herdr's report — pick it up now
         // so open streams reset in ~1s instead of at the next roster poll
         if (/^\/(new|clear)$/.test(text.trim())) {
