@@ -22,6 +22,8 @@ import { alpha, useStyles, useTheme, type Tokens } from './theme';
 export function FlickerIn({ children, delay = 0, style }: { children: ReactNode; delay?: number; style?: ViewStyle }) {
   const t = useTheme();
   const o = useSharedValue(t.cyber ? 0 : 1);
+  // once per mount: a list row's index (and so its delay) changes every time
+  // the roster re-sorts, and re-flickering on each status flip is noise
   useEffect(() => {
     if (!t.cyber) {
       o.value = 1;
@@ -37,7 +39,8 @@ export function FlickerIn({ children, delay = 0, style }: { children: ReactNode;
         withTiming(1, { duration: 120 }),
       ),
     );
-  }, [t.cyber, delay, o]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const a = useAnimatedStyle(() => ({ opacity: o.value }));
   return <Animated.View style={[style, a]}>{children}</Animated.View>;
 }
