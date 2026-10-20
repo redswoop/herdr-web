@@ -4,6 +4,23 @@ Drafted 2026-10-19. Companion to `PLAN-MOBILE.md` (the original build plan, phas
 
 ## Where things stand
 
+**2026-10-20 (overnight session):** phases 0–4 are done and committed; the
+cyber skin is at tier C minus the garnish. What landed, in order:
+`d8a0acb` (own agent header, growing composer, mode chip + picker, /rewind
+and /resume cards, jump pill, multi-select live toggle), `b7bb95c` (launcher
+model in `shared/src/launcher.ts` with vitest; web dialog and Capra sheet
+both on it; every ＋ opens the launcher; pull-to-refresh; row ages),
+`189bf82` (tap-to-copy, inline video/audio, flicker/packet/sweep/boot-log
+motion, Skia rain + bloom + vignette, opaque `Screen` roots). Native deps
+added and ABI-checked against ExpoModulesCore 57.0.8: expo-haptics 57.0.1,
+expo-video 57.0.2, expo-audio 57.0.3, react-native-skia 2.14.0 — the Mac
+dev client was rebuilt (`pod install` + `xcodebuild`, recipe in the
+ios-simulator-loop memory). Still open: push (phase 5, needs an APNs key),
+chamfers (Skia clip, not started), alternate app icon / splash on cyber,
+ticker and scramble text, and an on-device perf read of the rain behind a
+scrolling transcript. Below is the original plan as drafted on 10-19.
+
+
 - `mobile/` on `main` is the real app. The `~/src/herdr-web2` clone on branch `react-native` is a stale July snapshot; ignore it.
 - Last substantive mobile commits: 2026-08-06 (black-box fixes, build 8 on TestFlight) and 2026-10-06 (blocked cards, cursor menus, live mirror). Mobile did **not** get the 2026-10-16 batch.
 - Expo SDK 57 / RN 0.86 / React 19.2.3 since August, same React as web. `tsc --noEmit` and `vitest` pass today. No new dev-client build is needed until a native module is added.
