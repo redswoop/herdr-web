@@ -26,6 +26,7 @@ import { useRoster } from '../src/roster';
 import { Icon } from '../src/components/Icon';
 import { Overview } from '../src/components/Overview';
 import { Screen } from '../src/cyber';
+import { ChamferPlate } from '../src/cyber-skia';
 import { FlickerIn } from '../src/cyber-fx';
 import { alpha, useStyles, useTheme, type Tokens } from '../src/theme';
 
@@ -369,10 +370,11 @@ export default function RosterScreen() {
       )}
 
       <Pressable
-        style={[styles.fab, { bottom: Math.max(insets.bottom, 12) + 8 }]}
+        style={[styles.fab, t.cyber && styles.fabPlate, { bottom: Math.max(insets.bottom, 12) + 8 }]}
         onPress={() => openNew()}
         accessibilityLabel="new chat"
       >
+        <ChamferPlate fill={t.colors.hot} stroke="#ffffff66" cut={12} glow={10} />
         <Icon name="plus" size={28} color={t.colors.accentInk} />
       </Pressable>
     </Screen>
@@ -549,6 +551,8 @@ const makeStyles = (t: Tokens) =>
     justifyContent: 'center',
   },
   blockedChipText: { color: t.colors.accentInk, ...t.font('ui', '700') },
+  // on cyber the plate paints the fill, so the box itself stays clear
+  fabPlate: { backgroundColor: 'transparent', boxShadow: undefined, shadowOpacity: 0, elevation: 0 },
   fab: {
     position: 'absolute',
     right: 18,

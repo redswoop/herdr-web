@@ -24,6 +24,7 @@ import {
 import { fileRawUrl } from '../api-urls';
 import { NeonRail } from '../cyber';
 import { RailPacket } from '../cyber-fx';
+import { ChamferPlate } from '../cyber-skia';
 import { tick } from '../toast';
 import { alpha, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
@@ -481,6 +482,7 @@ export function Composer({
           onPress={stop ? onInterrupt : send}
           accessibilityLabel={stop ? 'stop' : 'send'}
         >
+          {t.cyber && <ChamferPlate fill={stop ? t.colors.red : t.colors.hot} cut={9} glow={6} />}
           <Icon name={stop ? 'stop' : 'send'} size={18} color={t.colors.accentInk} />
         </Pressable>
       </View>
@@ -656,11 +658,11 @@ const makeStyles = (t: Tokens) =>
     width: BTN,
     height: BTN,
     borderRadius: t.r(BTN / 2),
-    backgroundColor: t.cyber ? t.colors.hot : t.colors.accent,
-    ...t.boxGlow(t.colors.hot, 12, 0.6),
+    backgroundColor: t.cyber ? 'transparent' : t.colors.accent,
+    ...(t.cyber ? {} : t.boxGlow(t.colors.hot, 12, 0.6)),
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sendStop: { backgroundColor: t.cyber ? t.colors.red : t.colors.blocked, ...t.boxGlow(t.colors.red, 12, 0.6) },
+  sendStop: { backgroundColor: t.cyber ? 'transparent' : t.colors.blocked },
   sendDisabled: { opacity: 0.4 },
 });

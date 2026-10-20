@@ -46,6 +46,7 @@ import {
   type WorktreeEntry,
 } from '@herdr/shared';
 import { Brackets } from '../cyber';
+import { ChamferPlate } from '../cyber-skia';
 import { alpha, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 
@@ -472,7 +473,8 @@ export function NewChatSheet({
       </ScrollView>
 
       <View style={styles.foot}>
-        <Pressable style={[styles.btnPrimary, (busy || !effKind) && styles.btnDisabled]} disabled={busy || !effKind} onPress={submit}>
+        <Pressable style={[styles.btnPrimary, t.cyber && styles.btnPlate, (busy || !effKind) && styles.btnDisabled]} disabled={busy || !effKind} onPress={submit}>
+          <ChamferPlate fill={t.colors.hot} stroke="#ffffff55" cut={14} glow={8} />
           {busy ? (
             <ActivityIndicator color={t.colors.accentInk} />
           ) : (
@@ -661,5 +663,6 @@ const makeStyles = (t: Tokens) =>
       ...t.boxGlow(t.colors.hot, 16, 0.5),
     },
     btnPrimaryText: { color: t.cyber ? '#000000' : t.colors.accentInk, ...t.font('ui', '700'), fontSize: t.cyber ? 14 : 16, ...t.hud },
+    btnPlate: { backgroundColor: 'transparent', boxShadow: undefined },
     btnDisabled: { opacity: 0.45 },
   });

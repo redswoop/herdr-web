@@ -3,7 +3,7 @@
    hundred glyph columns, no React re-renders. Loaded lazily — the module
    is native, and a dev client built before it was added must still boot. */
 import { useEffect, useMemo, useState, type ComponentType } from 'react';
-import { StyleSheet, useWindowDimensions } from 'react-native';
+import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useDerivedValue, type SharedValue } from 'react-native-reanimated';
 import { useTheme } from './theme';
 
@@ -69,6 +69,80 @@ function makeVignette(mod: SkiaMod): ComponentType<{ width: number; height: numb
         <Rect x={0} y={0} width={width} height={height}>
           <RadialGradient c={vec(width / 2, height / 2)} r={Math.max(width, height) * 0.72} colors={['#00000000', '#00000000', '#000000a0']} positions={[0, 0.55, 1]} />
         </Rect>
+      </Canvas>
+    );
+  };
+}
+
+/** A chamfered plate behind a control: Skia path with the top-right and
+ *  bottom-left corners cut (the web `clip-path` grammar), filled and
+ *  edge-lit. Absolute-filled, so the caller's padding sets the size; the
+ *  caller keeps its own background transparent. Falls back to nothing (a
+ *  plain square box) when Skia isn't in the binary. */
+export function ChamferPlate({
+  fill,
+  stroke,
+  cut = 10,
+  glow = 0,
+}: {
+  fill: string;
+  stroke?: string;
+  cut?: number;
+  glow?: number;
+}) {
+  const t = useTheme();
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  const [Comp, setComp] = useState<ComponentType<PlateProps> | null>(null);
+  useEffect(() => {
+    if (!t.cyber) return;
+    const mod = loadSkia();
+    if (mod) setComp(() => makePlate(mod));
+  }, [t.cyber]);
+  if (!t.cyber) return null;
+  // the canvas overhangs the box by the glow radius so the outer light isn't
+  // clipped; the path is drawn offset by the same amount
+  const pad = glow > 0 ? glow + 4 : 0;
+  return (
+    <View
+      pointerEvents="none"
+      style={StyleSheet.absoluteFill}
+      onLayout={(e) => setSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
+    >
+      {Comp && size.w > 0 && (
+        <View style={{ position: 'absolute', left: -pad, top: -pad, width: size.w + pad * 2, height: size.h + pad * 2 }}>
+          <Comp w={size.w} h={size.h} pad={pad} fill={fill} stroke={stroke} cut={cut} glow={glow} />
+        </View>
+      )}
+    </View>
+  );
+}
+
+interface PlateProps {
+  w: number;
+  h: number;
+  pad: number;
+  fill: string;
+  stroke?: string;
+  cut: number;
+  glow: number;
+}
+
+function makePlate(mod: SkiaMod): ComponentType<PlateProps> {
+  const { Canvas, Path, Shadow } = mod;
+  return function SkPlate({ w, h, pad, fill, stroke, cut, glow }: PlateProps) {
+    const c = Math.min(cut, w / 3, h / 3);
+    const o = pad + 0.5; // inset half a point so the stroke isn't clipped
+    const path = useMemo(
+      () =>
+        `M${o} ${o} L${o + w - c - 1} ${o} L${o + w - 1} ${o + c} L${o + w - 1} ${o + h - 1} L${o + c} ${o + h - 1} L${o} ${o + h - c - 1} Z`,
+      [w, h, c, o],
+    );
+    return (
+      <Canvas style={{ width: w + pad * 2, height: h + pad * 2 }} pointerEvents="none">
+        <Path path={path} color={fill}>
+          {glow > 0 && <Shadow dx={0} dy={0} blur={glow} color={fill + '99'} />}
+        </Path>
+        {!!stroke && <Path path={path} color={stroke} style="stroke" strokeWidth={1} />}
       </Canvas>
     );
   };
