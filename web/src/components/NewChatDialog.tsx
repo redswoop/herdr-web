@@ -1,175 +1,26 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { dominant } from '@herdr/shared';
+import {
+  MODE_KINDS,
+  RESUME_KINDS,
+  SPAWN_MODES,
+  SPAWN_MODE_ORDER,
+  buildPlaces,
+  buildSpawnRequest,
+  cleanAgentName,
+  describeDest,
+  destKey,
+  initialDest,
+  lastMode,
+  placeDest,
+  rememberMode,
+  type Dest,
+  type Place,
+  type SpawnMode,
+} from '@herdr/shared';
 import { errorOf, post } from '../api';
 import { rememberKind, lastKind, type SpawnTarget } from '../spawn';
 import { ago, agoShort, basename, shortPath } from '../util';
-import type {
-  Agent,
-  AgentKind,
-  NewChatRequest,
-  Project,
-  Roster,
-  SessionEntry,
-  Workspace,
-  WorktreeEntry,
-} from '../types';
-
-/** Where the new session starts. The launcher is place-first: pick the
- *  destination, then the agent. */
-type Dest =
-  | { type: 'workspace'; workspaceId: string; cwd?: string } // join an open workspace
-  | { type: 'project'; path: string } // fresh workspace in a known dir
-  | { type: 'worktree-open'; repoCwd: string; path: string } // open existing checkout
-  | { type: 'worktree-new'; repoCwd: string } // create checkout (branch below)
-  | { type: 'resume'; dir: string; sessionId: string; title: string | null; kind: string } // past session
-  | { type: 'path' }; // custom dir
-
-const destKey = (d: Dest) =>
-  d.type === 'workspace' ? `ws:${d.workspaceId}`
-  : d.type === 'project' ? `proj:${d.path}`
-  : d.type === 'worktree-open' ? `wt:${d.path}`
-  : d.type === 'worktree-new' ? `wtnew:${d.repoCwd}`
-  : d.type === 'resume' ? `resume:${d.sessionId}`
-  : 'path';
-
-/** Mirror of the server's agent-name cleanup (herdr wants ^[a-z][a-z0-9_-]{0,31}$).
- *  Typed text is kept verbatim for the tab label; this is what the agent runs as. */
-const cleanAgentName = (raw: string) =>
-  raw
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, '-')
-    .replace(/^[^a-z]+/, '')
-    .replace(/-{2,}/g, '-')
-    .replace(/-+$/, '')
-    .slice(0, 32);
-
-/** Spawn-time permission mode — claude and grok share the --permission-mode
- *  vocabulary. yolo differs per kind: claude keeps the legacy flag
- *  (--permission-mode bypassPermissions needs a settings opt-in, the flag
- *  doesn't) and grok spells it --always-approve. */
-type SpawnMode = 'default' | 'acceptEdits' | 'plan' | 'auto' | 'yolo';
-const SPAWN_MODES: Record<SpawnMode, { label: string; args: string[]; hint: string }> = {
-  // no flag at all: whatever the agent's own settings say (claude's
-  // defaultMode may well be auto) — calling this "manual" was a lie
-  default: { label: 'default', args: [], hint: 'the agent’s own setting' },
-  acceptEdits: {
-    label: 'edits',
-    args: ['--permission-mode', 'acceptEdits'],
-    hint: 'file edits auto-approved',
-  },
-  plan: { label: 'plan', args: ['--permission-mode', 'plan'], hint: 'read-only until you approve a plan' },
-  auto: { label: 'auto', args: ['--permission-mode', 'auto'], hint: 'runs tools without asking' },
-  yolo: {
-    label: 'yolo',
-    args: ['--dangerously-skip-permissions'],
-    hint: 'no permission checks at all',
-  },
-};
-// codex has no claude-style permission modes — its ladder is sandbox ×
-// approval policy, mapped onto the nearest rung
-const CODEX_MODE_ARGS: Record<SpawnMode, string[]> = {
-  default: [],
-  acceptEdits: ['--sandbox', 'workspace-write', '--ask-for-approval', 'on-request'],
-  plan: ['--sandbox', 'read-only', '--ask-for-approval', 'on-request'],
-  auto: ['--approve-for-me'],
-  yolo: ['--dangerously-bypass-approvals-and-sandbox'],
-};
-const spawnModeArgs = (kind: string, m: SpawnMode) => {
-  if (kind === 'codex') return CODEX_MODE_ARGS[m];
-  return m === 'yolo' && kind === 'grok' ? ['--always-approve'] : SPAWN_MODES[m].args;
-};
-const MODE_KINDS = ['claude', 'grok', 'codex'];
-const modeKey = (kind: string) => `herdr.spawnMode.${kind}`;
-const lastMode = (kind: string): SpawnMode => {
-  try {
-    const v = localStorage.getItem(modeKey(kind));
-    return v && v in SPAWN_MODES ? (v as SpawnMode) : 'default';
-  } catch {
-    return 'default';
-  }
-};
-const rememberMode = (kind: string, m: SpawnMode) => {
-  try {
-    localStorage.setItem(modeKey(kind), m);
-  } catch {}
-};
-// kinds whose past sessions the server can list and --resume (pi has no
-// permission modes — it never asks — but resumes fine)
-const RESUME_KINDS = [...MODE_KINDS, 'pi'];
-
-/** A folder you work in — a project, its live herdr spaces, its activity.
- *  The launcher's unit of "where": herdr's workspace/project split stays
- *  under the hood (a place with a live space gets a new tab there). */
-interface Place {
-  key: string;
-  name: string;
-  path: string;
-  repo: boolean;
-  live: number;
-  lastActive: number;
-  /** open herdr spaces in this folder, most recently active first */
-  spaces: Workspace[];
-  dirs: string[];
-}
-
-const placeKeyOf = (a: Agent) => a.repoRoot ?? a.cwd;
-const placeName = (path: string) => (/^\/home\/[^/]+\/?$/.test(path) ? '~' : basename(path) || path);
-
-function buildPlaces(roster: Roster, projects: Project[] | null): Place[] {
-  const places = new Map<string, Place>();
-  const get = (key: string, seed?: Partial<Place>) => {
-    let p = places.get(key);
-    if (!p) {
-      p = { key, name: placeName(key), path: key, repo: false, live: 0, lastActive: 0, spaces: [], dirs: [key], ...seed };
-      places.set(key, p);
-    }
-    return p;
-  };
-  for (const pr of projects ?? []) {
-    // a live project's lastActive is just "the roster refreshed" — the
-    // agents below give the real number
-    get(pr.key, { name: placeName(pr.path), path: pr.path, repo: pr.repo, dirs: pr.dirs, lastActive: pr.live ? 0 : pr.lastActive });
-  }
-  const agentsIn = new Map<string, Agent[]>();
-  for (const a of roster.agents) {
-    (agentsIn.get(a.workspaceId) ?? agentsIn.set(a.workspaceId, []).get(a.workspaceId)!).push(a);
-    const k = placeKeyOf(a);
-    if (!k) continue;
-    const p = get(k, { repo: !!a.repoRoot });
-    p.live += 1;
-    p.lastActive = Math.max(p.lastActive, a.lastActiveAt ?? 0);
-  }
-  const spaceAt = (w: Workspace) =>
-    Math.max(0, ...(agentsIn.get(w.workspaceId) ?? []).map((a) => a.lastActiveAt ?? 0));
-  for (const w of roster.workspaces ?? []) {
-    const k = w.worktree?.isLinked
-      ? w.worktree.checkoutPath
-      : (dominant(agentsIn.get(w.workspaceId) ?? [], placeKeyOf) ?? w.worktree?.checkoutPath);
-    if (!k) continue; // an agentless plain space — a fresh space in the folder is the same thing
-    get(k).spaces.push(w);
-  }
-  for (const p of places.values()) p.spaces.sort((a, b) => spaceAt(b) - spaceAt(a));
-  const all = [...places.values()];
-  // ~/src only shows up because something once ran there: a cold folder that
-  // merely contains other places is noise
-  const paths = all.map((p) => p.path);
-  return all
-    .filter((p) => p.live > 0 || p.spaces.length > 0 || !paths.some((q) => q !== p.path && q.startsWith(`${p.path}/`)))
-    .sort((a, b) => b.lastActive - a.lastActive || b.live - a.live || a.name.localeCompare(b.name));
-}
-
-/** The default destination for a place: a new tab in its busiest live
- *  space, else a fresh space in the folder. */
-function placeDest(p: Place, roster: Roster): Dest {
-  const w = p.spaces[0];
-  if (!w) return { type: 'project', path: p.path };
-  const inSpace = roster.agents.filter((a) => a.workspaceId === w.workspaceId);
-  return {
-    type: 'workspace',
-    workspaceId: w.workspaceId,
-    cwd: w.worktree?.checkoutPath ?? dominant(inSpace, (a) => a.cwd) ?? p.path,
-  };
-}
+import type { AgentKind, Project, Roster, SessionEntry, WorktreeEntry } from '../types';
 
 /** Modal for starting a chat. Every ＋ lands here, pre-aimed: the common
  *  case is a glance at "start claude in X" and Enter. The place list, resume
@@ -186,7 +37,6 @@ export function NewChatDialog({
   onClose: () => void;
   onCreated: (paneId: string) => void;
 }) {
-  const workspaces = roster.workspaces ?? [];
   const [kinds, setKinds] = useState<AgentKind[] | null>(null);
   const [kind, setKind] = useState('');
   const [projects, setProjects] = useState<Project[] | null>(null);
@@ -198,18 +48,7 @@ export function NewChatDialog({
   >({});
   const [openPlace, setOpenPlace] = useState<string | null>(null);
   const places = useMemo(() => buildPlaces(roster, projects), [roster, projects]);
-  const [dest, setDest] = useState<Dest>(() => {
-    const roughPlaces = buildPlaces(roster, null);
-    if (target?.workspaceId && workspaces.some((x) => x.workspaceId === target.workspaceId)) {
-      const w = workspaces.find((x) => x.workspaceId === target.workspaceId)!;
-      return { type: 'workspace', workspaceId: w.workspaceId, cwd: target.cwd ?? w.worktree?.checkoutPath ?? undefined };
-    }
-    if (target?.cwd) {
-      const p = roughPlaces.find((x) => x.path === target.cwd || x.dirs.includes(target.cwd!));
-      return p ? placeDest(p, roster) : { type: 'project', path: target.cwd };
-    }
-    return roughPlaces[0] ? placeDest(roughPlaces[0], roster) : { type: 'path' };
-  });
+  const [dest, setDest] = useState<Dest>(() => initialDest(roster, target));
   // the place list stays folded when we already know where you're going
   const [picking, setPicking] = useState(() => dest.type === 'path');
   const [filter, setFilter] = useState('');
@@ -319,67 +158,17 @@ export function NewChatDialog({
   const effKind = dest.type === 'resume' ? dest.kind : kind;
 
   // which place the destination sits in, and how to say it
-  const destPlace =
-    dest.type === 'workspace' ? places.find((p) => p.spaces.some((w) => w.workspaceId === dest.workspaceId))
-    : dest.type === 'project' ? places.find((p) => p.path === dest.path)
-    : dest.type === 'worktree-open' || dest.type === 'worktree-new' ? places.find((p) => p.path === dest.repoCwd)
-    : dest.type === 'resume' ? places.find((p) => p.dirs.includes(dest.dir))
-    : undefined;
-  const destWs = dest.type === 'workspace' ? workspaces.find((w) => w.workspaceId === dest.workspaceId) : undefined;
-  const destName =
-    dest.type === 'path' ? (cwd.trim() ? basename(cwd.trim()) : '~')
-    : dest.type === 'workspace' ? (destPlace?.name ?? destWs?.label ?? 'workspace')
-    : dest.type === 'project' ? (destPlace?.name ?? basename(dest.path))
-    : dest.type === 'worktree-open' ? basename(dest.path)
-    : dest.type === 'worktree-new' ? (destPlace?.name ?? basename(dest.repoCwd))
-    : (dest.title ?? dest.sessionId.slice(0, 8));
-  const destHow =
-    dest.type === 'workspace'
-      ? (destPlace && destPlace.spaces.length > 1) || (destWs && destPlace && destWs.label !== destPlace.name)
-        ? `new tab in space ${destWs?.number ?? '?'}${destWs?.label && destWs.label !== destName ? ` · ${destWs.label}` : ''}`
-        : 'new tab in its space'
-      : dest.type === 'project' ? 'fresh space'
-      : dest.type === 'worktree-open' ? 'open worktree'
-      : dest.type === 'worktree-new' ? 'new worktree'
-      : dest.type === 'resume' ? `resume · ${dest.kind}`
-      : 'fresh space · custom folder';
+  const { name: destName, how: destHow, place: destPlace } = describeDest(dest, roster, places, cwd);
 
   const submit = async () => {
     if (!effKind || busy) return;
+    const body = buildSpawnRequest({ dest, kind: effKind, spawnMode, name, argsText, cwd, branch });
+    if ('error' in body) {
+      setError(body.error);
+      return;
+    }
     setBusy(true);
     setError(null);
-    const args = [
-      ...(MODE_KINDS.includes(effKind) ? spawnModeArgs(effKind, spawnMode) : []),
-      ...(argsText.trim() ? argsText.trim().split(/\s+/) : []),
-    ];
-    // an untitled resume inherits the session's title so the tab reads right
-    const effName = name.trim() || (dest.type === 'resume' ? (dest.title ?? '') : '');
-    const body: NewChatRequest = {
-      kind: effKind,
-      name: effName || undefined,
-      label: effName || undefined,
-      args: args.length ? args : undefined,
-    };
-    if (dest.type === 'resume') {
-      body.cwd = dest.dir;
-      body.resume = dest.sessionId;
-    } else if (dest.type === 'workspace') {
-      body.workspaceId = dest.workspaceId;
-      body.cwd = dest.cwd;
-    } else if (dest.type === 'project') {
-      body.cwd = dest.path;
-    } else if (dest.type === 'worktree-open') {
-      body.worktree = { repoCwd: dest.repoCwd, path: dest.path };
-    } else if (dest.type === 'worktree-new') {
-      if (!branch.trim()) {
-        setError('branch name required for a new worktree');
-        setBusy(false);
-        return;
-      }
-      body.worktree = { repoCwd: dest.repoCwd, branch: branch.trim() };
-    } else {
-      body.cwd = cwd.trim() || undefined;
-    }
     try {
       const r = await post('/api/chats', body);
       if (!r.ok) throw new Error(await errorOf(r));
@@ -630,7 +419,7 @@ export function NewChatDialog({
               <label className="field">
                 <span>permission mode</span>
                 <div className="seg-row">
-                  {(Object.keys(SPAWN_MODES) as SpawnMode[]).map((m) => (
+                  {SPAWN_MODE_ORDER.map((m) => (
                     <button
                       type="button"
                       key={m}

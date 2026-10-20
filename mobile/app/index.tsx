@@ -1,8 +1,8 @@
 import { useCallback, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Image,
   Pressable,
+  RefreshControl,
   SectionList,
   StyleSheet,
   Text,
@@ -13,11 +13,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   GROUP_MODES,
   STATUS_WORD,
+  agoShort,
   buildGroups,
   chipName,
   getPlatform,
-  lastKind,
-  spawnChat,
   type Agent,
   type Group,
   type GroupBy,
@@ -53,13 +52,12 @@ function loadHomeView(): 'list' | 'cards' {
 export default function RosterScreen() {
   const t = useTheme();
   const styles = useStyles(makeStyles);
-  const { roster, connected, authNeeded } = useRoster();
+  const { roster, connected, authNeeded, refresh, refreshing } = useRoster();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [groupBy, setGroupBy] = useState<GroupBy>(loadGroupBy);
   const [closed, setClosed] = useState<Set<string>>(loadClosed);
   const [homeView, setHomeView] = useState<'list' | 'cards'>(loadHomeView);
-  const [spawning, setSpawning] = useState<string | null>(null);
 
   const groups = useMemo(
     () =>
@@ -134,19 +132,6 @@ export default function RosterScreen() {
         ...(target?.cwd ? { cwd: target.cwd } : {}),
       },
     });
-  };
-
-  const quickChat = async (key: string, target: SpawnTarget) => {
-    if (spawning) return;
-    setSpawning(key);
-    try {
-      const paneId = await spawnChat({ kind: lastKind(), ...target });
-      router.push(`/agent/${encodeURIComponent(paneId)}`);
-    } catch (e) {
-      getPlatform().notifyError(String((e as Error).message ?? e));
-    } finally {
-      setSpawning(null);
-    }
   };
 
   if (authNeeded || !roster.updatedAt) {
@@ -245,10 +230,8 @@ export default function RosterScreen() {
           roster={roster}
           onSelect={(paneId) => router.push(`/agent/${encodeURIComponent(paneId)}`)}
           onNewChat={openNew}
-          onQuickChat={async (target) => {
-            const paneId = await spawnChat({ kind: lastKind(), ...target });
-            router.push(`/agent/${encodeURIComponent(paneId)}`);
-          }}
+          refreshing={refreshing}
+          onRefresh={refresh}
         />
       ) : (
         <SectionList
@@ -256,6 +239,7 @@ export default function RosterScreen() {
           keyExtractor={(row) => row.key}
           stickySectionHeadersEnabled
           contentContainerStyle={styles.list}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={t.colors.accent} />}
           ListEmptyComponent={
             <View style={styles.emptyBox}>
               <Image
@@ -304,17 +288,11 @@ export default function RosterScreen() {
                 {!!g.spawn && (
                   <Pressable
                     style={styles.quickBtn}
-                    onPress={() => quickChat(g.key, g.spawn!)}
-                    onLongPress={() => openNew(g.spawn)}
-                    disabled={!!spawning}
+                    onPress={() => openNew(g.spawn)}
                     hitSlop={8}
-                    accessibilityLabel="new session here (long-press to customize)"
+                    accessibilityLabel="new session here"
                   >
-                    {spawning === g.key ? (
-                      <ActivityIndicator size="small" color={t.colors.accent} />
-                    ) : (
-                      <Icon name="plus" size={18} color={t.colors.accent} />
-                    )}
+                    <Icon name="plus" size={18} color={t.colors.accent} />
                   </Pressable>
                 )}
               </View>
@@ -372,9 +350,14 @@ export default function RosterScreen() {
                     </View>
                   )}
                 </View>
-                <Text style={[styles.stateWord, { color: t.status(a.status) }, t.glow(t.status(a.status), 6)]}>
-                  {STATUS_WORD[a.status] ?? a.status}
-                </Text>
+                <View style={styles.rowEnd}>
+                  <Text style={[styles.stateWord, { color: t.status(a.status) }, t.glow(t.status(a.status), 6)]}>
+                    {STATUS_WORD[a.status] ?? a.status}
+                  </Text>
+                  {!!a.lastActiveAt && a.status !== 'working' && (
+                    <Text style={styles.age}>{agoShort(a.lastActiveAt)}</Text>
+                  )}
+                </View>
               </Pressable>
             );
           }}
@@ -522,7 +505,9 @@ const makeStyles = (t: Tokens) =>
     overflow: 'hidden',
   },
   tagWarn: { color: t.colors.working },
+  rowEnd: { alignItems: 'flex-end', gap: 3 },
   stateWord: { fontSize: 11, ...t.font('ui', '700'), textTransform: 'lowercase', ...t.hud },
+  age: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: 10, fontVariant: ['tabular-nums'] },
   quickBtn: {
     width: 32,
     height: 32,

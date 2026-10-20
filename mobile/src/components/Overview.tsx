@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import {
-  ActivityIndicator,
   Image,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,10 +11,7 @@ import {
 import {
   STATUS_WORD,
   chipName,
-  get,
-  getPlatform,
   type Agent,
-  type Project,
   type Roster,
   type SpawnTarget,
 } from '@herdr/shared';
@@ -79,52 +76,29 @@ export function Overview({
   roster,
   onSelect,
   onNewChat,
-  onQuickChat,
+  refreshing,
+  onRefresh,
 }: {
   roster: Roster;
   onSelect: (paneId: string) => void;
   onNewChat: (target?: SpawnTarget) => void;
-  onQuickChat: (target: SpawnTarget) => Promise<void>;
+  refreshing: boolean;
+  onRefresh: () => void;
 }) {
   const t = useTheme();
   const styles = useStyles(makeStyles);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [spawning, setSpawning] = useState<string | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    get('/api/projects')
-      .then((r) => r.json())
-      .then((j: { projects: Project[] }) => alive && setProjects(j.projects))
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [roster.agents.length]);
 
   const cards = useMemo(() => buildCards(roster), [roster]);
-  const dormant = useMemo(
-    () => projects.filter((p) => p.live === 0).slice(0, 12),
-    [projects],
-  );
 
   const blocked = roster.agents.filter((a) => a.status === 'blocked').length;
   const working = roster.agents.filter((a) => a.status === 'working').length;
 
-  const quick = async (key: string, target: SpawnTarget) => {
-    if (spawning) return;
-    setSpawning(key);
-    try {
-      await onQuickChat(target);
-    } catch (e) {
-      getPlatform().notifyError(String((e as Error).message ?? e));
-    } finally {
-      setSpawning(null);
-    }
-  };
-
   return (
-    <ScrollView style={styles.root} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.root}
+      contentContainerStyle={styles.content}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={t.colors.accent} />}
+    >
       <View style={styles.head}>
         <View style={styles.titleRow}>
           <Image
@@ -161,18 +135,8 @@ export function Overview({
               </Text>
             )}
             {!!c.spawn && (
-              <Pressable
-                style={styles.cardPlus}
-                onPress={() => quick(c.key, c.spawn!)}
-                onLongPress={() => onNewChat(c.spawn)}
-                disabled={!!spawning}
-                accessibilityLabel="new session here (long-press to customize)"
-              >
-                {spawning === c.key ? (
-                  <ActivityIndicator size="small" color={t.colors.accent} />
-                ) : (
-                  <Icon name="plus" size={18} color={t.colors.accent} />
-                )}
+              <Pressable style={styles.cardPlus} onPress={() => onNewChat(c.spawn)} accessibilityLabel="new session here">
+                <Icon name="plus" size={18} color={t.colors.accent} />
               </Pressable>
             )}
           </View>
@@ -196,32 +160,9 @@ export function Overview({
         </View>
       ))}
 
-      {dormant.length > 0 && (
-        <>
-          <Text style={styles.sec}>start somewhere</Text>
-          <View style={styles.dormantRow}>
-            {dormant.map((p) => (
-              <Pressable
-                key={p.key}
-                style={styles.dormant}
-                onPress={() => quick(p.key, { cwd: p.path })}
-                onLongPress={() => onNewChat({ cwd: p.path })}
-                disabled={!!spawning}
-                accessibilityLabel={`${p.name} — tap to start, long-press to customize`}
-              >
-                <View style={styles.dormantInner}>
-                  {p.repo ? <Icon name="folder" size={12} color={t.colors.accent} /> : null}
-                  <Text style={styles.dormantName} numberOfLines={1}>
-                    {spawning === p.key ? '…' : p.name}
-                  </Text>
-                </View>
-              </Pressable>
-            ))}
-          </View>
-        </>
-      )}
 
-      {!cards.length && !dormant.length && (
+
+      {!cards.length && (
         <Text style={styles.empty}>no projects yet — start a chat</Text>
       )}
     </ScrollView>
@@ -285,17 +226,5 @@ const makeStyles = (t: Tokens) =>
     ...t.hud,
     marginTop: 12,
   },
-  dormantRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  dormant: {
-    backgroundColor: t.glass,
-    borderRadius: t.radius.sm,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: t.colors.hairline,
-    maxWidth: '48%',
-  },
-  dormantInner: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  dormantName: { color: t.colors.text, ...t.font('ui', '600'), fontSize: 13, flexShrink: 1 },
   empty: { ...t.font('ui'), color: t.colors.sub, textAlign: 'center', marginTop: 40 },
 });
