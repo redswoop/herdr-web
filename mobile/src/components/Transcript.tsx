@@ -27,12 +27,11 @@ import {
 } from '@herdr/shared';
 import { alpha, mix, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
-import { MdView } from './MdView';
+import { MdView, mdIsWide } from './MdView';
 import { SegText } from './SegText';
 
-/** render-lab diagnostics (app/replay.tsx flips it): log every cell's measured
- *  height to Metro so a blank/giant cell can be identified without a screenshot */
-export const transcriptDebug = { log: false, noMvcp: false, noInverted: false };
+import { transcriptDebug } from './debug';
+export { transcriptDebug };
 
 export function Transcript({
   items,
@@ -181,7 +180,7 @@ const EventNode = memo(function EventNode({
   if (ev.kind === 'user') {
     return (
       <Pressable
-        style={({ pressed }) => [styles.msg, styles.user, pressed && styles.copyPress]}
+        style={({ pressed }) => [styles.msg, styles.user, mdIsWide(ev.text) && styles.msgWide, pressed && styles.copyPress]}
         onLongPress={() => Clipboard.setStringAsync(ev.text)}
       >
         {t.cyber && <Text style={styles.you}>▸ YOU</Text>}
@@ -192,7 +191,7 @@ const EventNode = memo(function EventNode({
   if (ev.kind === 'assistant') {
     return (
       <Pressable
-        style={({ pressed }) => [styles.msg, styles.assistant, pressed && styles.copyPress]}
+        style={({ pressed }) => [styles.msg, styles.assistant, mdIsWide(ev.text) && styles.msgWide, pressed && styles.copyPress]}
         onLongPress={() => Clipboard.setStringAsync(ev.text)}
       >
         {t.cyber && <View style={styles.diamond} />}
@@ -201,7 +200,8 @@ const EventNode = memo(function EventNode({
     );
   }
   return (
-    <Details label={AUX_LABEL[ev.kind] ?? ev.kind} body={clip(ev.text)} />
+    // emoji in the shared labels don't draw on iOS (two '?' glyphs) — words only
+    <Details label={(AUX_LABEL[ev.kind] ?? ev.kind).replace(/^[^\p{L}]+/u, '')} body={clip(ev.text)} />
   );
 });
 
@@ -386,6 +386,7 @@ const MineBubble = memo(function MineBubble({
     <Pressable
       style={({ pressed }) => [
         styles.mine,
+        mdIsWide(mine.text) && styles.mineWide,
         cancellable && styles.mineCancellable,
         pressed && styles.copyPress,
       ]}
@@ -411,6 +412,9 @@ const makeStyles = (t: Tokens) =>
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   empty: { ...t.font('ui'), color: t.colors.sub, textAlign: 'center' },
   msg: { borderRadius: t.r(14), padding: 12, maxWidth: '92%' },
+  // tables/code need a definite width — see mdIsWide in MdView
+  msgWide: { width: '92%' },
+  mineWide: { width: '85%' },
   copyPress: { opacity: 0.6 }, // long-press feedback: copying, not selecting
   user: t.cyber
     ? {

@@ -3,6 +3,7 @@ import { Linking, Platform, StyleSheet, Text, View } from 'react-native';
 import { parseMd, type Block, type Inline } from '@herdr/shared';
 import { alpha, mix, useStyles, useTheme, type Tokens } from '../theme';
 import { chunkFrags, splitInlineSegs, splitPlain } from './segment';
+import { transcriptDebug } from './debug';
 
 /** Render-lab knobs (app/lab.tsx). Production never provides this context, so
  *  every flag sits at its default and the transcript renders exactly as before.
@@ -31,6 +32,17 @@ export const MD_LAB_DEFAULT: MdLab = {
   flatten: false,
 };
 export const MdLabContext = createContext<MdLab>(MD_LAB_DEFAULT);
+
+/** True when `src` holds a table or fenced code — blocks whose height depends
+ *  on the width they're given. A bubble showing them must have a DEFINITE
+ *  width (not shrink-to-fit): Yoga sizes a shrink-wrapped column from its
+ *  children's first (AtMost) measurement, then re-lays stretched children out
+ *  at the final width; a flex-grid table wraps far more at that narrower
+ *  width and grows, but the parent's height is already committed. Result:
+ *  the table paints through everything below the bubble (the /context
+ *  tool-table bug, 2026-10-19). Paragraphs are safe — a stretched Text is
+ *  never narrower than the width it was measured at. */
+export const mdIsWide = (src: string) => /(^|\n)\s*(\||```)/.test(src);
 
 // Long paragraphs are split into stacked <Text> segments (see SegText.tsx) —
 // one unbounded <Text> past the iOS layer size limit draws as an empty box.
@@ -152,19 +164,35 @@ function BlockView({
     );
   }
   if (block.type === 'table') {
+    // column weights from content length: a tool-name column gets most of the
+    // row, a numeric column keeps a floor instead of wrapping digits
+    const cols = block.header.length;
+    const weights: number[] = [];
+    for (let j = 0; j < cols; j++) {
+      let n = block.header[j]?.reduce((a, x) => a + x.text.length, 0) ?? 0;
+      for (const row of block.rows) n = Math.max(n, row[j]?.reduce((a, x) => a + x.text.length, 0) ?? 0);
+      weights.push(Math.min(Math.max(n, 4), 40));
+    }
     return (
-      <View style={styles.tableWrap}>
+      <View
+        style={styles.tableWrap}
+        onLayout={transcriptDebug.log ? (e) => console.log(`[table] rows=${block.rows.length} h=${Math.round(e.nativeEvent.layout.height)} w=${Math.round(e.nativeEvent.layout.width)}`) : undefined}
+      >
         <View style={styles.tableRow}>
           {block.header.map((cell, j) => (
-            <View key={j} style={styles.th}>
+            <View key={j} style={[styles.th, { flexGrow: weights[j] }]}>
               <Inlines nodes={cell} onOpenFile={onOpenFile} />
             </View>
           ))}
         </View>
         {block.rows.map((row, ri) => (
-          <View key={ri} style={styles.tableRow}>
+          <View
+            key={ri}
+            style={styles.tableRow}
+            onLayout={transcriptDebug.log && (ri < 3 || ri === block.rows.length - 1) ? (e) => console.log(`[row ${ri}/${block.rows.length}] h=${Math.round(e.nativeEvent.layout.height)} y=${Math.round(e.nativeEvent.layout.y)} "${row[0]?.map((n) => n.text).join('').slice(0, 30)}"`) : undefined}
+          >
             {row.map((cell, j) => (
-              <View key={j} style={styles.td}>
+              <View key={j} style={[styles.td, { flexGrow: weights[j] }]}>
                 <Inlines nodes={cell} onOpenFile={onOpenFile} />
               </View>
             ))}
@@ -190,7 +218,10 @@ export const MdView = memo(function MdView({
   const styles = useStyles(makeStyles);
   const blocks = useMemo(() => parseMd(src), [src]);
   return (
-    <View style={styles.wrap}>
+    <View
+      style={styles.wrap}
+      onLayout={transcriptDebug.log && src.length > 5000 ? (e) => console.log(`[md] ${src.length}ch blocks=${blocks.length} h=${Math.round(e.nativeEvent.layout.height)}`) : undefined}
+    >
       {blocks.map((b, i) => (
         <View key={i} style={styles.block}>
           <BlockView block={b} onOpenFile={onOpenFile} />
@@ -235,14 +266,18 @@ const makeStyles = (t: Tokens) =>
   tableWrap: { marginVertical: 4 },
   tableRow: { flexDirection: 'row' },
   th: {
-    flex: 1,
+    flexBasis: 0,
+    flexShrink: 1,
+    minWidth: 56,
     padding: 6,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: t.colors.hairline,
     backgroundColor: t.glass2,
   },
   td: {
-    flex: 1,
+    flexBasis: 0,
+    flexShrink: 1,
+    minWidth: 56,
     padding: 6,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: t.colors.hairline,

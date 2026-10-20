@@ -125,7 +125,13 @@ function parseTextSegment(src: string): Block[] {
   let buf: string[] = [];
 
   const flushPara = () => {
-    if (!buf.length) return;
+    // whitespace-only runs (trailing newlines after a table, blank lines
+    // between blocks) would become an empty paragraph — a 2-line blank strip
+    // in a bubble on mobile, an empty <p> on web
+    if (!buf.some((l) => l.trim())) {
+      buf = [];
+      return;
+    }
     // join lines with newlines so RN/HTML can break; parse as one inline stream
     // with \n preserved as text nodes
     const joined = buf.join('\n');
