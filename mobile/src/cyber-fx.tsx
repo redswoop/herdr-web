@@ -6,6 +6,9 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { StyleSheet, Text, View, type ViewStyle } from 'react-native';
 import Animated, {
+  runOnJS,
+  type SharedValue,
+  type EasingFunction,
   cancelAnimation,
   Easing,
   FadeOut,
@@ -47,33 +50,48 @@ export function FlickerIn({ children, delay = 0, style }: { children: ReactNode;
 }
 
 /** a bright dash that runs the length of a rail every few seconds */
-/** A packet sliding along a rail. `active` false parks it: a perpetual
- *  animation recomposites the whole screen every frame (scanlines, vignette,
- *  bloom included) — idle on the agent screen that was ~20% of a core on the
- *  Simulator, the battery burn Armen felt on 2026-10-20. Run it while
- *  something is actually happening. */
+/** A packet sliding along a rail. `active` false parks it.
+ *
+ *  Cost model (Simulator, 2026-10-20): ANY running Reanimated animation keeps
+ *  the frame loop alive — a sliding packet was ~20% of a core on an idle agent
+ *  screen, and a withDelay "rest" inside withRepeat cost exactly the same as
+ *  sliding nonstop. So one slide runs as a single withTiming and the rest is a
+ *  JS setTimeout: nothing animates between slides, so nothing ticks. */
+function useSlide(x: SharedValue<number>, run: boolean, w: number, period: number, duration: number, from: number, easing: EasingFunction) {
+  useEffect(() => {
+    if (!run) {
+      cancelAnimation(x);
+      x.value = from;
+      return;
+    }
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const schedule = () => {
+      if (alive) timer = setTimeout(slide, Math.max(0, period - duration));
+    };
+    const slide = () => {
+      if (!alive) return;
+      x.value = from;
+      x.value = withTiming(w - from, { duration, easing }, (finished) => {
+        'worklet';
+        if (finished) runOnJS(schedule)();
+      });
+    };
+    slide();
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+      cancelAnimation(x);
+      x.value = from;
+    };
+  }, [x, run, w, period, duration, from, easing]);
+}
+
 export function RailPacket({ color, period = 4200, active = true }: { color?: string; period?: number; active?: boolean }) {
   const t = useTheme();
   const [w, setW] = useState(0);
   const x = useSharedValue(-80);
-  useEffect(() => {
-    if (!t.cyber || !w || !active) {
-      cancelAnimation(x);
-      x.value = -80;
-      return;
-    }
-    x.value = -80;
-    // slide across, snap home, then REST: a withDelay produces no frames,
-    // where the old slow return kept the screen compositing for the whole period
-    x.value = withRepeat(
-      withSequence(
-        withTiming(w + 80, { duration: 900, easing: Easing.inOut(Easing.quad) }),
-        withTiming(-80, { duration: 0 }),
-        withDelay(period - 900, withTiming(-80, { duration: 0 })),
-      ),
-      -1,
-    );
-  }, [t.cyber, w, period, x, active]);
+  useSlide(x, t.cyber && w > 0 && active, w, period, 900, -80, SLIDE_EASE);
   const a = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }] }));
   if (!t.cyber || !active) return null;
   const c = color ?? t.colors.red;
@@ -84,16 +102,16 @@ export function RailPacket({ color, period = 4200, active = true }: { color?: st
   );
 }
 
-/** a translucent band sweeping left→right over a banner that needs you */
+const SLIDE_EASE = Easing.inOut(Easing.quad);
+const SWEEP_EASE = Easing.inOut(Easing.cubic);
+
+/** The blocked banner's sweep: one pass every 3.6s with a real rest between
+ *  (a blocked pane can sit for an hour waiting on Armen). */
 export function AlarmSweep({ color }: { color?: string }) {
   const t = useTheme();
   const [w, setW] = useState(0);
   const x = useSharedValue(-120);
-  useEffect(() => {
-    if (!t.cyber || !w) return;
-    x.value = -120;
-    x.value = withRepeat(withTiming(w + 120, { duration: 1800, easing: Easing.inOut(Easing.cubic) }), -1);
-  }, [t.cyber, w, x]);
+  useSlide(x, t.cyber && w > 0, w, 3600, 1800, -120, SWEEP_EASE);
   const a = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }, { skewX: '-20deg' }] }));
   if (!t.cyber) return null;
   return (
