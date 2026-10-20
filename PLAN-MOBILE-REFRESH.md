@@ -20,6 +20,22 @@ chamfers (Skia clip, not started), alternate app icon / splash on cyber,
 ticker and scramble text, and an on-device perf read of the rain behind a
 scrolling transcript. Below is the original plan as drafted on 10-19.
 
+**2026-10-20 (daytime, from Armen's first real use of build 19):** six more
+builds. `0897a1a` composer growth (Yoga-sized, no pinned height — Fabric
+stalls it). `0ac7b16` transcript window: `GET /transcript?tail=N&end=I`
+turn-aligned, tool results clipped server-side to the 20k the UIs show (a
+14 MB pane became 234 KB; web gets the lighter payload too), Capra opens
+with 120 events and pages back on scroll (`34887c1`). `66df1f8` the
+Dynamic Type clip: Armen's phone is at text size Extra Large; a lineHeight
+Text under RN scaling clipped its last line — `t.px()` + allowFontScaling
+off (rule in theme.ts). `34887c1`/`32cc1da` motion diet: perpetual
+Reanimated loops cost ~20% of a core idle (packets, not the rain); packets
+run only while working and rest on a JS timer, rain steps 8×/s. `00b1652`
+text size knobs: the four web areas in shared/src/fonts.ts, per device,
+settings steppers, live. Phase 4 is now complete. Open: push (phase 5), a
+motion setting (full/calm/off) + Reduce Motion, alt icon/splash, ticker and
+scramble, the notify.test.mjs ordering flake.
+
 
 - `mobile/` on `main` is the real app. The `~/src/herdr-web2` clone on branch `react-native` is a stale July snapshot; ignore it.
 - Last substantive mobile commits: 2026-08-06 (black-box fixes, build 8 on TestFlight) and 2026-10-06 (blocked cards, cursor menus, live mirror). Mobile did **not** get the 2026-10-16 batch.
