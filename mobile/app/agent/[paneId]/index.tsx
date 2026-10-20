@@ -30,6 +30,9 @@ import { Screen, StripeFill } from '../../../src/cyber';
 import { AlarmSweep } from '../../../src/cyber-fx';
 import { alpha, useStyles, type Tokens } from '../../../src/theme';
 
+/** events to open with — about a dozen turns; the rest pages in from the top */
+const TAIL = 120;
+
 // every kind the server can list past sessions for and --resume
 const RESUME_KINDS = ['claude', 'grok', 'codex', 'pi'];
 
@@ -44,8 +47,8 @@ export default function AgentScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const { items, error, loaded, send, interrupt, cooldown, working, restoredDraft, inject } =
-    useAgentSession(paneId, status, agent?.agent);
+  const { items, error, loaded, send, interrupt, cooldown, working, restoredDraft, inject, older, loadingOlder, loadOlder } =
+    useAgentSession(paneId, status, agent?.agent, { tail: TAIL });
   const { ctx, refresh } = useBlockedContext(paneId, status);
   const { mode, busy: modeBusy, setMode, accept: acceptMode } = useAgentMode(paneId, agent?.agent, status);
 
@@ -353,6 +356,9 @@ export default function AgentScreen() {
         cancellableKey={cancellableKey}
         onInterrupt={interrupt}
         onOpenFile={onOpenFile}
+        older={older}
+        loadingOlder={loadingOlder}
+        onLoadOlder={loadOlder}
       />
       {showBlockedCard && ctx && (
         <BlockedCard ctx={ctx} onAnswer={onAnswer} screenLive={mirror} onToggleScreen={toggleMirror} />

@@ -206,4 +206,38 @@ describe('useAgentSession', () => {
     const texts = textsOf(result.current.items);
     expect(texts).toEqual(['user:other pane history']); // no bleed-through
   });
+
+  it('tail: opens with the server window and pages older history in above it', async () => {
+    const all: TEvent[] = [userEv('u0'), asstEv('a0'), userEv('u1'), asstEv('a1'), userEv('u2'), asstEv('a2')].map(
+      (e, i) => ({ ...e, ts: new Date(1_700_000_000_000 + i * 1000).toISOString() }),
+    );
+    // stands in for the server's windowEvents (lib/transcript-window.js)
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const u = new URL(String(input), 'http://x');
+      fetchLog.push(`GET ${u.pathname}${u.search}`);
+      if (!u.pathname.endsWith('/transcript')) return new Response('{}', { status: 200 });
+      const tail = Number(u.searchParams.get('tail') ?? 0);
+      const end = Number(u.searchParams.get('end') ?? 0) || all.length;
+      const start = tail ? Math.max(0, end - tail) : 0;
+      return new Response(
+        JSON.stringify({ events: all.slice(start, end), offset: 100, start, total: all.length }),
+        { status: 200 },
+      );
+    });
+    const { result } = renderHook(() => useAgentSession('w1:p1', 'idle', 'claude', { tail: 2 }));
+    await flush();
+    expect(textsOf(result.current.items)).toEqual(['user:u2', 'assistant:a2']);
+    expect(result.current.older).toBe(4);
+    await act(async () => {
+      await result.current.loadOlder();
+    });
+    expect(textsOf(result.current.items)).toEqual(['user:u1', 'assistant:a1', 'user:u2', 'assistant:a2']);
+    expect(result.current.older).toBe(2);
+    // a reconnect re-requests the whole paged window, not just the tail
+    await act(async () => lastSse().onerror?.());
+    await advance(2600);
+    await flush();
+    expect(fetchLog.filter((f) => f.includes('/transcript')).at(-1)).toContain('tail=4');
+    expect(textsOf(result.current.items)).toEqual(['user:u1', 'assistant:a1', 'user:u2', 'assistant:a2']);
+  });
 });

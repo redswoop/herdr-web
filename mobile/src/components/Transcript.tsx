@@ -41,6 +41,9 @@ export function Transcript({
   cancellableKey,
   onInterrupt,
   onOpenFile,
+  older = 0,
+  loadingOlder = false,
+  onLoadOlder,
 }: {
   items: Item[];
   error: string | null;
@@ -49,6 +52,10 @@ export function Transcript({
   cancellableKey: number | null;
   onInterrupt: () => void;
   onOpenFile: (path: string) => void;
+  /** events above the loaded window (server-side tail); 0 = all here */
+  older?: number;
+  loadingOlder?: boolean;
+  onLoadOlder?: () => void;
 }) {
   const t = useTheme();
   const styles = useStyles(makeStyles);
@@ -109,6 +116,21 @@ export function Transcript({
       }
       keyboardDismissMode="interactive"
       keyboardShouldPersistTaps="handled"
+      // inverted: the footer sits at the TOP — where history continues
+      ListFooterComponent={
+        older > 0 && onLoadOlder ? (
+          <Pressable
+            style={({ pressed }) => [styles.older, pressed && styles.copyPress]}
+            onPress={onLoadOlder}
+            disabled={loadingOlder}
+            accessibilityLabel="load earlier"
+          >
+            <Text style={styles.olderText}>
+              {loadingOlder ? 'loading…' : `▲ earlier · ${older} more`}
+            </Text>
+          </Pressable>
+        ) : null
+      }
       renderItem={({ item: n }) => {
         const key = 'key' in n ? n.key : 'working';
         const cell = renderNode(n);
@@ -463,6 +485,8 @@ const makeStyles = (t: Tokens) =>
   listContent: { paddingHorizontal: 14, paddingVertical: 10, gap: 8 },
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   empty: { ...t.font('ui'), color: t.colors.sub, textAlign: 'center' },
+  older: { alignSelf: 'center', paddingVertical: 10, paddingHorizontal: 16, marginBottom: 8 },
+  olderText: { ...t.font(t.cyber ? 'mono' : 'ui'), ...t.hud, color: t.colors.sub, fontSize: 12 },
   msg: { borderRadius: t.r(14), padding: 12, maxWidth: '92%' },
   // tables/code need a definite width — see mdIsWide in MdView
   msgWide: { width: '92%' },

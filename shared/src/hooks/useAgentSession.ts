@@ -19,8 +19,16 @@ export function useAgentSession(
   paneId: string,
   status: AgentStatus | undefined,
   agentKind: string | undefined,
+  opts: { tail?: number } = {},
 ) {
+  // `tail`: open with only the newest N events (turn-aligned by the server)
+  // and page back on demand — a phone must not pull a 14 MB history to show
+  // the last reply. Unset = the whole transcript (web).
+  const tail = opts.tail ?? 0;
   const [items, setItems] = useState<Item[]>([]);
+  const [older, setOlder] = useState(0); // events before the loaded window
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const winRef = useRef<{ start: number; total: number } | null>(null);
   const itemsRef = useRef<Item[]>([]);
   useEffect(() => {
     itemsRef.current = items;
@@ -101,6 +109,9 @@ export function useAgentSession(
     setError(null);
     setLoaded(false);
     if (paneSwitch) {
+      winRef.current = null;
+      setOlder(0);
+      setLoadingOlder(false);
       setSubmitted(false);
       setRestoredDraft(null);
       inflightRef.current = null; // an in-flight POST belongs to the previous pane
@@ -114,10 +125,20 @@ export function useAgentSession(
 
     const load = async () => {
       try {
-        const r = await get(agentPath(paneId, 'transcript'));
+        // a reconnect keeps whatever window the user had paged back to
+        const win = paneSwitch ? null : winRef.current;
+        const want = tail && win ? Math.max(tail, win.total - win.start) : tail;
+        const r = await get(agentPath(paneId, 'transcript') + (want ? `?tail=${want}` : ''));
         if (!r.ok) throw new Error(await errorOf(r));
-        const { events, offset } = (await r.json()) as { events: TEvent[]; offset: number };
+        const { events, offset, start = 0, total = events.length } = (await r.json()) as {
+          events: TEvent[];
+          offset: number;
+          start?: number;
+          total?: number;
+        };
         if (!alive) return;
+        winRef.current = { start, total };
+        setOlder(start);
         setError(null);
         setLoaded(true);
         apply(events);
@@ -168,7 +189,30 @@ export function useAgentSession(
       clearInterval(dog);
       unsubWake();
     };
-  }, [paneId, gen, apply]);
+  }, [paneId, gen, apply, tail]);
+
+  // page one more window of history in above the oldest loaded event
+  const loadOlder = useCallback(async () => {
+    const win = winRef.current;
+    if (!win || win.start <= 0 || !tail) return;
+    setLoadingOlder(true);
+    try {
+      const r = await get(`${agentPath(paneId, 'transcript')}?tail=${tail}&end=${win.start}`);
+      if (!r.ok) throw new Error(await errorOf(r));
+      const { events, start = 0 } = (await r.json()) as { events: TEvent[]; start?: number };
+      if (winRef.current !== win) return; // pane switched / reloaded meanwhile
+      winRef.current = { ...win, start };
+      setOlder(start);
+      // older events carry their own timestamps, so insertSorted files them
+      // ahead of what's loaded; a fresh clock keeps any unstamped one there too
+      const stamped = stampEvents(events, nextKey, createAtClock(0));
+      setItems((prev) => applyEvents(prev, stamped));
+    } catch (e) {
+      getPlatform().notifyError(String((e as Error).message ?? e));
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [paneId, tail, nextKey]);
 
   const setMineState = useCallback((key: number, state: MineState) => {
     setItems((prev) => setMineStateIn(prev, key, state));
@@ -284,5 +328,8 @@ export function useAgentSession(
     working,
     restoredDraft,
     inject: apply,
+    older,
+    loadingOlder,
+    loadOlder,
   };
 }
