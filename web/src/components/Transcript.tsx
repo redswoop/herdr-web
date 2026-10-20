@@ -216,6 +216,14 @@ const EventNode = memo(function EventNode({ ev }: { ev: TEvent }) {
   if (ev.kind === 'note' && ev.name === 'compact') {
     return <div className="interrupt-divider">⟲ context compacted</div>;
   }
+  // pi: a turn that died (model error, abort) is the reply — show it, don't
+  // fold it under a generic note
+  if (ev.kind === 'note' && ev.name === 'aborted') {
+    return <div className="interrupt-divider">⏹ turn interrupted</div>;
+  }
+  if (ev.kind === 'note' && ev.name === 'error') {
+    return <div className="note-error">⚠ {ev.text}</div>;
+  }
   if (ev.kind === 'user') {
     return <div className="msg user" dangerouslySetInnerHTML={{ __html: md(ev.text) }} />;
   }

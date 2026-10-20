@@ -1,5 +1,6 @@
 /** claude/grok/codex/pi composer + status furniture at the bottom of the screen —
- *  cut it so the tail is output, not chrome */
+ *  cut it so the tail is output, not chrome. The one list for every client:
+ *  web and mobile both peel with this, so a new TUI's footer goes here. */
 export const TAIL_CHROME_RES = [
   /^\s*$/,
   /^\s*─{5,}\s*$/,
@@ -12,6 +13,10 @@ export const TAIL_CHROME_RES = [
   /esc to interrupt/,
   /\? for shortcuts/i,
   /shift\+tab/i,
+  // grok footers: "Ctrl+.:shortcuts", "Enter:send", "Esc:unselect …"
+  /Ctrl\+\.\s*:?\s*shortcuts/i,
+  /Enter:send/,
+  /Esc:unselect/,
 ];
 
 /** Peel trailing chrome. `│…│` rows are ambiguous — the composer box AND

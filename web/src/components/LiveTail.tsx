@@ -1,46 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import { stripChrome } from '@herdr/shared';
 import { agentPath } from '../api';
 import type { ModeState } from '../types';
 
 const OPEN_KEY = 'herdr.liveTail';
-
-/** claude/grok composer + status furniture at the bottom of the screen —
- *  cut it so the tail is output, not chrome */
-const TAIL_CHROME_RES = [
-  /^\s*$/,
-  /^\s*─{5,}\s*$/,
-  /^\s*❯/,
-  /^\s*[⏸⏵]/,
-  /esc to interrupt/,
-  /\? for shortcuts/i,
-  /shift\+tab/i,
-  // grok footers: "Ctrl+.:shortcuts", "Enter:send", "Esc:unselect …"
-  /Ctrl\+\.\s*:?\s*shortcuts/i,
-  /Enter:send/,
-  /Esc:unselect/,
-];
-
-/** Peel trailing chrome. `│…│` rows are ambiguous — the composer box AND
- *  rendered markdown tables both paint them — so they only peel inside a
- *  ROUNDED box (╰…╭, the composers'); tables use sharp corners (└…┌) and
- *  stop the peel, keeping a streaming table visible instead of frozen. */
-function stripChrome(lines: string[]): number {
-  let end = lines.length;
-  let inBox = false;
-  while (end > 0) {
-    const l = lines[end - 1];
-    if (/^\s*╰─/.test(l)) { inBox = true; end -= 1; continue; }
-    if (/^\s*╭─/.test(l)) { inBox = false; end -= 1; continue; }
-    if (/^\s*│.*│\s*$/.test(l)) {
-      if (!inBox) break;
-      end -= 1;
-      continue;
-    }
-    if (TAIL_CHROME_RES.some((re) => re.test(l))) { end -= 1; continue; }
-    break;
-  }
-  return end;
-}
 
 /**
  * Live tail of the TUI screen while the agent is working. The session file

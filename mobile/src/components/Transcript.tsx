@@ -161,6 +161,21 @@ const EventNode = memo(function EventNode({
   if (ev.kind === 'interrupted') {
     return <Text style={styles.interrupt}>⏹ interrupted</Text>;
   }
+  if (ev.kind === 'note' && ev.name === 'compact') {
+    return <Text style={styles.interrupt}>⟲ context compacted</Text>;
+  }
+  // pi: a turn that died (model error, abort) is the reply — show it, don't
+  // fold it under a generic note
+  if (ev.kind === 'note' && ev.name === 'aborted') {
+    return <Text style={styles.interrupt}>⏹ turn interrupted</Text>;
+  }
+  if (ev.kind === 'note' && ev.name === 'error') {
+    return (
+      <View style={styles.noteError}>
+        <SegText style={[styles.pre, styles.cmdErr]} text={`⚠ ${clip(ev.text)}`} />
+      </View>
+    );
+  }
   // long-press copies the whole message — replaces per-glyph selection, which
   // is disabled while the selectable/Fabric black-box bug is in play (MdView)
   if (ev.kind === 'user') {
@@ -479,6 +494,13 @@ const makeStyles = (t: Tokens) =>
   cmdGlyph: { color: t.colors.accent },
   cmdName: { color: t.colors.text, fontSize: 13, ...t.font('mono'), },
   cmdErr: { color: t.colors.working, ...t.font('ui', '700') },
+  noteError: {
+    marginVertical: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: t.colors.working,
+  },
   turnMeta: {
     alignSelf: 'center',
     color: t.colors.sub,

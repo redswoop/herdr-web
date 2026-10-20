@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { chipName } from '@herdr/shared';
+import { chipName, isTuiChrome } from '@herdr/shared';
 import { agentPath, errorOf, post } from '../api';
 import { useAgentMode } from '../hooks/useAgentMode';
 import { useAgentSession } from '../hooks/useAgentSession';
@@ -15,21 +15,6 @@ import { LiveTail } from './LiveTail';
 import { ScreenMirror } from './ScreenMirror';
 import { Transcript } from './Transcript';
 import { Split, SplitHandle, SplitPane } from './ui/Split';
-
-/** lines that are TUI furniture, not command output */
-const TUI_CHROME_RES = [
-  /^[─═╌▔]+$/, // rules
-  /^[╭╰╮╯│]/, // box borders
-  /^❯/, // input line / menu cursor
-  /^⏸|^⏵/, // status line
-  /\? for shortcuts/,
-  /esc to interrupt/,
-  /^[✻✳✶✢✽]\s/, // spinner
-  /^●\s+\S+ · \/effort$/, // effort chip
-];
-function isTuiChrome(line: string): boolean {
-  return TUI_CHROME_RES.some((re) => re.test(line));
-}
 
 const MODE_LABEL: Record<ModeState, string> = {
   default: 'manual',
