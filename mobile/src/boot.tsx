@@ -5,6 +5,7 @@ import { hydrateKv, initNativePlatform } from './platform.native';
 import { loadAsync as loadFonts } from 'expo-font';
 import { adoptDeepLink, adoptUrlSettings, loadSettings } from './settings-store';
 import { currentTokens, initPrefs, pullPrefs, subscribePrefs } from './prefs';
+import { RosterProvider } from './roster';
 import { DEFAULT_TOKENS, FONT_FILES, ThemeProvider, useTokensFrom } from './theme';
 
 interface BootCtx {
@@ -70,7 +71,7 @@ export function BootProvider({ children }: { children: ReactNode }) {
     <BootContext.Provider value={{ remount, gen }}>
       <ThemeProvider tokens={tokens}>
         <View key={gen} style={[styles.fill, { backgroundColor: tokens.colors.bg }]}>
-          {children}
+          <RosterProvider>{children}</RosterProvider>
         </View>
       </ThemeProvider>
     </BootContext.Provider>

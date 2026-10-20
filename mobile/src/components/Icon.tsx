@@ -30,7 +30,10 @@ export type IconName =
   | 'grid'
   | 'back'
   | 'check'
-  | 'alert';
+  | 'alert'
+  | 'video'
+  | 'audio'
+  | 'refresh';
 
 const MAP: Record<IconName, keyof typeof Ionicons.glyphMap> = {
   send: 'arrow-up',
@@ -60,6 +63,9 @@ const MAP: Record<IconName, keyof typeof Ionicons.glyphMap> = {
   back: 'chevron-back',
   check: 'checkmark',
   alert: 'alert-circle-outline',
+  video: 'videocam-outline',
+  audio: 'musical-notes-outline',
+  refresh: 'refresh-outline',
 };
 
 export function Icon({

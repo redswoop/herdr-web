@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import * as Sharing from 'expo-sharing';
+import { Directory, File, Paths } from 'expo-file-system';
 import type { FileInfo } from '@herdr/shared';
 import { getPlatform } from '@herdr/shared';
 import { fileInfoUrl, fileRawUrl } from '../api-urls';
@@ -81,18 +82,30 @@ export function FileViewer({
 
   const isMd = /\.(md|markdown)$/i.test(info?.path ?? path);
 
+  // Download to the cache and share the LOCAL file. The raw URL carries
+  // ?token= — handing it to the share sheet leaked the daemon's token into
+  // whatever the file was shared to.
+  const [sharing, setSharing] = useState(false);
   const shareFile = async () => {
-    if (!info) return;
-    const url = fileRawUrl(info.path, null);
+    if (!info || sharing) return;
+    setSharing(true);
     try {
+      const dir = new Directory(Paths.cache, 'share');
+      if (!dir.exists) dir.create({ intermediates: true, idempotent: true });
+      const name = info.path.split('/').pop() || 'file';
+      const dest = new File(dir, name);
+      const file = await File.downloadFileAsync(fileRawUrl(info.path, null), dest, {
+        idempotent: true,
+      });
       if (await Sharing.isAvailableAsync()) {
-        // Remote URLs need a local download for expo-sharing; fall back to Share sheet with URL.
-        await Share.share({ url, message: info.path });
+        await Sharing.shareAsync(file.uri, { dialogTitle: info.path });
       } else {
-        await Share.share({ message: `${info.path}\n${url}` });
+        await Share.share({ url: file.uri, message: info.path });
       }
     } catch (e) {
       getPlatform().notifyError(String((e as Error).message ?? e));
+    } finally {
+      setSharing(false);
     }
   };
 
@@ -116,9 +129,21 @@ export function FileViewer({
             <Text style={styles.barBtnText}>{raw ? 'pretty' : 'raw'}</Text>
           </Pressable>
         )}
-        {(info?.kind === 'binary' || info?.kind === 'image') && (
-          <Pressable style={styles.barBtn} onPress={shareFile} accessibilityLabel="share file">
-            <Icon name="share" size={18} color={t.colors.accent} />
+        {(info?.kind === 'binary' ||
+          info?.kind === 'image' ||
+          info?.kind === 'video' ||
+          info?.kind === 'audio') && (
+          <Pressable
+            style={styles.barBtn}
+            onPress={shareFile}
+            disabled={sharing}
+            accessibilityLabel="share file"
+          >
+            {sharing ? (
+              <ActivityIndicator size="small" color={t.colors.accent} />
+            ) : (
+              <Icon name="share" size={18} color={t.colors.accent} />
+            )}
           </Pressable>
         )}
         {history.length > 0 && (
@@ -189,6 +214,17 @@ export function FileViewer({
 
         {info?.kind === 'binary' && (
           <Text style={styles.empty}>binary file · {fmtSize(info.size)}</Text>
+        )}
+        {(info?.kind === 'video' || info?.kind === 'audio') && (
+          <View style={styles.mediaBox}>
+            <Icon name={info.kind === 'video' ? 'video' : 'audio'} size={28} color={t.colors.sub} />
+            <Text style={styles.empty}>
+              {info.kind} · {fmtSize(info.size)}
+            </Text>
+            <Pressable style={styles.mediaBtn} onPress={shareFile} disabled={sharing}>
+              <Text style={styles.mediaBtnText}>{sharing ? 'downloading…' : 'share / save'}</Text>
+            </Pressable>
+          </View>
         )}
         {info?.kind === 'special' && <Text style={styles.empty}>not a regular file</Text>}
 
@@ -284,6 +320,16 @@ const makeStyles = (t: Tokens) =>
   },
   note: { ...t.font('ui'), color: t.colors.sub, fontSize: 12, marginTop: 12 },
   img: { width: '100%', height: 360, borderRadius: t.radius.md },
+  mediaBox: { alignItems: 'center', gap: 10, marginTop: 20 },
+  mediaBtn: {
+    marginTop: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: t.r(8),
+    borderWidth: 1,
+    borderColor: t.colors.accent,
+  },
+  mediaBtnText: { ...t.font('ui', '600'), color: t.colors.accent, fontSize: 13 },
   dir: { gap: 2 },
   dirRow: {
     flexDirection: 'row',

@@ -18,12 +18,12 @@ import {
   getPlatform,
   lastKind,
   spawnChat,
-  useRoster,
   type Agent,
   type Group,
   type GroupBy,
   type SpawnTarget,
 } from '@herdr/shared';
+import { useRoster } from '../src/roster';
 import { Icon } from '../src/components/Icon';
 import { Overview } from '../src/components/Overview';
 import { alpha, useStyles, useTheme, type Tokens } from '../src/theme';
@@ -34,7 +34,7 @@ const HOME_VIEW_KEY = 'herdr.homeView';
 
 function loadGroupBy(): GroupBy {
   const v = getPlatform().kv.get(GROUPBY_KEY);
-  return v === 'status' || v === 'project' || v === 'agent' ? v : 'workspace';
+  return GROUP_MODES.some((m) => m.key === v) ? (v as GroupBy) : 'recent';
 }
 
 function loadClosed(): Set<string> {
@@ -71,12 +71,18 @@ export default function RosterScreen() {
     | { type: 'tab'; key: string; title: string; focused: boolean }
     | { type: 'agent'; key: string; agent: Agent };
 
-  const closedKey = (gKey: string) => `${groupBy}:${gKey}`;
+  // a stored key flips the group's default: open groups close, and a
+  // defaultClosed group (recent mode's stale fold) opens
+  const isClosed = useCallback(
+    (g: Pick<Group, 'key' | 'defaultClosed'>) =>
+      closed.has(`${groupBy}:${g.key}`) !== !!g.defaultClosed,
+    [closed, groupBy],
+  );
 
   const sections = useMemo(
     () =>
       groups.map((g) => {
-        const collapsed = closed.has(closedKey(g.key));
+        const collapsed = isClosed(g);
         let data: Row[] = [];
         if (!collapsed) {
           if (g.subs?.length) {
@@ -95,7 +101,7 @@ export default function RosterScreen() {
         }
         return { title: g.title, key: g.key, group: g, data };
       }),
-    [groups, closed, groupBy],
+    [groups, isClosed],
   );
 
   const pickGroupBy = (mode: GroupBy) => {
@@ -270,7 +276,8 @@ export default function RosterScreen() {
           }
           renderSectionHeader={({ section }) => {
             const g = section.group as Group;
-            const collapsed = closed.has(`${groupBy}:${g.key}`);
+            if (g.flat) return null; // recent mode's main list has no header
+            const collapsed = isClosed(g);
             const blockedInGroup = g.agents.filter((a) => a.status === 'blocked').length;
             return (
               <View style={styles.sectionHead}>

@@ -11,6 +11,7 @@ import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   agentPath,
+  chipName,
   errorOf,
   get,
   getPlatform,
@@ -18,9 +19,9 @@ import {
   post,
   useAgentSession,
   useBlockedContext,
-  useRoster,
   type AnswerBody,
 } from '@herdr/shared';
+import { useRoster } from '../../../src/roster';
 import { BlockedCard } from '../../../src/components/BlockedCard';
 import { Composer } from '../../../src/components/Composer';
 import { LiveTail } from '../../../src/components/LiveTail';
@@ -62,7 +63,7 @@ export default function AgentScreen() {
 
   useLayoutEffect(() => {
     navigation.setOptions({
-      title: agent ? agent.label || agent.title || paneId : paneId,
+      title: agent ? chipName(agent) : paneId,
       headerRight: () => (
         <View style={styles.headerRight}>
           <View
@@ -99,6 +100,19 @@ export default function AgentScreen() {
 
   const sendFromComposer = useCallback(
     async (text: string) => {
+      // Session switches that leave no record anywhere: pi's /new (and /clear,
+      // aliased by an extension) and codex's /new only print a toast, so a
+      // bubble would wait forever for its echo and the toast would read as a
+      // dialog. Fire it raw — herdr reports the new session and the stream
+      // resets onto it (claude's /clear does write a record, so it isn't here).
+      if (
+        (agent?.agent === 'pi' && /^\/(new|clear)$/.test(text.trim())) ||
+        (agent?.agent === 'codex' && text.trim() === '/new')
+      ) {
+        const r = await post(agentPath(paneId, 'prompt'), { text: text.trim() });
+        if (!r.ok) throw new Error(await errorOf(r));
+        return;
+      }
       const slash = text.trim().startsWith('/');
       if (slash) {
         try {
@@ -125,7 +139,7 @@ export default function AgentScreen() {
       }, 800);
       armRef.current = { timer, sinceKey };
     },
-    [send, closeDialog, paneId],
+    [send, closeDialog, paneId, agent?.agent],
   );
 
   const onDialogGone = useCallback(

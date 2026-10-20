@@ -1,7 +1,9 @@
 import { useCallback, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { getPlatform, useRoster } from '@herdr/shared';
+import { getPlatform } from '@herdr/shared';
+import { useRoster } from '../../../src/roster';
 import { FileViewer } from '../../../src/components/FileViewer';
 import { useStyles, type Tokens } from '../../../src/theme';
 
@@ -18,6 +20,10 @@ export default function FileScreen() {
   const { roster } = useRoster();
   const agent = roster.agents.find((a) => a.paneId === paneId);
   const cwd = agent?.cwd ?? null;
+  // no native header here: Android's full-screen card put the path bar under
+  // the status bar (iOS pads the card itself)
+  const insets = useSafeAreaInsets();
+  const topPad = Platform.OS === 'android' ? insets.top : 0;
 
   const histKey = `herdr.fileHist.${paneId}`;
   const kv = getPlatform().kv;
@@ -47,7 +53,7 @@ export default function FileScreen() {
   );
 
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, { paddingTop: topPad }]}>
       <FileViewer
         path={path}
         cwd={cwd}
