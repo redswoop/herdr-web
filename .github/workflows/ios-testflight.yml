@@ -19,11 +19,19 @@ name: iOS TestFlight
 on:
   push:
     branches: [main]
+    paths:
+      - 'mobile/**'
+      - 'shared/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/ios-testflight.yml'
   workflow_dispatch:
 
+# Never cancel a build in flight: a later push whose job merely skips the
+# gate would otherwise kill the real one (it did, 2026-10-20). Queue instead.
 concurrency:
   group: ios-testflight-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build-and-submit:
