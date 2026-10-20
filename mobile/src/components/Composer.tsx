@@ -44,9 +44,9 @@ const KEYS = [
 
 /** One line of composer: the field starts here and grows with the draft up
  *  to ~30% of the window, then scrolls (the web composer's rule). */
-const MIN_H = 42;
+const MIN_H = 36; // field alone; the frame's padding brings an empty row to ~44
 /** the buttons match the one-line field, so an empty composer is one even row */
-const BTN = 42;
+const BTN = 34; // the controls inside the frame
 
 const IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 
@@ -151,6 +151,15 @@ export function Composer({
   // the frame back). We only track the laid-out height to decide when the
   // field has hit its cap and must scroll internally.
   const [fieldH, setFieldH] = useState(MIN_H);
+  // Fabric doesn't re-measure a multiline input when its value is cleared
+  // from code, so after send/clear the field kept its old height, empty.
+  // Pin it to one line at that moment; the next keystroke releases the pin
+  // and auto-grow takes over again.
+  const [pinned, setPinned] = useState(false);
+  const clearDraft = () => {
+    setText('');
+    setPinned(true);
+  };
   const inputRef = useRef<TextInput>(null);
   const { height: winH } = useWindowDimensions();
   const maxH = Math.max(MIN_H, Math.round(winH * 0.3));
@@ -317,7 +326,7 @@ export function Composer({
     const sending = atts;
     if ((!t && !sending.length) || uploading) return;
     const pane = paneId;
-    setText('');
+    clearDraft();
     mutateAtts(pane, () => []);
     setSelection(undefined);
     setMenuOpen(false);
@@ -424,7 +433,9 @@ export function Composer({
         </View>
       )}
 
-      <View style={styles.row}>
+      {/* one frame around the whole entry: attach · field · send, like every
+          chat composer people already know — not three framed widgets */}
+      <View style={styles.frame}>
         <Pressable
           style={[styles.iconBtn, menuOpen && styles.iconBtnOn]}
           onPress={openAttachMenu}
@@ -441,11 +452,12 @@ export function Composer({
         <View style={styles.inputWrap}>
           <TextInput
             ref={inputRef}
-            style={[styles.input, { maxHeight: maxH }]}
+            style={[styles.input, { maxHeight: maxH }, pinned && { height: MIN_H }]}
             value={text}
             onLayout={(e) => setFieldH(e.nativeEvent.layout.height)}
             onChangeText={(t) => {
               setText(t);
+              setPinned(false);
               setSelection(undefined);
             }}
             placeholder="prompt…"
@@ -467,7 +479,7 @@ export function Composer({
             <Pressable
               style={styles.clear}
               onPress={() => {
-                setText('');
+                clearDraft();
                 inputRef.current?.focus();
               }}
               accessibilityLabel="clear draft"
@@ -487,8 +499,8 @@ export function Composer({
           onPress={stop ? onInterrupt : send}
           accessibilityLabel={stop ? 'stop' : 'send'}
         >
-          {t.cyber && <ChamferPlate fill={stop ? t.colors.red : t.colors.hot} cut={9} glow={6} />}
-          <Icon name={stop ? 'stop' : 'send'} size={18} color={t.colors.accentInk} />
+          {t.cyber && <ChamferPlate fill={stop ? t.colors.red : t.colors.hot} cut={7} glow={0} />}
+          <Icon name={stop ? 'stop' : 'send'} size={16} color={t.colors.accentInk} />
         </Pressable>
       </View>
     </View>
@@ -606,11 +618,17 @@ const makeStyles = (t: Tokens) =>
   menuLabel: { color: t.colors.text, fontSize: t.sz('ui', 15), ...t.font('ui', '500'), ...(t.cyber ? t.font('mono') : {}) },
   menuLabelOn: { color: t.colors.accent, ...t.glow(t.colors.accent, 8) },
 
-  row: {
+  frame: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 6,
-    paddingHorizontal: 8,
+    gap: 2,
+    marginHorizontal: 8,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+    borderRadius: t.radius.md,
+    backgroundColor: t.cyber ? alpha('#000000', 0.45) : t.colors.surface2,
+    borderWidth: t.cyber ? 1 : 0,
+    borderColor: alpha(t.colors.accent, 0.25),
   },
   iconBtn: {
     width: BTN,
@@ -618,13 +636,9 @@ const makeStyles = (t: Tokens) =>
     borderRadius: t.r(BTN / 2),
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: t.cyber ? 'transparent' : t.colors.surface2,
-    borderWidth: t.cyber ? 1 : 0,
-    borderColor: alpha(t.colors.accent, 0.25),
   },
   iconBtnOn: {
     backgroundColor: alpha(t.colors.accent, 0.18),
-    borderColor: t.colors.accent,
   },
 
   inputWrap: {
@@ -633,24 +647,20 @@ const makeStyles = (t: Tokens) =>
   },
   input: {
     minHeight: MIN_H,
-    backgroundColor: t.cyber ? alpha('#000000', 0.45) : t.colors.surface2,
-    borderWidth: t.cyber ? 1 : 0,
-    borderColor: alpha(t.colors.accent, 0.25),
-    borderRadius: t.radius.md,
     color: t.colors.text,
     ...t.font('input'),
     ...t.phosphor,
     fontSize: t.sz('input', 16),
     lineHeight: t.sz('input', 22),
-    paddingHorizontal: 14,
-    paddingTop: 10,
-    paddingBottom: 10,
-    paddingRight: 36,
+    paddingHorizontal: 6,
+    paddingTop: 7,
+    paddingBottom: 7,
+    paddingRight: 32,
   },
   clear: {
     position: 'absolute',
-    right: 9,
-    top: 9,
+    right: 4,
+    top: 6,
     width: 24,
     height: 24,
     borderRadius: t.r(12),
@@ -664,7 +674,6 @@ const makeStyles = (t: Tokens) =>
     height: BTN,
     borderRadius: t.r(BTN / 2),
     backgroundColor: t.cyber ? 'transparent' : t.colors.accent,
-    ...(t.cyber ? {} : t.boxGlow(t.colors.hot, 12, 0.6)),
     alignItems: 'center',
     justifyContent: 'center',
   },
