@@ -46,11 +46,19 @@ Entering a pane no longer blanks: the shared hook remembers the last 8
 panes (items + stream offset, resumes the stream instead of fetching) and
 the server keeps an incremental parse cache per session file (transcript
 GET 0.22 s → 3 ms); the stream now emits `offset` frames.
+Evening: the **visual flare pass** to web's cyber motion — status
+diamonds tick round while working (a quarter-turn every 1.5 s; continuous
+spin was +7 points of a core on the home list) and flicker while blocked,
+a packet under working rows and an alarm sweep over blocked ones (list and
+cards), the sign's periodic glitch, the armed send button breathes, scramble
+text on titles (rows, groups, cards, agent header, nav title, the sheet's
+place), and the boot log carries web's copy with the server host. All new
+effects honour Reduce Motion. Web's ticker CSS has no caller, so no ticker.
 Open: push (phase 5), the same verbs on web (no rename/close UI there yet),
-a disk cache of the last panes for cold launches,
-a motion setting (full/calm/off) + Reduce Motion, alt icon/splash, ticker
-and scramble, local `eas build --local` on the Mac, the notify.test.mjs
-ordering flake.
+a **new-chat redesign shared by web and Capra** plus the management verbs
+in it, a disk cache of the last panes for cold launches, a motion setting
+(full/calm/off), alt icon/splash, local `eas build --local` on the Mac, the
+notify.test.mjs ordering flake.
 
 
 - `mobile/` on `main` is the real app. The `~/src/herdr-web2` clone on branch `react-native` is a stale July snapshot; ignore it.

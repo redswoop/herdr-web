@@ -23,7 +23,7 @@ import {
 } from '@herdr/shared';
 import { fileRawUrl } from '../api-urls';
 import { NeonRail } from '../cyber';
-import { RailPacket } from '../cyber-fx';
+import { Beacon, RailPacket } from '../cyber-fx';
 import { ChamferPlate } from '../cyber-skia';
 import { tick } from '../toast';
 import { useAutocorrect } from '../device-prefs';
@@ -499,6 +499,7 @@ export function Composer({
           onPress={stop ? onInterrupt : send}
           accessibilityLabel={stop ? 'stop' : 'send'}
         >
+          <Beacon color={t.colors.hot} on={!stop && hasDraft && !uploading} radius={BTN / 2} />
           {t.cyber && <ChamferPlate fill={stop ? t.colors.red : t.colors.hot} cut={7} glow={0} />}
           <Icon name={stop ? 'stop' : 'send'} size={16} color={t.colors.accentInk} />
         </Pressable>

@@ -16,6 +16,7 @@ import {
   type SpawnTarget,
 } from '@herdr/shared';
 import { Brackets } from '../cyber';
+import { AlarmSweep, RailPacket, Scramble, StatusDot } from '../cyber-fx';
 import { alpha, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 
@@ -125,9 +126,9 @@ export function Overview({
               {c.repo ? (
                 <Icon name="folder" size={14} color={t.colors.accent} />
               ) : null}
-              <Text style={styles.cardTitle} numberOfLines={1}>
+              <Scramble style={styles.cardTitle} numberOfLines={1}>
                 {c.title}
-              </Text>
+              </Scramble>
             </View>
             {!!c.path && (
               <Text style={styles.cardPath} numberOfLines={1}>
@@ -142,7 +143,7 @@ export function Overview({
           </View>
           {c.agents.map((a) => (
             <Pressable key={a.paneId} style={styles.agentRow} onPress={() => onSelect(a.paneId)}>
-              <View style={[styles.dot, { backgroundColor: t.status(a.status) }]} />
+              <StatusDot status={a.status} size={8} />
               <View style={{ flex: 1 }}>
                 <View style={styles.agentNameRow}>
                   <Text style={styles.agentName} numberOfLines={1}>
@@ -155,6 +156,8 @@ export function Overview({
                   {a.displayAgent || a.agent ? ` · ${a.displayAgent ?? a.agent}` : ''}
                 </Text>
               </View>
+              <RailPacket active={a.status === 'working'} edge="bottom" size={1} color={t.colors.working} period={3000} />
+              {a.status === 'blocked' && <AlarmSweep />}
             </Pressable>
           ))}
         </View>
@@ -214,8 +217,8 @@ const makeStyles = (t: Tokens) =>
     paddingVertical: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: t.colors.hairline,
+    overflow: 'hidden',
   },
-  dot: t.dot(8),
   agentName: { color: t.colors.text, fontSize: t.sz('ui', 14), ...t.font('ui', '600'), flexShrink: 1, ...t.phosphor },
   agentSub: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: t.sz('ui', 11) },
   sec: {

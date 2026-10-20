@@ -46,6 +46,7 @@ import {
   type WorktreeEntry,
 } from '@herdr/shared';
 import { Brackets } from '../cyber';
+import { Scramble } from '../cyber-fx';
 import { ChamferPlate } from '../cyber-skia';
 import { alpha, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
@@ -322,9 +323,9 @@ export function NewChatSheet({
         <Pressable style={[styles.where, picking && styles.whereOpen]} onPress={() => setPicking((v) => !v)}>
           <Brackets color={picking ? t.colors.accent : alpha(t.colors.accent, 0.5)} />
           <View style={styles.whereMain}>
-            <Text style={styles.whereName} numberOfLines={1}>
+            <Scramble style={styles.whereName} numberOfLines={1}>
               {isResume ? `↻ ${destName}` : destName}
-            </Text>
+            </Scramble>
             <Text style={styles.whereHow} numberOfLines={1}>
               {destHow}
               {destPlace && destPlace.live > 0 && !isResume ? ` · ${destPlace.live} live` : ''}

@@ -28,7 +28,7 @@ import { Icon } from '../src/components/Icon';
 import { Overview } from '../src/components/Overview';
 import { Screen } from '../src/cyber';
 import { ChamferPlate } from '../src/cyber-skia';
-import { FlickerIn } from '../src/cyber-fx';
+import { AlarmSweep, FlickerIn, RailPacket, Scramble, StatusDot } from '../src/cyber-fx';
 import { alpha, useStyles, useTheme, type Tokens } from '../src/theme';
 
 const GROUPBY_KEY = 'herdr.groupBy';
@@ -282,12 +282,12 @@ export default function RosterScreen() {
                   />
                   <Text style={styles.sectionTitle} numberOfLines={1}>
                     {t.cyber && <Text style={styles.slash}>{'// '}</Text>}
-                    {g.title}
+                    <Scramble>{g.title}</Scramble>
                   </Text>
                   {!!g.badge && <Text style={styles.badge}>{g.badge}</Text>}
                   {!!g.focused && <Icon name="focus" size={14} color={t.colors.accent} />}
                   {!!g.status && (
-                    <View style={[styles.dot, { backgroundColor: t.status(g.status) }, t.boxGlow(t.status(g.status), 9)]} />
+                    <StatusDot status={g.status} size={8} />
                   )}
                   <Text style={styles.groupCount}>
                     {blockedInGroup > 0 ? `${blockedInGroup}·` : ''}
@@ -328,12 +328,12 @@ export default function RosterScreen() {
                 onLongPress={() => agentMenu(a, { onOpen: () => router.push(`/agent/${encodeURIComponent(a.paneId)}`) })}
                 delayLongPress={350}
               >
-                <View style={[styles.statusDot, { backgroundColor: t.status(a.status) }, t.boxGlow(t.status(a.status), 10)]} />
+                <StatusDot status={a.status} size={10} />
                 <View style={styles.rowBody}>
                   <View style={styles.rowTitleRow}>
-                    <Text style={styles.rowTitle} numberOfLines={1}>
+                    <Scramble style={styles.rowTitle} numberOfLines={1}>
                       {chipName(a)}
-                    </Text>
+                    </Scramble>
                     {a.focused ? <Icon name="focus" size={13} color={t.colors.accent} /> : null}
                   </View>
                   <Text style={styles.rowSub} numberOfLines={1}>
@@ -370,6 +370,9 @@ export default function RosterScreen() {
                     <Text style={styles.age}>{agoShort(a.lastActiveAt)}</Text>
                   )}
                 </View>
+                {/* web: a packet under a working row, an alarm sweep over a blocked one */}
+                <RailPacket active={a.status === 'working'} edge="bottom" size={1} color={t.colors.working} period={3000} />
+                {a.status === 'blocked' && <AlarmSweep />}
               </Pressable>
               </FlickerIn>
             );
@@ -542,9 +545,9 @@ const makeStyles = (t: Tokens) =>
     borderBottomColor: t.colors.hairline,
     borderLeftWidth: t.cyber ? 2 : 0,
     borderLeftColor: 'transparent',
+    overflow: 'hidden',
   },
   rowBlocked: { backgroundColor: alpha(t.colors.blocked, 0.1), borderLeftColor: t.colors.blocked },
-  statusDot: t.dot(10),
   rowBody: { flex: 1, minWidth: 0 },
   rowTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   rowTitle: { color: t.colors.text, fontSize: t.sz('ui', 15), ...t.font('ui', '600'), flexShrink: 1, ...t.phosphor },

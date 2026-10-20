@@ -16,7 +16,7 @@ import {
   type PermissionMode,
 } from '@herdr/shared';
 import { NeonRail } from '../cyber';
-import { FlickerIn, RailPacket } from '../cyber-fx';
+import { FlickerIn, Glitch, RailPacket, Scramble, StatusDot } from '../cyber-fx';
 import { alpha, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 
@@ -67,9 +67,11 @@ export function AgentHeader({
         </Pressable>
         <FlickerIn style={styles.who}>
           <Pressable onPress={onMenu} onLongPress={onMenu} disabled={!onMenu} accessibilityLabel="agent menu">
-          <Text style={styles.title} numberOfLines={1}>
-            {agent ? chipName(agent) : paneId}
-          </Text>
+          <Glitch>
+            <Scramble style={styles.title} numberOfLines={1}>
+              {agent ? chipName(agent) : paneId}
+            </Scramble>
+          </Glitch>
           {!!agent && (
             <Text style={styles.sub} numberOfLines={1}>
               {[agent.displayAgent ?? agent.agent, agent.cwd ? shortPath(agent.cwd) : null]
@@ -106,7 +108,7 @@ export function AgentHeader({
           </Pressable>
         )}
         <View style={styles.status}>
-          <View style={[t.dot(8), { backgroundColor: sColor }, t.boxGlow(sColor, 10, 0.9)]} />
+          <StatusDot status={status} color={sColor} size={8} />
           <Text style={[styles.statusText, { color: sColor }, t.glow(sColor, 6)]}>{status ?? '—'}</Text>
         </View>
       </View>

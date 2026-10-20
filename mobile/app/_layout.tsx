@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
@@ -7,7 +7,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BootProvider } from '../src/boot';
 import { CyberOverlay, NeonRail } from '../src/cyber';
 import { ToastHost } from '../src/toast';
-import { BootLog } from '../src/cyber-fx';
+import { BootLog, Glitch, Scramble } from '../src/cyber-fx';
 import { alpha, useTheme } from '../src/theme';
 
 export default function RootLayout() {
@@ -46,7 +46,8 @@ function Shell() {
         // a Text, not headerTitleStyle: the native header ignores runtime-loaded faces on Android
         headerTitle: t.cyber
           ? ({ children }) => (
-              <Text
+              <Glitch>
+              <Scramble
                 numberOfLines={1}
                 style={{
                   ...t.font('display', children === 'Capra' ? '900' : '700'),
@@ -57,7 +58,8 @@ function Shell() {
                 }}
               >
                 {String(children).toUpperCase()}
-              </Text>
+              </Scramble>
+              </Glitch>
             )
           : undefined,
         // opaque cards: each screen draws its own backdrop (see Screen)
