@@ -26,6 +26,7 @@ import { NeonRail } from '../cyber';
 import { RailPacket } from '../cyber-fx';
 import { ChamferPlate } from '../cyber-skia';
 import { tick } from '../toast';
+import { useAutocorrect } from '../device-prefs';
 import { alpha, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 
@@ -139,6 +140,7 @@ export function Composer({
 }) {
   const t = useTheme();
   const styles = useStyles(makeStyles);
+  const autocorrect = useAutocorrect();
   const kv = getPlatform().kv;
   const [text, setTextState] = useState(() => kv.get(textKey(paneId)) ?? '');
   const [atts, setAtts] = useState<Attachment[]>(() => loadAtts(paneId));
@@ -451,9 +453,9 @@ export function Composer({
             multiline
             scrollEnabled={atCap}
             textAlignVertical="top"
-            autoCorrect={false}
-            autoCapitalize="none"
-            spellCheck={false}
+            autoCorrect={autocorrect}
+            autoCapitalize={autocorrect ? 'sentences' : 'none'}
+            spellCheck={autocorrect}
             selection={selection}
             onSelectionChange={(e) => {
               if (selection) setSelection(e.nativeEvent.selection);

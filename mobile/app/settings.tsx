@@ -5,6 +5,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -15,7 +16,8 @@ import { useBoot } from '../src/boot';
 import { Screen } from '../src/cyber';
 import { palettesFor, type Theme } from '@herdr/shared/palettes';
 import { FONT_AREAS, FONT_MAX, FONT_MIN, FONT_STEP } from '@herdr/shared';
-import { currentFonts, paletteOf, setFont, setPalette, setTheme } from '../src/prefs';
+import { paletteOf, setFont, setPalette, setTheme } from '../src/prefs';
+import { setAutocorrect, useAutocorrect } from '../src/device-prefs';
 import { loadSettings, saveSettings } from '../src/settings-store';
 import { alpha, useStyles, useTheme, type Tokens } from '../src/theme';
 
@@ -122,6 +124,7 @@ export default function SettingsScreen() {
       </Pressable>
       <Appearance />
       <TextSize />
+      <ComposerPrefs />
       <Pressable style={styles.labLink} onPress={() => router.push('/lab')}>
         <Text style={styles.labText}>render lab → the empty-bubble diagnostics</Text>
       </Pressable>
@@ -140,6 +143,33 @@ const THEMES: { id: Theme; label: string }[] = [
   { id: 'default', label: 'stock' },
   { id: 'cyber', label: 'cyber' },
 ];
+
+/** keyboard behaviour in the composer — this device */
+function ComposerPrefs() {
+  const t = useTheme();
+  const styles = useStyles(makeStyles);
+  const autocorrect = useAutocorrect();
+  return (
+    <View style={styles.section}>
+      <Text style={styles.label}>composer</Text>
+      <View style={styles.fontRow}>
+        <View style={styles.fontHead}>
+          <Text style={styles.fontName}>autocorrect</Text>
+          <Text style={styles.fontHint} numberOfLines={2}>
+            spelling, capitals and suggestions; off keeps paths and flags as typed
+          </Text>
+        </View>
+        <Switch
+          value={autocorrect}
+          onValueChange={setAutocorrect}
+          trackColor={{ true: t.colors.accent, false: t.colors.surface3 }}
+          thumbColor={t.cyber ? t.colors.bg : undefined}
+          accessibilityLabel="autocorrect in the composer"
+        />
+      </View>
+    </View>
+  );
+}
 
 /** the four per-device multipliers web has; every tap applies live */
 function TextSize() {

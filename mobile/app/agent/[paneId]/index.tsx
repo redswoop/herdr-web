@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
+import { KeyboardAvoidingView, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
+import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -46,6 +47,13 @@ export default function AgentScreen() {
   const navigation = useNavigation();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  // the home-indicator inset belongs under the composer only while the
+  // keyboard is down: once it rises, the padding above it is the keyboard's
+  // own, so the inset shrinks away with the keyboard (no dead band above it)
+  const kb = useReanimatedKeyboardAnimation();
+  const bottomInset = useAnimatedStyle(() => ({
+    height: Math.max(0, insets.bottom - Math.abs(kb.height.value)),
+  }));
 
   const { items, error, loaded, send, interrupt, cooldown, working, restoredDraft, inject, older, loadingOlder, loadOlder } =
     useAgentSession(paneId, status, agent?.agent, { tail: TAIL });
@@ -400,7 +408,7 @@ export default function AgentScreen() {
         onToggleKeys={() => setKeysPinned((p) => !p)}
         onKeyTap={() => setPoke((p) => p + 1)}
       />
-      <View style={{ height: insets.bottom }} />
+      <Animated.View style={bottomInset} />
     </KeyboardAvoidingView>
     </Screen>
   );
