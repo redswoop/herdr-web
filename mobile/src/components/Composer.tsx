@@ -144,11 +144,15 @@ export function Composer({
   const [atts, setAtts] = useState<Attachment[]>(() => loadAtts(paneId));
   const [selection, setSelection] = useState<{ start: number; end: number } | undefined>();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [contentH, setContentH] = useState(MIN_H);
+  // Yoga sizes the multiline input to its text on both platforms; pinning a
+  // `height` from onContentSizeChange stalls under Fabric (the event reports
+  // the frame back). We only track the laid-out height to decide when the
+  // field has hit its cap and must scroll internally.
+  const [fieldH, setFieldH] = useState(MIN_H);
   const inputRef = useRef<TextInput>(null);
   const { height: winH } = useWindowDimensions();
   const maxH = Math.max(MIN_H, Math.round(winH * 0.3));
-  const fieldH = Math.min(Math.max(MIN_H, Math.ceil(contentH)), maxH);
+  const atCap = fieldH >= maxH - 1;
 
   const setText = (t: string) => {
     setTextState(t);
@@ -435,9 +439,9 @@ export function Composer({
         <View style={styles.inputWrap}>
           <TextInput
             ref={inputRef}
-            style={[styles.input, { height: fieldH }]}
+            style={[styles.input, { maxHeight: maxH }]}
             value={text}
-            onContentSizeChange={(e) => setContentH(e.nativeEvent.contentSize.height)}
+            onLayout={(e) => setFieldH(e.nativeEvent.layout.height)}
             onChangeText={(t) => {
               setText(t);
               setSelection(undefined);
@@ -445,7 +449,7 @@ export function Composer({
             placeholder="prompt…"
             placeholderTextColor={t.colors.sub}
             multiline
-            scrollEnabled={fieldH >= maxH}
+            scrollEnabled={atCap}
             textAlignVertical="top"
             autoCorrect={false}
             autoCapitalize="none"
@@ -462,7 +466,6 @@ export function Composer({
               style={styles.clear}
               onPress={() => {
                 setText('');
-                setContentH(MIN_H);
                 inputRef.current?.focus();
               }}
               accessibilityLabel="clear draft"
