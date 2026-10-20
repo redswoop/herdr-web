@@ -70,6 +70,7 @@ const pane = (paneId, cwd) => ({
 });
 
 const prompts = []; // agent.prompt params recorded by the fake daemon
+const calls = []; // every other method the fake daemon was asked for
 
 function startDaemon(sock) {
   const srv = net.createServer((conn) => {
@@ -101,6 +102,14 @@ function startDaemon(sock) {
           break;
         case 'agent.prompt':
           prompts.push(msg.params);
+          reply({ ok: true });
+          break;
+        case 'tab.rename':
+        case 'agent.rename':
+        case 'pane.close':
+        case 'workspace.rename':
+        case 'workspace.close':
+          calls.push({ method: msg.method, params: msg.params });
           reply({ ok: true });
           break;
         case 'events.subscribe':
@@ -383,3 +392,42 @@ test('e2e: media files classify by extension and stream with byte ranges', async
   await fsp.writeFile(song, bytes);
   assert.equal((await (await fetch(`${BASE}/api/file?path=${enc(song)}&cwd=`)).json()).kind, 'audio');
 });
+
+test('e2e: rename renames the tab verbatim and the agent cleaned', async () => {
+  calls.length = 0;
+  const r = await fetch(`${BASE}/api/agent/${encodeURIComponent('w1:pA')}/rename`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'Hotbox Whisperer!' }),
+  });
+  assert.equal(r.status, 200);
+  assert.deepEqual(calls.map((c) => c.method), ['tab.rename', 'agent.rename']);
+  assert.deepEqual(calls[0].params, { tab_id: 't1', label: 'Hotbox Whisperer!' });
+  assert.deepEqual(calls[1].params, { target: 'w1:pA', name: 'hotbox-whisperer' });
+  const bad = await fetch(`${BASE}/api/agent/${encodeURIComponent('w1:pA')}/rename`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: '   ' }),
+  });
+  assert.equal(bad.status, 400);
+  await api('roster'); // let the refresh the verbs kicked off settle before teardown
+});
+
+test('e2e: close closes the pane; workspace rename/close reach the daemon', async () => {
+  calls.length = 0;
+  const r = await fetch(`${BASE}/api/agent/${encodeURIComponent('w1:pB')}/close`, { method: 'POST' });
+  assert.equal(r.status, 200);
+  assert.deepEqual(calls[0], { method: 'pane.close', params: { pane_id: 'w1:pB' } });
+  const rn = await fetch(`${BASE}/api/workspace/w1/rename`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'recovery' }),
+  });
+  assert.equal(rn.status, 200);
+  assert.deepEqual(calls[1], { method: 'workspace.rename', params: { workspace_id: 'w1', label: 'recovery' } });
+  const cl = await fetch(`${BASE}/api/workspace/w1/close`, { method: 'POST' });
+  assert.equal(cl.status, 200);
+  assert.deepEqual(calls[2], { method: 'workspace.close', params: { workspace_id: 'w1' } });
+  await api('roster');
+});
+

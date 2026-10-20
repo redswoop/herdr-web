@@ -37,7 +37,12 @@ switch + no dead band above the keyboard, `fcde912` one-frame composer +
 shrink after send, and `252bf8e` **over-the-air updates**: expo-updates on
 the production channel, `ios-update.yml` publishes on every push, the
 native TestFlight build (`ios-testflight.yml`) runs only on `[build]` in
-the commit subject (free EAS plan, 30 builds/month). Open: push (phase 5),
+the commit subject (free EAS plan, 30 builds/month). Then the first OTA-only
+fixes (scroll on send, clear-button baseline, About row) and **herdr
+management verbs**: `POST /api/agent/:pane/rename|close` and
+`/api/workspace/:id/rename|close` (server, e2e-tested), Capra long-press on
+a row / workspace header and tap on the agent header name → rename, close.
+Open: push (phase 5), the same verbs on web (no rename/close UI there yet),
 a motion setting (full/calm/off) + Reduce Motion, alt icon/splash, ticker
 and scramble, local `eas build --local` on the Mac, the notify.test.mjs
 ordering flake.

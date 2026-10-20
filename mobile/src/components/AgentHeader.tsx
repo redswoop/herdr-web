@@ -33,6 +33,7 @@ export function AgentHeader({
   onBack,
   onSetMode,
   onRewind,
+  onMenu,
 }: {
   paneId: string;
   agent: Agent | undefined;
@@ -44,6 +45,8 @@ export function AgentHeader({
   onBack: () => void;
   onSetMode: (m: PermissionMode) => Promise<boolean>;
   onRewind: () => void;
+  /** tap or long-press on the name: rename / close */
+  onMenu?: () => void;
 }) {
   const t = useTheme();
   const styles = useStyles(makeStyles);
@@ -63,6 +66,7 @@ export function AgentHeader({
           <Icon name="back" size={26} color={t.cyber ? t.colors.red : t.colors.text} />
         </Pressable>
         <FlickerIn style={styles.who}>
+          <Pressable onPress={onMenu} onLongPress={onMenu} disabled={!onMenu} accessibilityLabel="agent menu">
           <Text style={styles.title} numberOfLines={1}>
             {agent ? chipName(agent) : paneId}
           </Text>
@@ -73,6 +77,7 @@ export function AgentHeader({
                 .join(' · ')}
             </Text>
           )}
+          </Pressable>
         </FlickerIn>
         {canRewind && (
           <Pressable

@@ -23,6 +23,7 @@ import {
   type SpawnTarget,
 } from '@herdr/shared';
 import { useRoster } from '../src/roster';
+import { agentMenu, workspaceMenu } from '../src/manage';
 import { Icon } from '../src/components/Icon';
 import { Overview } from '../src/components/Overview';
 import { Screen } from '../src/cyber';
@@ -268,7 +269,12 @@ export default function RosterScreen() {
             const blockedInGroup = g.agents.filter((a) => a.status === 'blocked').length;
             return (
               <View style={styles.sectionHead}>
-                <Pressable style={styles.sectionMain} onPress={() => toggle(g.key)}>
+                <Pressable
+                  style={styles.sectionMain}
+                  onPress={() => toggle(g.key)}
+                  onLongPress={groupBy === 'workspace' && g.spawn?.workspaceId ? () => workspaceMenu(g.spawn!.workspaceId!, g.title, g.agents.length) : undefined}
+                  delayLongPress={350}
+                >
                   <Icon
                     name={collapsed ? 'chevron-right' : 'chevron-down'}
                     size={16}
@@ -319,6 +325,8 @@ export default function RosterScreen() {
               <Pressable
                 style={[styles.row, a.status === 'blocked' && styles.rowBlocked]}
                 onPress={() => router.push(`/agent/${encodeURIComponent(a.paneId)}`)}
+                onLongPress={() => agentMenu(a, { onOpen: () => router.push(`/agent/${encodeURIComponent(a.paneId)}`) })}
+                delayLongPress={350}
               >
                 <View style={[styles.statusDot, { backgroundColor: t.status(a.status) }, t.boxGlow(t.status(a.status), 10)]} />
                 <View style={styles.rowBody}>

@@ -50,3 +50,14 @@ export async function errorOf(r: Response): Promise<string> {
 
 export const agentPath = (paneId: string, action: string) =>
   `/api/agent/${encodeURIComponent(paneId)}/${action}`;
+
+/* ---------------- management verbs (rename / close) ---------------- */
+
+export const renameAgent = (paneId: string, name: string) =>
+  post(agentPath(paneId, 'rename'), { name });
+export const closeAgent = (paneId: string) => post(agentPath(paneId, 'close'), {});
+export const renameWorkspace = (workspaceId: string, name: string) =>
+  post(`/api/workspace/${encodeURIComponent(workspaceId)}/rename`, { name });
+export const closeWorkspace = (workspaceId: string) =>
+  post(`/api/workspace/${encodeURIComponent(workspaceId)}/close`, {});
+

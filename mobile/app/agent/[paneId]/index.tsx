@@ -21,6 +21,7 @@ import {
 } from '@herdr/shared';
 import { useRoster } from '../../../src/roster';
 import { AgentHeader } from '../../../src/components/AgentHeader';
+import { agentMenu } from '../../../src/manage';
 import { BlockedCard } from '../../../src/components/BlockedCard';
 import { RewindCard, ResumeCard } from '../../../src/components/Cards';
 import { Composer } from '../../../src/components/Composer';
@@ -345,6 +346,7 @@ export default function AgentScreen() {
         onBack={goBack}
         onSetMode={setMode}
         onRewind={openRewind}
+        onMenu={agent ? () => agentMenu(agent, { onClosed: goBack }) : undefined}
       />
       {blocked && (
         <View style={styles.blockedBanner}>

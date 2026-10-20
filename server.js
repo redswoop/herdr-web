@@ -1465,6 +1465,24 @@ const server = http.createServer(async (req, res) => {
     }
     if (!checkAuth(req, res, url)) return;
 
+    if (req.method === 'POST' && seg[1] === 'workspace' && seg[2] && seg[3]) {
+      const workspaceId = decodeURIComponent(seg[2]);
+      if (seg[3] === 'rename') {
+        const { name } = await readBody(req);
+        const label = String(name ?? '').trim();
+        if (!label) throw httpErr(400, 'empty name');
+        await rpc('workspace.rename', { workspace_id: workspaceId, label });
+        refreshRoster();
+        return sendJson(res, 200, { ok: true, label });
+      }
+      if (seg[3] === 'close') {
+        for (const a of roster.agents) if (a.workspaceId === workspaceId) pinnedSessions.delete(a.paneId);
+        await rpc('workspace.close', { workspace_id: workspaceId });
+        refreshRoster();
+        return sendJson(res, 200, { ok: true });
+      }
+    }
+
     if (req.method === 'GET' && seg[1] === 'roster' && !seg[2]) {
       return sendJson(res, 200, roster);
     }
@@ -1721,6 +1739,26 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 200, { ok: true });
         }
         await agentRpc('agent.send_keys', { target: paneId, keys });
+        return sendJson(res, 200, { ok: true });
+      }
+
+      // Management verbs the TUI has and the clients lacked (2026-10-20).
+      // Rename mirrors what spawn does: the tab gets the text verbatim, the
+      // agent the cleaned form — chipName() prefers the agent's label.
+      if (req.method === 'POST' && action === 'rename') {
+        const { name } = await readBody(req);
+        const label = String(name ?? '').trim();
+        if (!label) throw httpErr(400, 'empty name');
+        const a = roster.agents.find((x) => x.paneId === paneId);
+        if (a?.tabId) await rpc('tab.rename', { tab_id: a.tabId, label });
+        await rpc('agent.rename', { target: paneId, name: cleanAgentName(label) || null });
+        refreshRoster();
+        return sendJson(res, 200, { ok: true, label });
+      }
+      if (req.method === 'POST' && action === 'close') {
+        pinnedSessions.delete(paneId);
+        await rpc('pane.close', { pane_id: paneId });
+        refreshRoster();
         return sendJson(res, 200, { ok: true });
       }
 
