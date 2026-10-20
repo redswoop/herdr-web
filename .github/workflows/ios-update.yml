@@ -58,9 +58,13 @@ jobs:
       # The runtime version is the project fingerprint (app.json); eas update
       # computes it here from the same tree the native build saw, so an update
       # only reaches builds whose native side matches.
+      # EAS_BUILD_GIT_COMMIT_HASH is what app.config.js folds into
+      # extra.gitSha; EAS sets it for builds, we set it here for updates so
+      # the settings About row can name the commit it is running.
       - name: Publish update
         env:
           MSG: ${{ github.event.head_commit.message || 'manual update' }}
+          EAS_BUILD_GIT_COMMIT_HASH: ${{ github.sha }}
         run: >
           eas update
           --platform ios

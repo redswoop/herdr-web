@@ -171,7 +171,9 @@ function About() {
         Capra {APP_VERSION}
         {BUILD_NUMBER ? ` (${BUILD_NUMBER})` : ''}
         {' · '}
-        {u.enabled ? `update ${u.id}${when ? ` · ${when}` : ''}` : 'updates off'}
+        {u.enabled
+          ? `${u.id === 'embedded' ? 'embedded' : 'update'} ${String(Constants.expoConfig?.extra?.gitSha ?? u.id)}${when ? ` · ${when}` : ''}`
+          : 'updates off'}
       </Text>
       <Text style={styles.versionSub}>
         {busy ? 'checking…' : ready ? 'update ready · tap to restart' : u.enabled ? 'tap to check for updates' : 'dev client'}
