@@ -63,5 +63,5 @@ const makeStyles = (t: Tokens) =>
       borderColor: alpha(t.colors.accent, 0.5),
       ...t.boxGlow(t.colors.accent, 14, 0.5),
     },
-    text: { color: t.colors.accent, fontSize: 12, ...t.font('ui', '700'), ...t.hud, ...t.glow(t.colors.accent, 6) },
+    text: { color: t.colors.accent, fontSize: t.sz('ui', 12), ...t.font('ui', '700'), ...t.hud, ...t.glow(t.colors.accent, 6) },
   });

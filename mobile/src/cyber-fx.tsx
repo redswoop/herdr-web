@@ -176,7 +176,7 @@ const makeStyles = (t: Tokens) =>
   StyleSheet.create({
     boot: { backgroundColor: t.colors.bg, justifyContent: 'center', alignItems: 'center', zIndex: 10 },
     bootBox: { width: 280, gap: 6 },
-    bootLine: { ...t.font('mono'), color: t.colors.accent, fontSize: 13, letterSpacing: 1, ...t.glow(t.colors.accent, 8) },
-    bootHead: { ...t.font('display', '700'), color: t.colors.red, fontSize: 13, letterSpacing: 2, ...t.glow(t.colors.red, 12), marginBottom: 6 },
-    cursor: { ...t.font('mono'), color: t.colors.red, fontSize: 13 },
+    bootLine: { ...t.font('mono'), color: t.colors.accent, fontSize: t.sz('ui', 13), letterSpacing: 1, ...t.glow(t.colors.accent, 8) },
+    bootHead: { ...t.font('display', '700'), color: t.colors.red, fontSize: t.sz('ui', 13), letterSpacing: 2, ...t.glow(t.colors.red, 12), marginBottom: 6 },
+    cursor: { ...t.font('mono'), color: t.colors.red, fontSize: t.sz('ui', 13) },
   });

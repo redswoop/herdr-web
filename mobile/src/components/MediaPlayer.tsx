@@ -92,8 +92,8 @@ const makeStyles = (t: Tokens) =>
       ...t.boxGlow(t.colors.hot, 12, 0.6),
     },
     audioBody: { flex: 1, gap: 6 },
-    audioName: { color: t.colors.text, fontSize: 13, ...t.font('ui', '600') },
+    audioName: { color: t.colors.text, fontSize: t.sz('ui', 13), ...t.font('ui', '600') },
     track: { height: 6, backgroundColor: alpha(t.colors.accent, 0.15), borderRadius: t.r(3), overflow: 'hidden' },
     fill: { height: '100%', backgroundColor: t.colors.accent, ...t.boxGlow(t.colors.accent, 8, 0.8) },
-    time: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: 11, fontVariant: ['tabular-nums'] },
+    time: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: t.sz('ui', 11), fontVariant: ['tabular-nums'] },
   });

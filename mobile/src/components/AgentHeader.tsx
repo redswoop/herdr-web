@@ -167,9 +167,9 @@ const makeStyles = (t: Tokens) =>
     back: { width: 36, height: 44, alignItems: 'center', justifyContent: 'center' },
     who: { flex: 1, minWidth: 0, justifyContent: 'center', gap: 1 },
     title: t.cyber
-      ? { ...t.font('display', '700'), color: t.colors.red, fontSize: 13, letterSpacing: 1.2, textTransform: 'uppercase', ...t.glow(t.colors.red, 10) }
-      : { ...t.font('ui', '700'), color: t.colors.text, fontSize: 16 },
-    sub: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: 11 },
+      ? { ...t.font('display', '700'), color: t.colors.red, fontSize: t.sz('ui', 13), letterSpacing: 1.2, textTransform: 'uppercase', ...t.glow(t.colors.red, 10) }
+      : { ...t.font('ui', '700'), color: t.colors.text, fontSize: t.sz('ui', 16) },
+    sub: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: t.sz('ui', 11) },
     ctl: {
       width: 30,
       height: 30,
@@ -188,9 +188,9 @@ const makeStyles = (t: Tokens) =>
       borderRadius: t.r(13),
       borderWidth: 1,
     },
-    chipText: { fontSize: 11, ...t.font('ui', '700'), ...t.hud },
+    chipText: { fontSize: t.sz('ui', 11), ...t.font('ui', '700'), ...t.hud },
     status: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    statusText: { fontSize: 11, ...t.font('ui', '700'), ...t.hud },
+    statusText: { fontSize: t.sz('ui', 11), ...t.font('ui', '700'), ...t.hud },
     hairline: { height: StyleSheet.hairlineWidth, backgroundColor: t.colors.hairline },
     backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'flex-end', paddingRight: 10 },
     pop: {
@@ -203,9 +203,9 @@ const makeStyles = (t: Tokens) =>
       paddingVertical: 6,
       overflow: 'hidden',
     },
-    popHead: { ...t.font('ui', '700'), ...t.hud, color: t.cyber ? t.colors.red : t.colors.sub, fontSize: 11, paddingHorizontal: 14, paddingVertical: 8 },
+    popHead: { ...t.font('ui', '700'), ...t.hud, color: t.cyber ? t.colors.red : t.colors.sub, fontSize: t.sz('ui', 11), paddingHorizontal: 14, paddingVertical: 8 },
     popRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 11 },
     popMark: { ...t.dot(8), backgroundColor: alpha(t.colors.sub, 0.3) },
-    popName: { color: t.colors.text, fontSize: 14, ...t.font('ui', '600'), ...t.hud },
-    popDesc: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: 11, marginTop: 2 },
+    popName: { color: t.colors.text, fontSize: t.sz('ui', 14), ...t.font('ui', '600'), ...t.hud },
+    popDesc: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: t.sz('ui', 11), marginTop: 2 },
   });

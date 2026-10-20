@@ -14,7 +14,8 @@ import { useRouter } from 'expo-router';
 import { useBoot } from '../src/boot';
 import { Screen } from '../src/cyber';
 import { palettesFor, type Theme } from '@herdr/shared/palettes';
-import { paletteOf, setPalette, setTheme } from '../src/prefs';
+import { FONT_AREAS, FONT_MAX, FONT_MIN, FONT_STEP } from '@herdr/shared';
+import { currentFonts, paletteOf, setFont, setPalette, setTheme } from '../src/prefs';
 import { loadSettings, saveSettings } from '../src/settings-store';
 import { alpha, useStyles, useTheme, type Tokens } from '../src/theme';
 
@@ -80,7 +81,7 @@ export default function SettingsScreen() {
   return (
     <Screen>
     <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <Text style={styles.hint}>
+      <Text style={styles.hint} allowFontScaling={false}>
         Use your tailscale-serve HTTPS URL so ATS stays happy in release builds.
       </Text>
       <Text style={styles.label}>server URL</Text>
@@ -120,6 +121,7 @@ export default function SettingsScreen() {
         )}
       </Pressable>
       <Appearance />
+      <TextSize />
       <Pressable style={styles.labLink} onPress={() => router.push('/lab')}>
         <Text style={styles.labText}>render lab → the empty-bubble diagnostics</Text>
       </Pressable>
@@ -138,6 +140,51 @@ const THEMES: { id: Theme; label: string }[] = [
   { id: 'default', label: 'stock' },
   { id: 'cyber', label: 'cyber' },
 ];
+
+/** the four per-device multipliers web has; every tap applies live */
+function TextSize() {
+  const t = useTheme();
+  const styles = useStyles(makeStyles);
+  const fonts = t.fonts; // tokens rebuild on every change, so this is current
+  return (
+    <View style={styles.section}>
+      <Text style={styles.label}>text size</Text>
+      {FONT_AREAS.map((a) => {
+        const v = fonts[a.key];
+        return (
+          <View key={a.key} style={styles.fontRow}>
+            <View style={styles.fontHead}>
+              <Text style={styles.fontName}>{a.label.toLowerCase()}</Text>
+              <Text style={styles.fontHint} numberOfLines={1}>{a.hint}</Text>
+            </View>
+            <View style={styles.stepper}>
+              <Pressable
+                style={[styles.stepBtn, v <= FONT_MIN && styles.stepBtnOff]}
+                disabled={v <= FONT_MIN}
+                onPress={() => setFont(a.key, v - FONT_STEP)}
+                accessibilityLabel={`${a.label} smaller`}
+              >
+                <Text style={styles.stepText}>−</Text>
+              </Pressable>
+              <Pressable onPress={() => setFont(a.key, 1)} accessibilityLabel={`${a.label} back to 100%`} style={styles.pct}>
+                <Text style={[styles.pctText, v !== 1 && styles.pctTextOn]}>{Math.round(v * 100)}%</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.stepBtn, v >= FONT_MAX && styles.stepBtnOff]}
+                disabled={v >= FONT_MAX}
+                onPress={() => setFont(a.key, v + FONT_STEP)}
+                accessibilityLabel={`${a.label} larger`}
+              >
+                <Text style={styles.stepText}>+</Text>
+              </Pressable>
+            </View>
+          </View>
+        );
+      })}
+      <Text style={styles.hint} allowFontScaling={false}>this device only · tap the percentage to reset</Text>
+    </View>
+  );
+}
 
 /** theme + palette: the pick syncs to every device through /api/prefs */
 function Appearance() {
@@ -193,7 +240,7 @@ function Appearance() {
         </ScrollView>
       )}
       {current === 'custom' && presets.length > 0 && (
-        <Text style={styles.hint}>custom colours, set from the web prefs panel</Text>
+        <Text style={styles.hint} allowFontScaling={false}>custom colours, set from the web prefs panel</Text>
       )}
     </View>
   );
@@ -231,10 +278,30 @@ const makeStyles = (t: Tokens) =>
   chips: { flexDirection: 'row', gap: 4 },
   chip: { flex: 1, height: 18, borderRadius: t.r(4), transform: t.cyber ? [{ skewX: '-12deg' }] : [] },
   swatchName: t.cyber
-    ? { ...t.font('display', '700'), color: t.colors.sub, fontSize: 10, letterSpacing: 1, textTransform: 'uppercase' }
-    : { ...t.font('ui', '600'), color: t.colors.sub, fontSize: 12 },
+    ? { ...t.font('display', '700'), color: t.colors.sub, fontSize: t.sz('ui', 10), letterSpacing: 1, textTransform: 'uppercase' }
+    : { ...t.font('ui', '600'), color: t.colors.sub, fontSize: t.sz('ui', 12) },
   swatchNameOn: { color: t.colors.text, ...t.glow(t.colors.red, 8) },
-  hint: { ...t.font('ui'), color: t.colors.sub, fontSize: 13, marginBottom: 12, lineHeight: 18 },
+  hint: { ...t.font('ui'), color: t.colors.sub, fontSize: t.px('ui', 13), marginBottom: 12, lineHeight: t.px('ui', 18) },
+  fontRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
+  fontHead: { flex: 1, minWidth: 0 },
+  fontName: { ...t.font('ui', '600'), color: t.colors.text, fontSize: t.sz('ui', 15) },
+  fontHint: { ...t.font('ui'), color: t.colors.sub, fontSize: t.sz('ui', 12), marginTop: 2 },
+  stepper: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  stepBtn: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: t.r(10),
+    backgroundColor: t.cyber ? alpha(t.colors.accent, 0.1) : t.colors.surface2,
+    borderWidth: t.cyber ? 1 : 0,
+    borderColor: alpha(t.colors.accent, 0.35),
+  },
+  stepBtnOff: { opacity: 0.35 },
+  stepText: { ...t.font('ui', '600'), color: t.colors.text, fontSize: t.sz('ui', 18), lineHeight: 22 },
+  pct: { minWidth: 52, alignItems: 'center', paddingVertical: 6 },
+  pctText: { ...t.font(t.cyber ? 'mono' : 'ui'), ...t.hud, color: t.colors.sub, fontSize: t.sz('ui', 13) },
+  pctTextOn: { color: t.colors.accent },
   label: {
     color: t.cyber ? t.colors.red : t.colors.sub,
     opacity: t.cyber ? 0.85 : 1,
@@ -251,7 +318,7 @@ const makeStyles = (t: Tokens) =>
     borderRadius: t.radius.md,
     color: t.colors.text,
     ...t.font('ui'),
-    fontSize: 16,
+    fontSize: t.sz('ui', 16),
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
@@ -268,12 +335,12 @@ const makeStyles = (t: Tokens) =>
   btnDisabled: { opacity: 0.5 },
   btnText: { color: t.cyber ? '#000000' : t.colors.accentInk, ...t.font('ui', '700'), fontSize: t.cyber ? 14 : 16, ...t.hud },
   labLink: { marginTop: 24, alignItems: 'center', padding: 10 },
-  labText: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.accent, fontSize: 13, ...t.glow(t.colors.accent, 6) },
+  labText: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.accent, fontSize: t.sz('ui', 13), ...t.glow(t.colors.accent, 6) },
   version: {
     marginTop: 8,
     color: t.colors.sub,
     ...t.font('ui'),
-    fontSize: 12,
+    fontSize: t.sz('ui', 12),
     textAlign: 'center',
   },
 });

@@ -5,18 +5,24 @@
 import { createContext, createElement, useContext, useEffect, useState, type ReactNode } from 'react';
 import { PixelRatio, Platform, StyleSheet, type TextStyle, type ViewStyle } from 'react-native';
 
+import { DEFAULT_FONTS, type FontKey, type Fonts } from '@herdr/shared';
+
 /**
- * Dynamic Type by hand for body text that carries a lineHeight. Under Fabric
- * (RN 0.86, iOS) a Text with lineHeight + RN's own font scaling measures a
- * paragraph at a wider width than its frame once the scaled values go
- * fractional — at the "Extra Large" text size a reply's last line was clipped
- * on the right and the bottom (2026-10-20, reproduced on a Pro Max Simulator
- * via `simctl ui content_size extra-large`; integer sizes fixed it). Use
- * `px()` for fontSize/lineHeight on such Text and set allowFontScaling={false}
- * on it. Read once at launch: a text-size change mid-run shows after relaunch.
+ * Text sizes. Two knobs multiply every size: the user's per-area pref
+ * (`t.fonts`, same four areas as web, per device) and iOS Dynamic Type.
+ *
+ * `t.sz(area, n)` — fontSize for ordinary Text: the pref is applied here,
+ * Dynamic Type by RN's own allowFontScaling.
+ * `t.px(area, n)` — for Text that sets a lineHeight: BOTH factors, rounded
+ * to an integer, with allowFontScaling={false} on the element. Under Fabric
+ * (RN 0.86, iOS) a lineHeight + RN's scaling went fractional at text size
+ * Extra Large and the paragraph was laid out wider than its frame — last
+ * line clipped right and bottom (2026-10-20, reproduced on a Pro Max
+ * Simulator via `simctl ui content_size extra-large`; integers fixed it).
+ * Dynamic Type is read once at launch; a change mid-run shows after relaunch.
  */
 export const fontScale = PixelRatio.getFontScale();
-export const px = (n: number) => Math.round(n * fontScale);
+export type { FontKey, Fonts };
 import type { Theme } from '@herdr/shared/palettes';
 
 export type { Theme };
@@ -67,6 +73,12 @@ export interface Tokens {
   /** family + weight for a Text, resolved per theme (custom faces need the
    *  exact loaded name, so weight is folded into the family on cyber) */
   font: (kind: FontKind, weight?: Weight) => TextStyle;
+  /** per-area text size multipliers (this device) */
+  fonts: Fonts;
+  /** fontSize for a Text that lets RN apply Dynamic Type */
+  sz: (area: FontKey, n: number) => number;
+  /** fontSize/lineHeight for a Text with allowFontScaling={false} */
+  px: (area: FontKey, n: number) => number;
   status: (status: string | undefined) => string;
   /** a status dot: round on stock, a diamond on cyber */
   dot: (size: number) => ViewStyle;
@@ -148,7 +160,7 @@ function fontFor(theme: Theme): Tokens['font'] {
 
 /** stock values + whatever a palette or custom set overrides; the surface
  *  ramp and hairline follow (same rule as web/src/prefs.ts applyColors) */
-export function buildTokens(theme: Theme, overrides: Record<string, string> = {}): Tokens {
+export function buildTokens(theme: Theme, overrides: Record<string, string> = {}, fonts: Fonts = DEFAULT_FONTS): Tokens {
   const c: Palette = { ...STOCK[theme] };
   for (const [k, v] of Object.entries(overrides)) if (k in c) (c as unknown as Record<string, string>)[k] = v;
   if (overrides.bg) {
@@ -166,6 +178,10 @@ export function buildTokens(theme: Theme, overrides: Record<string, string> = {}
   const status = (s: string | undefined) =>
     s === 'blocked' ? c.blocked : s === 'working' ? c.working : s === 'done' ? c.done : s === 'idle' ? c.idle : c.sub;
   const font = fontFor(theme);
+  // code is relative to the text around it, as on web
+  const mult = (a: FontKey) => (a === 'code' ? fonts.chat * fonts.code : fonts[a]);
+  const sz = (a: FontKey, n: number) => Math.round(n * mult(a) * 100) / 100;
+  const px = (a: FontKey, n: number) => Math.round(n * mult(a) * fontScale);
   return {
     theme,
     cyber,
@@ -184,6 +200,9 @@ export function buildTokens(theme: Theme, overrides: Record<string, string> = {}
       : {},
     hud: cyber ? { ...font('mono'), letterSpacing: 1.4, textTransform: 'uppercase' } : {},
     font,
+    fonts,
+    sz,
+    px,
     status,
     dot: (size) =>
       cyber

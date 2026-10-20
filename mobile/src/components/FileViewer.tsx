@@ -15,7 +15,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 import type { FileInfo } from '@herdr/shared';
 import { getPlatform } from '@herdr/shared';
 import { fileInfoUrl, fileRawUrl } from '../api-urls';
-import { px, useStyles, useTheme, type Tokens } from '../theme';
+import { useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 import { MdView } from './MdView';
 import { AudioPlayer, VideoPlayer } from './MediaPlayer';
@@ -285,13 +285,13 @@ const makeStyles = (t: Tokens) =>
     borderBottomColor: t.colors.hairline,
   },
   barBtn: { paddingHorizontal: 8, paddingVertical: 6 },
-  barBtnText: { color: t.colors.accent, fontSize: 14, ...t.font('ui', '600') },
+  barBtnText: { color: t.colors.accent, fontSize: t.sz('ui', 14), ...t.font('ui', '600') },
   path: {
     flex: 1,
     backgroundColor: t.colors.surface2,
     borderRadius: t.radius.sm,
     color: t.colors.text,
-    fontSize: 12,
+    fontSize: t.sz('ui', 12),
     ...t.font('mono'),
     paddingHorizontal: 10,
     paddingVertical: 8,
@@ -310,7 +310,7 @@ const makeStyles = (t: Tokens) =>
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: t.colors.hairline,
   },
-  histPath: { color: t.colors.text, fontSize: 12, ...t.font('mono'), },
+  histPath: { color: t.colors.text, fontSize: t.sz('ui', 12), ...t.font('mono'), },
 
   body: { flex: 1 },
   bodyContent: { padding: 14, paddingBottom: 40 },
@@ -319,10 +319,10 @@ const makeStyles = (t: Tokens) =>
   pre: {
     ...t.font('mono'),
     color: t.colors.text,
-    fontSize: px(12),
-    lineHeight: px(18),
+    fontSize: t.px('code', 12),
+    lineHeight: t.px('code', 18),
   },
-  note: { ...t.font('ui'), color: t.colors.sub, fontSize: 12, marginTop: 12 },
+  note: { ...t.font('ui'), color: t.colors.sub, fontSize: t.sz('ui', 12), marginTop: 12 },
   img: { width: '100%', height: 360, borderRadius: t.radius.md },
   mediaBox: { alignItems: 'center', gap: 10, marginTop: 20 },
   mediaBtn: {
@@ -333,7 +333,7 @@ const makeStyles = (t: Tokens) =>
     borderWidth: 1,
     borderColor: t.colors.accent,
   },
-  mediaBtnText: { ...t.font('ui', '600'), color: t.colors.accent, fontSize: 13 },
+  mediaBtnText: { ...t.font('ui', '600'), color: t.colors.accent, fontSize: t.sz('ui', 13) },
   dir: { gap: 2 },
   dirRow: {
     flexDirection: 'row',
@@ -343,11 +343,11 @@ const makeStyles = (t: Tokens) =>
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: t.colors.hairline,
   },
-  dirName: { ...t.font('ui'), color: t.colors.text, fontSize: 15, flex: 1 },
+  dirName: { ...t.font('ui'), color: t.colors.text, fontSize: t.sz('ui', 15), flex: 1 },
   meta: {
     color: t.colors.sub,
     ...t.font('ui'),
-    fontSize: 11,
+    fontSize: t.sz('ui', 11),
     padding: 10,
     textAlign: 'center',
     borderTopWidth: StyleSheet.hairlineWidth,

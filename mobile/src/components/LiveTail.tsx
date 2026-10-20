@@ -78,7 +78,7 @@ export function LiveTail({
       </Pressable>
       {open && text !== null && (
         <ScrollView ref={scrollRef} style={styles.body} nestedScrollEnabled>
-          <Text selectable style={styles.pre}>{text}</Text>
+          <Text selectable style={styles.pre} allowFontScaling={false}>{text}</Text>
         </ScrollView>
       )}
     </View>
@@ -107,14 +107,14 @@ const makeStyles = (t: Tokens) =>
     ...t.boxGlow(t.colors.working, 9, 0.8),
   },
   title: { color: t.cyber ? t.colors.working : t.colors.sub, fontSize: t.cyber ? 11 : 12, ...t.font('ui', '600'), textTransform: 'uppercase', ...t.hud, ...t.glow(t.colors.working, 6) },
-  sub: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: 11, flex: 1, opacity: 0.8 },
+  sub: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: t.sz('code', 11), flex: 1, opacity: 0.8 },
   chev: { color: t.colors.sub },
   body: { paddingHorizontal: 12, paddingBottom: 8, maxHeight: 140 },
   pre: {
     ...t.font('mono'),
     color: t.cyber ? mix(t.colors.text, t.colors.accent, 0.45) : t.colors.sub,
-    fontSize: 11,
-    lineHeight: 16,
+    fontSize: t.px('code', 11),
+    lineHeight: t.px('code', 16),
     ...t.glow(alpha(t.colors.accent, 0.35), 4),
   },
 });

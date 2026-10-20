@@ -286,13 +286,13 @@ const makeStyles = (t: Tokens) =>
     borderWidth: 1,
     borderColor: alpha(t.colors.accent, 0.35),
   },
-  peekText: { color: t.colors.accent, fontSize: 12, ...t.font('ui', '600'), ...t.hud, ...t.glow(t.colors.accent, 6) },
+  peekText: { color: t.colors.accent, fontSize: t.sz('ui', 12), ...t.font('ui', '600'), ...t.hud, ...t.glow(t.colors.accent, 6) },
   qRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  qText: { color: t.cyber ? mix(t.colors.text, '#ffffff', 0.5) : t.colors.text, fontSize: 15, ...t.font('ui', '600'), flex: 1, ...t.phosphor },
+  qText: { color: t.cyber ? mix(t.colors.text, '#ffffff', 0.5) : t.colors.text, fontSize: t.sz('ui', 15), ...t.font('ui', '600'), flex: 1, ...t.phosphor },
   detail: {
     ...t.font('mono'),
     color: t.cyber ? mix(t.colors.accent, t.colors.text, 0.55) : t.colors.sub,
-    fontSize: 12,
+    fontSize: t.sz('ui', 12),
     backgroundColor: t.cyber ? alpha('#000000', 0.5) : t.colors.surface2,
     borderLeftWidth: t.cyber ? 2 : 0,
     borderLeftColor: t.colors.accent,
@@ -316,8 +316,8 @@ const makeStyles = (t: Tokens) =>
     ? { borderLeftColor: t.colors.red, backgroundColor: alpha(t.colors.red, 0.14) }
     : { borderColor: t.colors.blocked },
   busy: { opacity: 0.6 },
-  optLabel: { color: t.colors.text, fontSize: 15, ...t.font('ui', '600') },
-  optDesc: { ...t.font('ui'), color: t.colors.sub, fontSize: 12, marginTop: 2 },
+  optLabel: { color: t.colors.text, fontSize: t.sz('ui', 15), ...t.font('ui', '600') },
+  optDesc: { ...t.font('ui'), color: t.colors.sub, fontSize: t.sz('ui', 12), marginTop: 2 },
   fb: {
     backgroundColor: t.cyber ? alpha('#000000', 0.45) : t.colors.surface2,
     borderWidth: t.cyber ? 1 : 0,
@@ -327,6 +327,6 @@ const makeStyles = (t: Tokens) =>
     padding: 10,
     minHeight: 48,
     ...t.font('ui'),
-    fontSize: 14,
+    fontSize: t.sz('ui', 14),
   },
 });

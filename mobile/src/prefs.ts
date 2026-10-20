@@ -1,8 +1,18 @@
 /* Appearance prefs, mirrored from web/src/prefs.ts: theme + per-theme palette
    pick + custom overrides follow you across devices through /api/prefs. The
    phone caches the last answer in kv so boot doesn't flash the stock skin.
-   Text sizes are per-device and not here (yet). */
-import { apiUrl, get, getPlatform } from '@herdr/shared';
+   Text sizes are per-device (kv only, same four knobs as web). */
+import {
+  apiUrl,
+  clampFont,
+  DEFAULT_FONTS,
+  formatFonts,
+  get,
+  getPlatform,
+  parseFonts,
+  type FontKey,
+  type Fonts,
+} from '@herdr/shared';
 import { findPalette, palettesFor, type Theme } from '@herdr/shared/palettes';
 import { buildTokens, DEFAULT_TOKENS, type Tokens } from './theme';
 
@@ -10,12 +20,14 @@ export type Colors = Partial<Record<Theme, Record<string, string>>>;
 export type Picks = Partial<Record<Theme, string>>;
 
 const CACHE_KEY = 'herdr.prefs';
+const FONTS_KEY = 'herdr.fonts';
 const THEMES: Theme[] = ['default', 'cyber'];
 
 let theme: Theme = 'default';
 let colors: Colors = {};
 let palette: Picks = {};
 let base: Picks = {}; // the preset a custom set was forked from
+let fonts: Fonts = { ...DEFAULT_FONTS };
 let tokens: Tokens = DEFAULT_TOKENS;
 
 const listeners = new Set<() => void>();
@@ -52,7 +64,7 @@ function effective(t: Theme): Record<string, string> {
 }
 
 function rebuild() {
-  tokens = buildTokens(theme, effective(theme));
+  tokens = buildTokens(theme, effective(theme), fonts);
   for (const cb of listeners) cb();
 }
 
@@ -67,6 +79,19 @@ export function setTheme(t: Theme) {
 export function setPalette(t: Theme, id: string) {
   palette = { ...palette, [t]: id };
   saved();
+}
+
+export function currentFonts(): Fonts {
+  return fonts;
+}
+
+/** this device only — never pushed to the server */
+export function setFont(k: FontKey, v: number) {
+  fonts = { ...fonts, [k]: clampFont(v) };
+  rebuild();
+  try {
+    getPlatform().kv.set(FONTS_KEY, formatFonts(fonts));
+  } catch {}
 }
 
 function saved() {
@@ -131,6 +156,7 @@ export function initPrefs(): void {
   try {
     const raw = getPlatform().kv.get(CACHE_KEY);
     if (raw) adopt(JSON.parse(raw) as Wire);
+    fonts = parseFonts(getPlatform().kv.get(FONTS_KEY));
   } catch {}
   rebuild();
   getPlatform().onWake(() => void pullPrefs());

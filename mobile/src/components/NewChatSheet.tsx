@@ -504,8 +504,8 @@ const makeStyles = (t: Tokens) =>
       borderTopColor: t.colors.red,
     },
     title: t.cyber
-      ? { color: t.colors.red, fontSize: 15, ...t.font('display', '900'), letterSpacing: 3, textTransform: 'uppercase', ...t.glow(t.colors.red, 12) }
-      : { color: t.colors.text, fontSize: 18, ...t.font('ui', '700') },
+      ? { color: t.colors.red, fontSize: t.sz('ui', 15), ...t.font('display', '900'), letterSpacing: 3, textTransform: 'uppercase', ...t.glow(t.colors.red, 12) }
+      : { color: t.colors.text, fontSize: t.sz('ui', 18), ...t.font('ui', '700') },
 
     scroll: { flex: 1 },
     scrollContent: { padding: 14, paddingBottom: 40, gap: 10 },
@@ -522,9 +522,9 @@ const makeStyles = (t: Tokens) =>
     },
     whereOpen: { borderColor: t.colors.accent, ...t.boxGlow(t.colors.accent, 16, 0.35) },
     whereMain: { flex: 1, minWidth: 0, gap: 2 },
-    whereName: { color: t.colors.text, fontSize: 17, ...t.font('ui', '700'), ...t.phosphor },
-    whereHow: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: 12 },
-    whereChange: { color: t.colors.accent, fontSize: 12, ...t.font('ui', '700'), ...t.hud, ...t.glow(t.colors.accent, 6) },
+    whereName: { color: t.colors.text, fontSize: t.sz('ui', 17), ...t.font('ui', '700'), ...t.phosphor },
+    whereHow: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: t.sz('ui', 12) },
+    whereChange: { color: t.colors.accent, fontSize: t.sz('ui', 12), ...t.font('ui', '700'), ...t.hud, ...t.glow(t.colors.accent, 6) },
 
     picker: { gap: 4 },
     filter: {
@@ -536,7 +536,7 @@ const makeStyles = (t: Tokens) =>
       borderWidth: 1,
       borderColor: t.cyber ? alpha(t.colors.accent, 0.25) : t.colors.hairline,
       ...t.font('input'),
-      fontSize: 15,
+      fontSize: t.sz('ui', 15),
       marginBottom: 4,
     },
     placeRow: {
@@ -568,14 +568,14 @@ const makeStyles = (t: Tokens) =>
     destOn: t.cyber
       ? { borderColor: 'transparent', borderLeftColor: t.colors.accent, backgroundColor: alpha(t.colors.accent, 0.12) }
       : { borderColor: t.colors.accent, backgroundColor: t.colors.surface2 },
-    destLabel: { color: t.colors.text, fontSize: 14, ...t.font('ui', '600'), flex: 1 },
+    destLabel: { color: t.colors.text, fontSize: t.sz('ui', 14), ...t.font('ui', '600'), flex: 1 },
     destLabelOn: { color: t.colors.accent, ...t.glow(t.colors.accent, 6) },
-    destExtra: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: 11, maxWidth: '45%' },
-    badge: { ...t.font(t.cyber ? 'mono' : 'ui'), ...t.hud, color: t.colors.sub, fontSize: 10 },
+    destExtra: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: t.sz('ui', 11), maxWidth: '45%' },
+    badge: { ...t.font(t.cyber ? 'mono' : 'ui'), ...t.hud, color: t.colors.sub, fontSize: t.sz('ui', 10) },
     live: { color: t.colors.working, ...t.glow(t.colors.working, 6) },
     subs: { paddingLeft: 12, paddingTop: 4, marginBottom: 4 },
-    subSec: { ...t.font('ui', '700'), ...t.hud, color: t.colors.sub, fontSize: 10, marginTop: 6, marginBottom: 4 },
-    note: { ...t.font('ui'), color: t.colors.sub, fontSize: 13, paddingVertical: 6 },
+    subSec: { ...t.font('ui', '700'), ...t.hud, color: t.colors.sub, fontSize: t.sz('ui', 10), marginTop: 6, marginBottom: 4 },
+    note: { ...t.font('ui'), color: t.colors.sub, fontSize: t.sz('ui', 13), paddingVertical: 6 },
     branch: {
       backgroundColor: t.cyber ? alpha('#000000', 0.45) : t.colors.surface2,
       borderWidth: t.cyber ? 1 : 0,
@@ -596,7 +596,7 @@ const makeStyles = (t: Tokens) =>
       borderWidth: 1,
       borderColor: t.cyber ? alpha(t.colors.accent, 0.25) : t.colors.hairline,
       ...t.font('input'),
-      fontSize: 15,
+      fontSize: t.sz('ui', 15),
     },
     chips: { marginTop: 6, maxHeight: 36 },
     chip: {
@@ -626,18 +626,18 @@ const makeStyles = (t: Tokens) =>
     segTextOn: { color: t.colors.accent, ...t.glow(t.colors.accent, 8) },
 
     optToggle: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6 },
-    optToggleText: { color: t.colors.sub, fontSize: 12, ...t.font('ui', '700'), ...t.hud },
+    optToggleText: { color: t.colors.sub, fontSize: t.sz('ui', 12), ...t.font('ui', '700'), ...t.hud },
     options: { gap: 6, paddingLeft: 4 },
     sec: {
       color: t.cyber ? t.colors.red : t.colors.sub,
-      fontSize: 11,
+      fontSize: t.sz('ui', 11),
       ...t.font('ui', '700'),
       textTransform: 'uppercase',
       ...t.hud,
       opacity: t.cyber ? 0.85 : 1,
       marginTop: 8,
     },
-    hint: { ...t.font('ui'), color: t.colors.sub, fontSize: 12 },
+    hint: { ...t.font('ui'), color: t.colors.sub, fontSize: t.sz('ui', 12) },
     mono: { ...t.font('mono') },
     error: {
       ...t.font(t.cyber ? 'mono' : 'ui'),

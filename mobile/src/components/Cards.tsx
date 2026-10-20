@@ -195,18 +195,18 @@ const makeStyles = (t: Tokens) =>
       maxHeight: 420,
     },
     body: { gap: 8 },
-    qText: { color: t.cyber ? mix(t.colors.text, '#ffffff', 0.5) : t.colors.text, fontSize: 15, ...t.font('ui', '600'), ...t.phosphor },
+    qText: { color: t.cyber ? mix(t.colors.text, '#ffffff', 0.5) : t.colors.text, fontSize: t.sz('ui', 15), ...t.font('ui', '600'), ...t.phosphor },
     detail: {
       ...t.font('mono'),
       color: t.cyber ? mix(t.colors.accent, t.colors.text, 0.55) : t.colors.sub,
-      fontSize: 12,
+      fontSize: t.sz('ui', 12),
       backgroundColor: t.cyber ? alpha('#000000', 0.5) : t.colors.surface2,
       borderLeftWidth: t.cyber ? 2 : 0,
       borderLeftColor: t.colors.accent,
       padding: 8,
       borderRadius: t.radius.sm,
     },
-    sub: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: 12 },
+    sub: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: t.sz('ui', 12) },
     option: {
       backgroundColor: t.cyber ? alpha(t.colors.accent, 0.08) : t.colors.surface2,
       borderRadius: t.radius.md,
@@ -220,7 +220,7 @@ const makeStyles = (t: Tokens) =>
       ? { borderLeftColor: t.colors.red, backgroundColor: alpha(t.colors.red, 0.12) }
       : { borderColor: t.colors.blocked },
     busy: { opacity: 0.5 },
-    optLabel: { color: t.colors.text, fontSize: 15, ...t.font('ui', '600') },
-    optDesc: { ...t.font('ui'), color: t.colors.sub, fontSize: 12, marginTop: 2 },
+    optLabel: { color: t.colors.text, fontSize: t.sz('ui', 15), ...t.font('ui', '600') },
+    optDesc: { ...t.font('ui'), color: t.colors.sub, fontSize: t.sz('ui', 12), marginTop: 2 },
     live: { color: t.colors.working, ...t.glow(t.colors.working, 6) },
   });

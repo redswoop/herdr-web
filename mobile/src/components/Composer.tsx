@@ -550,7 +550,7 @@ const makeStyles = (t: Tokens) =>
   attFileName: {
     color: t.colors.sub,
     ...t.font('ui'),
-    fontSize: 9,
+    fontSize: t.sz('ui', 9),
     textAlign: 'center',
   },
   attX: {
@@ -601,7 +601,7 @@ const makeStyles = (t: Tokens) =>
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: t.colors.hairline,
   },
-  menuLabel: { color: t.colors.text, fontSize: 15, ...t.font('ui', '500'), ...(t.cyber ? t.font('mono') : {}) },
+  menuLabel: { color: t.colors.text, fontSize: t.sz('ui', 15), ...t.font('ui', '500'), ...(t.cyber ? t.font('mono') : {}) },
   menuLabelOn: { color: t.colors.accent, ...t.glow(t.colors.accent, 8) },
 
   row: {
@@ -638,8 +638,8 @@ const makeStyles = (t: Tokens) =>
     color: t.colors.text,
     ...t.font('input'),
     ...t.phosphor,
-    fontSize: 16,
-    lineHeight: 22,
+    fontSize: t.sz('input', 16),
+    lineHeight: t.sz('input', 22),
     paddingHorizontal: 14,
     paddingTop: 10,
     paddingBottom: 10,

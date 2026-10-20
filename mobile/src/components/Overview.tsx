@@ -177,9 +177,9 @@ const makeStyles = (t: Tokens) =>
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   mark: { width: 36, height: 36, borderRadius: t.r(10) },
   title: t.cyber
-    ? { color: t.colors.red, fontSize: 18, ...t.font('display', '900'), letterSpacing: 3, textTransform: 'uppercase', ...t.glow(t.colors.red, 12) }
-    : { color: t.colors.text, fontSize: 22, ...t.font('ui', '700') },
-  summary: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: 13, marginTop: 4 },
+    ? { color: t.colors.red, fontSize: t.sz('ui', 18), ...t.font('display', '900'), letterSpacing: 3, textTransform: 'uppercase', ...t.glow(t.colors.red, 12) }
+    : { color: t.colors.text, fontSize: t.sz('ui', 22), ...t.font('ui', '700') },
+  summary: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: t.sz('ui', 13), marginTop: 4 },
   card: {
     backgroundColor: t.cyber ? alpha(t.colors.surface, 0.9) : t.colors.surface,
     borderRadius: t.radius.md,
@@ -193,9 +193,9 @@ const makeStyles = (t: Tokens) =>
   cardHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
   cardTitleRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
   cardTitle: t.cyber
-    ? { color: t.colors.red, ...t.font('display', '700'), fontSize: 12, letterSpacing: 1.5, textTransform: 'uppercase', flexShrink: 1 }
-    : { color: t.colors.text, ...t.font('ui', '700'), fontSize: 15, flexShrink: 1 },
-  cardPath: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: 11, maxWidth: '35%' },
+    ? { color: t.colors.red, ...t.font('display', '700'), fontSize: t.sz('ui', 12), letterSpacing: 1.5, textTransform: 'uppercase', flexShrink: 1 }
+    : { color: t.colors.text, ...t.font('ui', '700'), fontSize: t.sz('ui', 15), flexShrink: 1 },
+  cardPath: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: t.sz('ui', 11), maxWidth: '35%' },
   cardPlus: {
     width: 28,
     height: 28,
@@ -216,11 +216,11 @@ const makeStyles = (t: Tokens) =>
     borderTopColor: t.colors.hairline,
   },
   dot: t.dot(8),
-  agentName: { color: t.colors.text, fontSize: 14, ...t.font('ui', '600'), flexShrink: 1, ...t.phosphor },
-  agentSub: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: 11 },
+  agentName: { color: t.colors.text, fontSize: t.sz('ui', 14), ...t.font('ui', '600'), flexShrink: 1, ...t.phosphor },
+  agentSub: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: t.sz('ui', 11) },
   sec: {
     color: t.cyber ? t.colors.red : t.colors.sub,
-    fontSize: 11,
+    fontSize: t.sz('ui', 11),
     ...t.font('ui', '700'),
     textTransform: 'uppercase',
     ...t.hud,

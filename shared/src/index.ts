@@ -32,3 +32,15 @@ export { useRoster } from './hooks/useRoster';
 export { useAgentSession } from './hooks/useAgentSession';
 export { useBlockedContext } from './hooks/useBlockedContext';
 export { useAgentMode } from './hooks/useAgentMode';
+export {
+  FONT_AREAS,
+  FONT_MIN,
+  FONT_MAX,
+  FONT_STEP,
+  DEFAULT_FONTS,
+  clampFont,
+  parseFonts,
+  formatFonts,
+  type FontKey,
+  type Fonts,
+} from './fonts';

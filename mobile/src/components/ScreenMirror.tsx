@@ -84,7 +84,7 @@ export function ScreenMirror({
         </Pressable>
       </View>
       <ScrollView ref={scrollRef} style={styles.body} nestedScrollEnabled>
-        <Text style={styles.pre}>{text}</Text>
+        <Text style={styles.pre} allowFontScaling={false}>{text}</Text>
       </ScrollView>
     </View>
   );
@@ -106,13 +106,13 @@ const makeStyles = (t: Tokens) =>
     paddingVertical: 8,
     backgroundColor: alpha(t.colors.working, 0.15),
   },
-  bannerText: { color: t.colors.working, fontSize: 12, ...t.font('ui', '600'), flex: 1 },
-  hide: { ...t.font('ui'), color: t.colors.accent, fontSize: 13 },
+  bannerText: { color: t.colors.working, fontSize: t.sz('code', 12), ...t.font('ui', '600'), flex: 1 },
+  hide: { ...t.font('ui'), color: t.colors.accent, fontSize: t.sz('code', 13) },
   body: { paddingHorizontal: 12, paddingBottom: 8, maxHeight: 180 },
   pre: {
     ...t.font('mono'),
     color: t.colors.text,
-    fontSize: 11,
-    lineHeight: 16,
+    fontSize: t.px('code', 11),
+    lineHeight: t.px('code', 16),
   },
 });

@@ -8,20 +8,21 @@ import { findPalette, palettesFor } from './palettes';
    (stored server-side, cached locally so boot doesn't flash). Text sizes are
    per-device: a phone and a 27" monitor want different type. */
 
-export type FontKey = 'ui' | 'chat' | 'input' | 'code';
-export type Fonts = Record<FontKey, number>;
+import {
+  DEFAULT_FONTS,
+  FONT_MIN,
+  formatFonts,
+  parseFonts,
+  type FontKey,
+  type Fonts,
+} from '@herdr/shared';
+
+export type { FontKey, Fonts };
 export type Colors = Partial<Record<Theme, Record<string, string>>>;
 /** per theme: a palette id or 'custom' (base palette + the overrides in Colors) */
 export type Picks = Partial<Record<Theme, string>>;
 
-export const FONT_AREAS: { key: FontKey; label: string; hint: string }[] = [
-  { key: 'ui', label: 'Interface', hint: 'lists, headers, buttons' },
-  { key: 'chat', label: 'Conversation', hint: 'messages and the file viewer' },
-  { key: 'input', label: 'Composer', hint: 'what you type' },
-  { key: 'code', label: 'Code', hint: 'relative to the text around it' },
-];
-export const FONT_MIN = 0.75;
-export const FONT_MAX = 1.6;
+export { FONT_AREAS, FONT_MIN, FONT_MAX } from '@herdr/shared';
 /** under 16px iOS zooms the page on focus, so touch keeps the composer ≥ 100% */
 export const inputFloor = () => (matchMedia('(pointer: coarse)').matches ? 1 : FONT_MIN);
 
@@ -54,7 +55,6 @@ const FONTS_COOKIE = 'herdr.fonts';
 const COLORS_CACHE = 'herdr.colors';
 const PICKS_CACHE = 'herdr.palette';
 const EVENT = 'herdr-prefs';
-const DEFAULT_FONTS: Fonts = { ui: 1, chat: 1, input: 1, code: 1 };
 
 let fonts: Fonts = { ...DEFAULT_FONTS };
 let colors: Colors = {};
@@ -65,13 +65,7 @@ let base: Picks = {}; // the preset a custom set was forked from
 
 function loadFonts(): Fonts {
   const raw = document.cookie.match(/(?:^|;\s*)herdr\.fonts=([^;]*)/)?.[1] ?? '';
-  const out = { ...DEFAULT_FONTS };
-  for (const part of decodeURIComponent(raw).split(',')) {
-    const [k, v] = part.split(':');
-    const n = Number(v);
-    if (k in out && n >= FONT_MIN && n <= FONT_MAX) out[k as FontKey] = n;
-  }
-  return out;
+  return parseFonts(decodeURIComponent(raw));
 }
 
 function applyFonts() {
@@ -86,8 +80,7 @@ function applyFonts() {
 export function setFont(k: FontKey, v: number) {
   fonts = { ...fonts, [k]: Math.round(v * 100) / 100 };
   applyFonts();
-  const s = (Object.keys(fonts) as FontKey[]).map((key) => `${key}:${fonts[key]}`).join(',');
-  document.cookie = `${FONTS_COOKIE}=${encodeURIComponent(s)}; Path=/; Max-Age=31536000; SameSite=Lax`;
+  document.cookie = `${FONTS_COOKIE}=${encodeURIComponent(formatFonts(fonts))}; Path=/; Max-Age=31536000; SameSite=Lax`;
   changed();
 }
 

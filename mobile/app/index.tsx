@@ -394,7 +394,7 @@ const makeStyles = (t: Tokens) =>
   },
   gateArt: { width: 180, height: 180, marginBottom: 4 },
   emptyArt: { width: 140, height: 140, opacity: 0.95 },
-  gateTitle: { color: t.colors.text, fontSize: 20, ...t.font('ui', '700') },
+  gateTitle: { color: t.colors.text, fontSize: t.sz('ui', 20), ...t.font('ui', '700') },
   gateSub: { ...t.font('ui'), color: t.colors.sub, textAlign: 'center', marginBottom: 12 },
   primaryBtn: {
     backgroundColor: t.colors.hot,
@@ -411,7 +411,7 @@ const makeStyles = (t: Tokens) =>
   bannerText: {
     color: t.colors.accentInk,
     textAlign: 'center',
-    fontSize: 13,
+    fontSize: t.sz('ui', 13),
     ...t.font('ui', '600'),
   },
   toolbar: {
@@ -485,10 +485,10 @@ const makeStyles = (t: Tokens) =>
     borderBottomColor: t.colors.hairline,
   },
   sectionMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
-  sectionTitle: { color: t.colors.text, ...t.font('ui', '700'), fontSize: 13, flex: 1, ...(t.cyber ? { ...t.font('mono'), letterSpacing: 1.6 } : {}) },
+  sectionTitle: { color: t.colors.text, ...t.font('ui', '700'), fontSize: t.sz('ui', 13), flex: 1, ...(t.cyber ? { ...t.font('mono'), letterSpacing: 1.6 } : {}) },
   slash: { color: t.colors.red, opacity: 0.75 },
-  badge: { ...t.font('ui'), ...t.hud, color: t.colors.sub, fontSize: 11 },
-  groupCount: { ...t.font('ui'), ...t.hud, color: t.colors.sub, fontSize: 11, fontVariant: ['tabular-nums'] },
+  badge: { ...t.font('ui'), ...t.hud, color: t.colors.sub, fontSize: t.sz('ui', 11) },
+  groupCount: { ...t.font('ui'), ...t.hud, color: t.colors.sub, fontSize: t.sz('ui', 11), fontVariant: ['tabular-nums'] },
   tabHead: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -498,12 +498,12 @@ const makeStyles = (t: Tokens) =>
     paddingBottom: 2,
     backgroundColor: t.canvas,
   },
-  tabTitle: { color: t.colors.sub, fontSize: 11, ...t.font('ui', '700'), textTransform: 'uppercase', ...t.hud },
+  tabTitle: { color: t.colors.sub, fontSize: t.sz('ui', 11), ...t.font('ui', '700'), textTransform: 'uppercase', ...t.hud },
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
   tag: {
     color: t.colors.sub,
     ...t.font(t.cyber ? 'mono' : 'ui'),
-    fontSize: 10,
+    fontSize: t.sz('ui', 10),
     backgroundColor: t.glass2,
     paddingHorizontal: 6,
     paddingVertical: 1,
@@ -512,8 +512,8 @@ const makeStyles = (t: Tokens) =>
   },
   tagWarn: { color: t.colors.working },
   rowEnd: { alignItems: 'flex-end', gap: 3 },
-  stateWord: { fontSize: 11, ...t.font('ui', '700'), textTransform: 'lowercase', ...t.hud },
-  age: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: 10, fontVariant: ['tabular-nums'] },
+  stateWord: { fontSize: t.sz('ui', 11), ...t.font('ui', '700'), textTransform: 'lowercase', ...t.hud },
+  age: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: t.sz('ui', 10), fontVariant: ['tabular-nums'] },
   quickBtn: {
     width: 32,
     height: 32,
@@ -539,8 +539,8 @@ const makeStyles = (t: Tokens) =>
   statusDot: t.dot(10),
   rowBody: { flex: 1, minWidth: 0 },
   rowTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  rowTitle: { color: t.colors.text, fontSize: 15, ...t.font('ui', '600'), flexShrink: 1, ...t.phosphor },
-  rowSub: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: 12, marginTop: 2 },
+  rowTitle: { color: t.colors.text, fontSize: t.sz('ui', 15), ...t.font('ui', '600'), flexShrink: 1, ...t.phosphor },
+  rowSub: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: t.sz('ui', 12), marginTop: 2 },
   blockedChip: {
     backgroundColor: t.colors.blocked,
     ...t.boxGlow(t.colors.blocked, 10),

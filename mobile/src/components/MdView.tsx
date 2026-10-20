@@ -3,7 +3,7 @@ import { Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-nati
 import * as Clipboard from 'expo-clipboard';
 import { parseMd, type Block, type Inline } from '@herdr/shared';
 import { tick, toast } from '../toast';
-import { alpha, mix, useStyles, useTheme, type Tokens, px } from '../theme';
+import { alpha, mix, useStyles, useTheme, type Tokens } from '../theme';
 import { chunkFrags, splitInlineSegs, splitPlain } from './segment';
 import { transcriptDebug } from './debug';
 
@@ -247,14 +247,14 @@ const makeStyles = (t: Tokens) =>
   StyleSheet.create({
   wrap: { gap: 6 },
   block: {},
-  base: { ...t.font('ui'), color: t.colors.text, fontSize: px(15), lineHeight: px(22) },
-  baseNoLh: { ...t.font('ui'), color: t.colors.text, fontSize: px(15) },
+  base: { ...t.font('ui'), color: t.colors.text, fontSize: t.px('chat', 15), lineHeight: t.px('chat', 22) },
+  baseNoLh: { ...t.font('ui'), color: t.colors.text, fontSize: t.px('chat', 15) },
   strong: { ...t.font('ui', '700'), color: t.cyber ? mix(t.colors.text, '#ffffff', 0.5) : t.colors.text, ...t.glow(alpha(t.colors.accent, 0.35), 8) },
   code: {
     ...t.font('mono'),
     backgroundColor: t.cyber ? alpha(t.colors.accent, 0.1) : t.colors.surface3,
     color: t.cyber ? mix(t.colors.accent, t.colors.text, 0.2) : t.colors.accent,
-    fontSize: px(13),
+    fontSize: t.px('code', 13),
     ...t.glow(t.colors.accent, 6),
   },
   codeNoBg: { backgroundColor: undefined },
@@ -272,11 +272,11 @@ const makeStyles = (t: Tokens) =>
   codeBlockText: {
     ...t.font('mono'),
     color: t.colors.text,
-    fontSize: px(12),
-    lineHeight: px(18),
+    fontSize: t.px('code', 12),
+    lineHeight: t.px('code', 18),
   },
   pressed: { opacity: 0.6 },
-  copyHint: { ...t.font(t.cyber ? 'mono' : 'ui'), ...t.hud, color: t.colors.sub, fontSize: 9, marginTop: 6, opacity: 0.7 },
+  copyHint: { ...t.font(t.cyber ? 'mono' : 'ui'), ...t.hud, color: t.colors.sub, fontSize: t.sz('ui', 9), marginTop: 6, opacity: 0.7 },
   tableWrap: { marginVertical: 4 },
   tableRow: { flexDirection: 'row' },
   th: {
