@@ -16,6 +16,7 @@ import {
   type PermissionMode,
 } from '@herdr/shared';
 import { NeonRail } from '../cyber';
+import { FlickerIn, RailPacket } from '../cyber-fx';
 import { alpha, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 
@@ -61,7 +62,7 @@ export function AgentHeader({
         <Pressable onPress={onBack} hitSlop={10} style={styles.back} accessibilityLabel="back">
           <Icon name="back" size={26} color={t.cyber ? t.colors.red : t.colors.text} />
         </Pressable>
-        <View style={styles.who}>
+        <FlickerIn style={styles.who}>
           <Text style={styles.title} numberOfLines={1}>
             {agent ? chipName(agent) : paneId}
           </Text>
@@ -72,7 +73,7 @@ export function AgentHeader({
                 .join(' · ')}
             </Text>
           )}
-        </View>
+        </FlickerIn>
         {canRewind && (
           <Pressable
             onPress={onRewind}
@@ -104,7 +105,14 @@ export function AgentHeader({
           <Text style={[styles.statusText, { color: sColor }, t.glow(sColor, 6)]}>{status ?? '—'}</Text>
         </View>
       </View>
-      {t.cyber ? <NeonRail /> : <View style={styles.hairline} />}
+      {t.cyber ? (
+        <View>
+          <NeonRail />
+          <RailPacket />
+        </View>
+      ) : (
+        <View style={styles.hairline} />
+      )}
 
       <Modal visible={modeOpen} transparent animationType="fade" onRequestClose={() => setModeOpen(false)}>
         <Pressable style={styles.backdrop} onPress={() => setModeOpen(false)}>

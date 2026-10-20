@@ -26,7 +26,8 @@ import { Composer } from '../../../src/components/Composer';
 import { LiveTail } from '../../../src/components/LiveTail';
 import { ScreenMirror } from '../../../src/components/ScreenMirror';
 import { Transcript } from '../../../src/components/Transcript';
-import { StripeFill } from '../../../src/cyber';
+import { Screen, StripeFill } from '../../../src/cyber';
+import { AlarmSweep } from '../../../src/cyber-fx';
 import { alpha, useStyles, type Tokens } from '../../../src/theme';
 
 // every kind the server can list past sessions for and --resume
@@ -320,6 +321,7 @@ export default function AgentScreen() {
     agent?.agent === 'grok' && ctx?.kind === 'plan' ? [['a', 'a'], ['s', 's'], ['q', 'q']] : [];
 
   return (
+    <Screen>
     <KeyboardAvoidingView style={styles.root} behavior="padding">
       <AgentHeader
         paneId={paneId}
@@ -336,6 +338,7 @@ export default function AgentScreen() {
       {blocked && (
         <View style={styles.blockedBanner}>
           <StripeFill />
+          <AlarmSweep />
           <Text style={styles.blockedText}>agent is waiting on you</Text>
           <Text style={styles.peekBtn} onPress={toggleMirror}>
             {mirror ? 'hide screen' : 'view screen'}
@@ -393,12 +396,13 @@ export default function AgentScreen() {
       />
       <View style={{ height: insets.bottom }} />
     </KeyboardAvoidingView>
+    </Screen>
   );
 }
 
 const makeStyles = (t: Tokens) =>
   StyleSheet.create({
-    root: { flex: 1, backgroundColor: t.canvas },
+    root: { flex: 1 },
     blockedBanner: {
       backgroundColor: alpha(t.colors.blocked, t.cyber ? 0.1 : 0.2),
       padding: 8,

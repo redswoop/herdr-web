@@ -38,8 +38,7 @@ export interface Tokens {
   radius: { sm: number; md: number; lg: number };
   /** a one-off radius (pills, bubbles): as given on stock, square on cyber */
   r: (n: number) => number;
-  /** screen background: the bg colour on stock, transparent on cyber so the
-   *  grid/haze backdrop in _layout shows through */
+  /** screen background (both themes: a Screen draws its own backdrop) */
   canvas: string;
   /** translucent HUD glass for rows and bars (plain surface on stock) */
   glass: string;
@@ -160,7 +159,7 @@ export function buildTokens(theme: Theme, overrides: Record<string, string> = {}
     colors: c,
     radius: cyber ? { sm: 0, md: 0, lg: 0 } : { sm: 10, md: 14, lg: 18 },
     r: (n) => (cyber ? 0 : n),
-    canvas: cyber ? 'transparent' : c.bg,
+    canvas: c.bg,
     glass: cyber ? alpha(c.surface, 0.78) : c.surface,
     glass2: cyber ? alpha(c.surface2, 0.85) : c.surface2,
     glow: (color, radius = 10) =>

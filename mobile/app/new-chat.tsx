@@ -2,7 +2,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { type SpawnTarget } from '@herdr/shared';
 import { useRoster } from '../src/roster';
 import { NewChatSheet } from '../src/components/NewChatSheet';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet } from 'react-native';
+import { Screen } from '../src/cyber';
 import { useStyles, type Tokens } from '../src/theme';
 
 export default function NewChatScreen() {
@@ -20,7 +21,7 @@ export default function NewChatScreen() {
       : undefined;
 
   return (
-    <View style={styles.root}>
+    <Screen style={styles.root}>
       <NewChatSheet
         roster={roster}
         target={target}
@@ -29,7 +30,7 @@ export default function NewChatScreen() {
           router.replace(`/agent/${encodeURIComponent(paneId)}`);
         }}
       />
-    </View>
+    </Screen>
   );
 }
 

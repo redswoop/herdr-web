@@ -488,7 +488,7 @@ export function NewChatSheet({
 
 const makeStyles = (t: Tokens) =>
   StyleSheet.create({
-    root: { flex: 1, backgroundColor: t.colors.bg },
+    root: { flex: 1 },
     head: {
       flexDirection: 'row',
       alignItems: 'center',

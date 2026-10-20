@@ -3,28 +3,48 @@
    corner brackets, hazard tape and neon rails. All tiles are white masks
    from scripts/cyber-assets.py, tinted with the live palette. Decoration
    only: nothing here takes a touch. */
+import { useCallback, useState, type ReactNode } from 'react';
 import { Image, StyleSheet, View, type ViewStyle } from 'react-native';
+import { useFocusEffect } from 'expo-router';
+import { Bloom, DigitalRain, Vignette } from './cyber-skia';
 import { alpha, useTheme } from './theme';
 
 const TILE = {
   scan: require('../assets/cyber/scanlines.png'),
   grid: require('../assets/cyber/grid.png'),
-  vignette: require('../assets/cyber/vignette.png'),
-  haze: require('../assets/cyber/haze.png'),
   stripes: require('../assets/cyber/stripes.png'),
 };
 
-/** behind the navigator: the void, a faint grid, the red bloom at the top */
-export function CyberBackdrop() {
+/** behind a screen: the void, a faint grid, digital rain, the red bloom */
+export function CyberBackdrop({ rain = true }: { rain?: boolean }) {
   const t = useTheme();
   return (
     <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: t.colors.bg }]}>
       <Image source={TILE.grid} resizeMode="repeat" style={[StyleSheet.absoluteFill, { tintColor: t.colors.red, opacity: 0.045 }]} />
-      <Image
-        source={TILE.haze}
-        resizeMode="stretch"
-        style={{ position: 'absolute', left: -40, right: -40, top: 0, height: 320, tintColor: t.colors.red, opacity: 0.2 }}
-      />
+      {rain && <DigitalRain />}
+      <Bloom />
+    </View>
+  );
+}
+
+/** A screen's root: opaque in the theme's bg (whatever the navigator puts
+ *  the card over — a cold deep link once showed a white sheet behind a
+ *  transparent card, and eggshell text on it), with the cyber backdrop
+ *  inside. The rain runs only while the screen is focused, so a stack of
+ *  screens costs one canvas. */
+export function Screen({ children, style }: { children: ReactNode; style?: ViewStyle }) {
+  const t = useTheme();
+  const [focused, setFocused] = useState(false);
+  useFocusEffect(
+    useCallback(() => {
+      setFocused(true);
+      return () => setFocused(false);
+    }, []),
+  );
+  return (
+    <View style={[{ flex: 1, backgroundColor: t.colors.bg }, style]}>
+      {t.cyber && <CyberBackdrop rain={focused} />}
+      {children}
     </View>
   );
 }
@@ -34,7 +54,7 @@ export function CyberOverlay() {
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       <Image source={TILE.scan} resizeMode="repeat" style={[StyleSheet.absoluteFill, { opacity: 0.13 }]} />
-      <Image source={TILE.vignette} resizeMode="stretch" style={StyleSheet.absoluteFill} />
+      <Vignette />
     </View>
   );
 }

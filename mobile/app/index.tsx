@@ -25,6 +25,8 @@ import {
 import { useRoster } from '../src/roster';
 import { Icon } from '../src/components/Icon';
 import { Overview } from '../src/components/Overview';
+import { Screen } from '../src/cyber';
+import { FlickerIn } from '../src/cyber-fx';
 import { alpha, useStyles, useTheme, type Tokens } from '../src/theme';
 
 const GROUPBY_KEY = 'herdr.groupBy';
@@ -163,7 +165,7 @@ export default function RosterScreen() {
   const blockedCount = roster.agents.filter((a) => a.status === 'blocked').length;
 
   return (
-    <View style={styles.root}>
+    <Screen>
       {!connected && roster.updatedAt > 0 && (
         <View style={styles.banner}>
           <Text style={styles.bannerText}>connection lost — reconnecting…</Text>
@@ -298,7 +300,7 @@ export default function RosterScreen() {
               </View>
             );
           }}
-          renderItem={({ item }) => {
+          renderItem={({ item, index }) => {
             if (item.type === 'tab') {
               return (
                 <View style={styles.tabHead}>
@@ -312,6 +314,7 @@ export default function RosterScreen() {
             const showAgent = groupBy !== 'agent';
             const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
             return (
+              <FlickerIn delay={index * 45}>
               <Pressable
                 style={[styles.row, a.status === 'blocked' && styles.rowBlocked]}
                 onPress={() => router.push(`/agent/${encodeURIComponent(a.paneId)}`)}
@@ -359,6 +362,7 @@ export default function RosterScreen() {
                   )}
                 </View>
               </Pressable>
+              </FlickerIn>
             );
           }}
         />
@@ -371,7 +375,7 @@ export default function RosterScreen() {
       >
         <Icon name="plus" size={28} color={t.colors.accentInk} />
       </Pressable>
-    </View>
+    </Screen>
   );
 }
 

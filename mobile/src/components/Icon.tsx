@@ -35,7 +35,9 @@ export type IconName =
   | 'audio'
   | 'refresh'
   | 'rewind'
-  | 'down';
+  | 'down'
+  | 'pause'
+  | 'playArrow';
 
 const MAP: Record<IconName, keyof typeof Ionicons.glyphMap> = {
   send: 'arrow-up',
@@ -70,6 +72,8 @@ const MAP: Record<IconName, keyof typeof Ionicons.glyphMap> = {
   refresh: 'refresh-outline',
   rewind: 'play-back-outline',
   down: 'arrow-down',
+  pause: 'pause',
+  playArrow: 'play',
 };
 
 export function Icon({

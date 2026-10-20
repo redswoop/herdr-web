@@ -12,6 +12,7 @@ import {
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { useBoot } from '../src/boot';
+import { Screen } from '../src/cyber';
 import { palettesFor, type Theme } from '@herdr/shared/palettes';
 import { paletteOf, setPalette, setTheme } from '../src/prefs';
 import { loadSettings, saveSettings } from '../src/settings-store';
@@ -77,6 +78,7 @@ export default function SettingsScreen() {
   const blocked = busy || (!baseUrl.trim() && Platform.OS !== 'web');
 
   return (
+    <Screen>
     <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <Text style={styles.hint}>
         Use your tailscale-serve HTTPS URL so ATS stays happy in release builds.
@@ -128,6 +130,7 @@ export default function SettingsScreen() {
         {String(Constants.expoConfig?.extra?.gitSha ?? '?')}
       </Text>
     </ScrollView>
+    </Screen>
   );
 }
 
@@ -198,7 +201,7 @@ function Appearance() {
 
 const makeStyles = (t: Tokens) =>
   StyleSheet.create({
-  root: { flex: 1, backgroundColor: t.colors.bg },
+  root: { flex: 1 },
   content: { padding: 20, gap: 8 },
   section: { marginTop: 20, gap: 10 },
   seg: {

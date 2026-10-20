@@ -18,6 +18,7 @@ import { fileInfoUrl, fileRawUrl } from '../api-urls';
 import { useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 import { MdView } from './MdView';
+import { AudioPlayer, VideoPlayer } from './MediaPlayer';
 import { SegText } from './SegText';
 
 function fmtSize(n: number): string {
@@ -215,9 +216,12 @@ export function FileViewer({
         {info?.kind === 'binary' && (
           <Text style={styles.empty}>binary file · {fmtSize(info.size)}</Text>
         )}
+        {info?.kind === 'video' && <VideoPlayer uri={fileRawUrl(info.path)} />}
+        {info?.kind === 'audio' && (
+          <AudioPlayer uri={fileRawUrl(info.path)} name={info.path.split('/').pop() || info.path} />
+        )}
         {(info?.kind === 'video' || info?.kind === 'audio') && (
           <View style={styles.mediaBox}>
-            <Icon name={info.kind === 'video' ? 'video' : 'audio'} size={28} color={t.colors.sub} />
             <Text style={styles.empty}>
               {info.kind} · {fmtSize(info.size)}
             </Text>

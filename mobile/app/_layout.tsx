@@ -1,10 +1,13 @@
+import { useCallback, useState } from 'react';
 import { Text, View } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BootProvider } from '../src/boot';
-import { CyberBackdrop, CyberOverlay, NeonRail } from '../src/cyber';
+import { CyberOverlay, NeonRail } from '../src/cyber';
+import { ToastHost } from '../src/toast';
+import { BootLog } from '../src/cyber-fx';
 import { alpha, useTheme } from '../src/theme';
 
 export default function RootLayout() {
@@ -23,9 +26,11 @@ export default function RootLayout() {
 /** under BootProvider so the navigator chrome follows the theme */
 function Shell() {
   const t = useTheme();
+  // the jack-in boot log plays once per cold launch, over the first paint
+  const [booting, setBooting] = useState(true);
+  const bootDone = useCallback(() => setBooting(false), []);
   return (
     <View style={{ flex: 1, backgroundColor: t.colors.bg }}>
-      {t.cyber && <CyberBackdrop />}
     <Stack
       screenOptions={{
         headerStyle: { backgroundColor: t.cyber ? alpha(t.colors.bg, 0.8) : t.colors.surface },
@@ -55,7 +60,8 @@ function Shell() {
               </Text>
             )
           : undefined,
-        contentStyle: { backgroundColor: t.canvas },
+        // opaque cards: each screen draws its own backdrop (see Screen)
+        contentStyle: { backgroundColor: t.colors.bg },
         headerShadowVisible: false,
       }}
     >
@@ -75,6 +81,8 @@ function Shell() {
       />
     </Stack>
       {t.cyber && <CyberOverlay />}
+      <ToastHost />
+      {booting && <BootLog onDone={bootDone} />}
     </View>
   );
 }

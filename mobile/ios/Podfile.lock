@@ -29,6 +29,10 @@ PODS:
     - Yoga
   - ExpoAsset (57.0.8):
     - ExpoModulesCore
+  - ExpoAudio (57.0.3):
+    - ExpoModulesCore
+  - ExpoClipboard (57.0.1):
+    - ExpoModulesCore
   - ExpoDocumentPicker (57.0.1):
     - ExpoModulesCore
   - ExpoDomWebView (57.0.1):
@@ -38,6 +42,8 @@ PODS:
   - ExpoFont (57.0.1):
     - ExpoModulesCore
   - ExpoGlassEffect (57.0.1):
+    - ExpoModulesCore
+  - ExpoHaptics (57.0.1):
     - ExpoModulesCore
   - ExpoImage (57.0.1):
     - ExpoModulesCore
@@ -99,6 +105,8 @@ PODS:
     - ExpoModulesCore
     - ExpoModulesWorklets
     - React-RCTFabric
+  - ExpoVideo (57.0.2):
+    - ExpoModulesCore
   - FBLazyVector (0.86.2)
   - hermes-engine (250829098.0.16):
     - hermes-engine/Pre-built (= 250829098.0.16)
@@ -1662,6 +1670,30 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - react-native-skia (2.14.0):
+    - hermes-engine
+    - RCTRequired
+    - RCTTypeSafety
+    - React
+    - React-callinvoker
+    - React-Core
+    - React-Core-prebuilt
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
   - React-NativeModulesApple (0.86.2):
     - hermes-engine
     - React-callinvoker
@@ -2348,11 +2380,14 @@ DEPENDENCIES:
   - EXConstants (from `../../node_modules/expo-constants/ios`)
   - Expo (from `../../node_modules/expo`)
   - ExpoAsset (from `../../node_modules/expo-asset/ios`)
+  - ExpoAudio (from `../../node_modules/expo-audio/ios`)
+  - ExpoClipboard (from `../../node_modules/expo-clipboard/ios`)
   - ExpoDocumentPicker (from `../../node_modules/expo-document-picker/ios`)
   - "ExpoDomWebView (from `../../node_modules/@expo/dom-webview/ios`)"
   - ExpoFileSystem (from `../../node_modules/expo-file-system/ios/ExpoFileSystem.podspec`)
   - ExpoFont (from `../../node_modules/expo-font/ios/ExpoFont.podspec`)
   - ExpoGlassEffect (from `../../node_modules/expo-glass-effect/ios`)
+  - ExpoHaptics (from `../../node_modules/expo-haptics/ios`)
   - ExpoImage (from `../../node_modules/expo-image/ios/ExpoImage.podspec`)
   - ExpoImagePicker (from `../../node_modules/expo-image-picker/ios`)
   - ExpoKeepAwake (from `../../node_modules/expo-keep-awake/ios`)
@@ -2368,6 +2403,7 @@ DEPENDENCIES:
   - ExpoSplashScreen (from `../../node_modules/expo-splash-screen/ios`)
   - ExpoSymbols (from `../../node_modules/expo-symbols/ios`)
   - "ExpoUI (from `../../node_modules/@expo/ui/ios`)"
+  - ExpoVideo (from `../../node_modules/expo-video/ios/ExpoVideo.podspec`)
   - FBLazyVector (from `../../node_modules/react-native/Libraries/FBLazyVector`)
   - hermes-engine (from `../../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec`)
   - RCTDeprecation (from `../../node_modules/react-native/ReactApple/Libraries/RCTFoundation/RCTDeprecation`)
@@ -2411,6 +2447,7 @@ DEPENDENCIES:
   - react-native-keyboard-controller (from `../../node_modules/react-native-keyboard-controller`)
   - "react-native-netinfo (from `../../node_modules/@react-native-community/netinfo`)"
   - react-native-safe-area-context (from `../../node_modules/react-native-safe-area-context`)
+  - "react-native-skia (from `../../node_modules/@shopify/react-native-skia`)"
   - React-NativeModulesApple (from `../../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios`)
   - React-networking (from `../../node_modules/react-native/ReactCommon/react/networking`)
   - React-oscompat (from `../../node_modules/react-native/ReactCommon/oscompat`)
@@ -2461,6 +2498,10 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/expo"
   ExpoAsset:
     :path: "../../node_modules/expo-asset/ios"
+  ExpoAudio:
+    :path: "../../node_modules/expo-audio/ios"
+  ExpoClipboard:
+    :path: "../../node_modules/expo-clipboard/ios"
   ExpoDocumentPicker:
     :path: "../../node_modules/expo-document-picker/ios"
   ExpoDomWebView:
@@ -2471,6 +2512,8 @@ EXTERNAL SOURCES:
     :podspec: "../../node_modules/expo-font/ios/ExpoFont.podspec"
   ExpoGlassEffect:
     :path: "../../node_modules/expo-glass-effect/ios"
+  ExpoHaptics:
+    :path: "../../node_modules/expo-haptics/ios"
   ExpoImage:
     :podspec: "../../node_modules/expo-image/ios/ExpoImage.podspec"
   ExpoImagePicker:
@@ -2501,6 +2544,8 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/expo-symbols/ios"
   ExpoUI:
     :path: "../../node_modules/@expo/ui/ios"
+  ExpoVideo:
+    :podspec: "../../node_modules/expo-video/ios/ExpoVideo.podspec"
   FBLazyVector:
     :path: "../../node_modules/react-native/Libraries/FBLazyVector"
   hermes-engine:
@@ -2586,6 +2631,8 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/@react-native-community/netinfo"
   react-native-safe-area-context:
     :path: "../../node_modules/react-native-safe-area-context"
+  react-native-skia:
+    :path: "../../node_modules/@shopify/react-native-skia"
   React-NativeModulesApple:
     :path: "../../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios"
   React-networking:
@@ -2675,17 +2722,20 @@ SPEC CHECKSUMS:
   EXConstants: 5efe6122eecac2d970aa50a2a502ecc6ce4b7564
   Expo: cba780b47e8661e90c9fe8e1a92a81cef5773290
   ExpoAsset: a76534cf7b762978861dd31708308496c676166f
+  ExpoAudio: b69f36525132edba8d87a715b3a20c678ef78b30
+  ExpoClipboard: 95055b11758f339b61d4d8064dd799df1cf03b7f
   ExpoDocumentPicker: 6fb67a6f39ba9beb53a4b4a3f2949e0b5e9bc3bf
   ExpoDomWebView: beaec034e51bd028428b98bb1f2633ab79c6d095
   ExpoFileSystem: e441dae0ae671fc451640517550973d9e024fdf0
   ExpoFont: 59e1faf66ba9bcd232ae1e2ce58d202a48b6f65e
   ExpoGlassEffect: 4b62afb489e6b84357701737ce002137c9d5fdbc
+  ExpoHaptics: 4503d2da51ff7109712ccdfe0e4939f66818183e
   ExpoImage: 4c1e7634db6033185a98959fb028d8d4b1c89695
   ExpoImagePicker: 53793977b6f686c3f1230739a1dbe7178a9cef80
   ExpoKeepAwake: c26f14275017370cc8a4b7b43a0e23361f2053a5
   ExpoLinking: 5a796f9284535c0349537a844dd40680229b7fcb
   ExpoLogBox: 6bb73c341aca22e699bd4da6cc61afc844e1a648
-  ExpoModulesCore: 5944778f7010c74244b308ed71ffef9f0646e228
+  ExpoModulesCore: c7b4be146df269429055843733be34a239515254
   ExpoModulesJSI: b20fefa4cdd9097e7e6b715466d1900b8c5d4711
   ExpoModulesWorklets: 6b240031daa3de4df791588fc78236637ff602f6
   ExpoModulesWorkletsAdapter: 450574195bea08101a5e79a4debe4b356141b74a
@@ -2695,8 +2745,9 @@ SPEC CHECKSUMS:
   ExpoSplashScreen: 247464c0fe484f766892db0d66c3fe54f92a624e
   ExpoSymbols: 7c7c7bd3c52f0b6dcbba6e8af4088b0dc1ea7d29
   ExpoUI: 62ef3713d3cce9736b063fe4edf8cb9c611a36d5
+  ExpoVideo: b1d9a325ddcd4f3ed8ccb374c01b688e98bc6a04
   FBLazyVector: 3c3be9a019176b5699455f7f66c5444b78a411c6
-  hermes-engine: 84f3941360e73dded03690ebca1408d21e23da75
+  hermes-engine: 066c37ba89c315a88181e4312960fde3997493e7
   RCTDeprecation: bccb6545c26db881ecddfd83a3f9ea82aba1605f
   RCTRequired: b2f74764d596fc0051f00fee94b49bf41a6f7f5a
   RCTSwiftUI: c6d6a31b849b9dfa64c33b55dc91ac15dd55774c
@@ -2737,6 +2788,7 @@ SPEC CHECKSUMS:
   react-native-keyboard-controller: d4796248609d4c03cd6b5f73a9fd083d7c5f33d6
   react-native-netinfo: 2f906d5d9a639090ed1c079135d6485a95f749f1
   react-native-safe-area-context: 6b4966397ada0f7dd481e4486a2ef936834861a1
+  react-native-skia: e9bc323572d0d460f1f1cbf3d6268d1850617b53
   React-NativeModulesApple: 167e532fb9bae30f3c66636b8ee0092bab263667
   React-networking: 89f6b69755a3176f30e56ba1ba8e214b1518ecfb
   React-oscompat: db6675ddaef3bddd1b41533627f3d26ec710c05f

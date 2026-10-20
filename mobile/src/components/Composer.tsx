@@ -23,6 +23,8 @@ import {
 } from '@herdr/shared';
 import { fileRawUrl } from '../api-urls';
 import { NeonRail } from '../cyber';
+import { RailPacket } from '../cyber-fx';
+import { tick } from '../toast';
 import { alpha, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 
@@ -333,6 +335,7 @@ export function Composer({
   };
 
   const sendKeys = async (key: string) => {
+    tick();
     const r = await post(agentPath(paneId, 'keys'), { keys: [key] });
     if (!r.ok) getPlatform().notifyError(await errorOf(r));
     else onKeyTap?.();
@@ -340,7 +343,10 @@ export function Composer({
 
   return (
     <View style={styles.wrap}>
-      <NeonRail style={styles.rail} />
+      <View style={styles.rail}>
+        <NeonRail />
+        <RailPacket color={t.colors.accent} period={6500} />
+      </View>
       {atts.length > 0 && (
         <View style={styles.attRow}>
           {atts.map((a) => (

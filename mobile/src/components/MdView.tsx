@@ -1,6 +1,8 @@
 import { createContext, memo, useContext, useMemo } from 'react';
-import { Linking, Platform, StyleSheet, Text, View } from 'react-native';
+import { Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { parseMd, type Block, type Inline } from '@herdr/shared';
+import { tick, toast } from '../toast';
 import { alpha, mix, useStyles, useTheme, type Tokens } from '../theme';
 import { chunkFrags, splitInlineSegs, splitPlain } from './segment';
 import { transcriptDebug } from './debug';
@@ -46,6 +48,14 @@ export const mdIsWide = (src: string) => /(^|\n)\s*(\||```)/.test(src);
 
 // Long paragraphs are split into stacked <Text> segments (see SegText.tsx) —
 // one unbounded <Text> past the iOS layer size limit draws as an empty box.
+/** tap-to-copy for a span or a block: the one copy affordance that works
+ *  while per-glyph selection is off (see InlineSeg) */
+function copy(text: string) {
+  void Clipboard.setStringAsync(text);
+  tick();
+  toast('copied');
+}
+
 function Inlines({
   nodes,
   onOpenFile,
@@ -91,11 +101,12 @@ function InlineSeg({
             return <Text key={i}>{n.text}</Text>;
           case 'strong':
             return (
-              <Text key={i} style={styles.strong}>
+              <Text key={i} style={styles.strong} onPress={() => copy(n.text)}>
                 {n.text}
               </Text>
             );
           case 'code':
+            // a path or url opens on tap; plain code copies
             return (
               <Text
                 key={i}
@@ -105,7 +116,7 @@ function InlineSeg({
                     ? () => Linking.openURL(n.href!).catch(() => {})
                     : n.file && onOpenFile
                       ? () => onOpenFile(n.file!)
-                      : undefined
+                      : () => copy(n.text)
                 }
               >
                 {n.text}
@@ -156,11 +167,12 @@ function BlockView({
   // all don't. So long code lines wrap and tables are a flex grid.
   if (block.type === 'code') {
     return (
-      <View style={styles.codeBlock}>
+      <Pressable style={({ pressed }) => [styles.codeBlock, pressed && styles.pressed]} onPress={() => copy(block.text)}>
         {splitPlain(block.text).map((s, i) => (
           <Text key={i} style={styles.codeBlockText}>{s}</Text>
         ))}
-      </View>
+        <Text style={styles.copyHint}>tap to copy</Text>
+      </Pressable>
     );
   }
   if (block.type === 'table') {
@@ -235,8 +247,8 @@ const makeStyles = (t: Tokens) =>
   StyleSheet.create({
   wrap: { gap: 6 },
   block: {},
-  base: { ...t.font('ui'), color: t.colors.text, fontSize: 15, lineHeight: 22, ...t.phosphor },
-  baseNoLh: { ...t.font('ui'), color: t.colors.text, fontSize: 15, ...t.phosphor },
+  base: { ...t.font('ui'), color: t.colors.text, fontSize: 15, lineHeight: 22 },
+  baseNoLh: { ...t.font('ui'), color: t.colors.text, fontSize: 15 },
   strong: { ...t.font('ui', '700'), color: t.cyber ? mix(t.colors.text, '#ffffff', 0.5) : t.colors.text, ...t.glow(alpha(t.colors.accent, 0.35), 8) },
   code: {
     ...t.font('mono'),
@@ -263,6 +275,8 @@ const makeStyles = (t: Tokens) =>
     fontSize: 12,
     lineHeight: 18,
   },
+  pressed: { opacity: 0.6 },
+  copyHint: { ...t.font(t.cyber ? 'mono' : 'ui'), ...t.hud, color: t.colors.sub, fontSize: 9, marginTop: 6, opacity: 0.7 },
   tableWrap: { marginVertical: 4 },
   tableRow: { flexDirection: 'row' },
   th: {
