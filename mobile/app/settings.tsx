@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Platform,
   Pressable,
   ScrollView,
@@ -18,13 +19,13 @@ import { palettesFor, type Theme } from '@herdr/shared/palettes';
 import { FONT_AREAS, FONT_MAX, FONT_MIN, FONT_STEP } from '@herdr/shared';
 import { paletteOf, setFont, setPalette, setTheme } from '../src/prefs';
 import { setAutocorrect, useAutocorrect } from '../src/device-prefs';
+import { checkForUpdate, restartForUpdate, updateInfo, updateReady } from '../src/updates';
 import { loadSettings, saveSettings } from '../src/settings-store';
 import { alpha, useStyles, useTheme, type Tokens } from '../src/theme';
 
 const APP_VERSION = Constants.expoConfig?.version ?? '?';
-const BUILD_NUMBER =
-  Constants.expoConfig?.ios?.buildNumber ??
-  String(Constants.expoConfig?.android?.versionCode ?? '');
+// the store build number is assigned remotely by EAS; app.json's is a stub
+const BUILD_NUMBER = Constants.nativeBuildVersion ?? '';
 
 export default function SettingsScreen() {
   const t = useTheme();
@@ -128,12 +129,7 @@ export default function SettingsScreen() {
       <Pressable style={styles.labLink} onPress={() => router.push('/lab')}>
         <Text style={styles.labText}>render lab → the empty-bubble diagnostics</Text>
       </Pressable>
-      <Text style={styles.version}>
-        Capra {APP_VERSION}
-        {BUILD_NUMBER ? ` (${BUILD_NUMBER})` : ''}
-        {' · '}
-        {String(Constants.expoConfig?.extra?.gitSha ?? '?')}
-      </Text>
+      <About />
     </ScrollView>
     </Screen>
   );
@@ -143,6 +139,46 @@ const THEMES: { id: Theme; label: string }[] = [
   { id: 'default', label: 'stock' },
   { id: 'cyber', label: 'cyber' },
 ];
+
+/** version, build, and which over-the-air update is running; tap to check */
+function About() {
+  const styles = useStyles(makeStyles);
+  const [busy, setBusy] = useState(false);
+  const [nonce, setNonce] = useState(0);
+  const u = updateInfo();
+  const ready = updateReady();
+  const check = async () => {
+    setBusy(true);
+    try {
+      const r = await checkForUpdate();
+      setNonce((n) => n + 1);
+      if (r) {
+        Alert.alert('Update ready', 'Restart Capra to apply it now?', [
+          { text: 'later', style: 'cancel' },
+          { text: 'restart', onPress: () => void restartForUpdate() },
+        ]);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+  const when = u.createdAt
+    ? u.createdAt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    : null;
+  return (
+    <Pressable onPress={busy ? undefined : check} accessibilityLabel="check for updates" key={nonce}>
+      <Text style={styles.version}>
+        Capra {APP_VERSION}
+        {BUILD_NUMBER ? ` (${BUILD_NUMBER})` : ''}
+        {' · '}
+        {u.enabled ? `update ${u.id}${when ? ` · ${when}` : ''}` : 'updates off'}
+      </Text>
+      <Text style={styles.versionSub}>
+        {busy ? 'checking…' : ready ? 'update ready · tap to restart' : u.enabled ? 'tap to check for updates' : 'dev client'}
+      </Text>
+    </Pressable>
+  );
+}
 
 /** keyboard behaviour in the composer — this device */
 function ComposerPrefs() {
@@ -373,4 +409,5 @@ const makeStyles = (t: Tokens) =>
     fontSize: t.sz('ui', 12),
     textAlign: 'center',
   },
+  versionSub: { color: t.colors.sub, ...t.font('ui'), fontSize: t.sz('ui', 11), textAlign: 'center', marginTop: 2, opacity: 0.8 },
 });

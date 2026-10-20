@@ -12,15 +12,13 @@
 #
 name: iOS TestFlight
 
+# A native build costs one of the free plan's 30 EAS builds a month, so it
+# only runs when asked: a commit whose subject carries [build] (a native dep
+# or iOS project change — Podfile.lock moved), or the Run workflow button.
+# JS-only changes ship over the air instead: see ios-update.yml.
 on:
   push:
     branches: [main]
-    paths:
-      - 'mobile/**'
-      - 'shared/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/ios-testflight.yml'
   workflow_dispatch:
 
 concurrency:
@@ -30,6 +28,7 @@ concurrency:
 jobs:
   build-and-submit:
     name: EAS build + TestFlight
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[build]')
     runs-on: ubuntu-latest
     defaults:
       run:

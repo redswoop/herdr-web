@@ -1,0 +1,69 @@
+# Over-the-air JS update for Capra on every push that touches the app or
+# shared code. The phone fetches it on next launch; nothing native is rebuilt.
+# Skipped when the commit asks for a native build ([build]) — a changed
+# fingerprint would make the update unreachable from the installed build
+# anyway — or says [skip update].
+name: iOS OTA update
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - 'shared/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/ios-update.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ios-update-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  update:
+    name: EAS update (production channel)
+    if: github.event_name == 'workflow_dispatch' || (!contains(github.event.head_commit.message, '[build]') && !contains(github.event.head_commit.message, '[skip update]'))
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          packager: npm
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        working-directory: .
+        run: npm ci
+
+      - name: Typecheck shared + mobile
+        working-directory: .
+        run: |
+          npm run check -w @herdr/shared
+          npm run check -w capra
+
+      # The runtime version is the project fingerprint (app.json); eas update
+      # computes it here from the same tree the native build saw, so an update
+      # only reaches builds whose native side matches.
+      - name: Publish update
+        env:
+          MSG: ${{ github.event.head_commit.message || 'manual update' }}
+        run: >
+          eas update
+          --platform ios
+          --channel production
+          --non-interactive
+          --message "$(printf '%s' "$MSG" | head -n 1 | cut -c1-120) (${GITHUB_SHA::7})"
