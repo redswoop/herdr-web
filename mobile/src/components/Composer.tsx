@@ -657,10 +657,12 @@ const makeStyles = (t: Tokens) =>
     paddingBottom: 7,
     paddingRight: 32,
   },
+  // on the same baseline as attach and send, so a tall draft has one row of
+  // controls along its bottom edge instead of one orphan at the top
   clear: {
     position: 'absolute',
     right: 4,
-    top: 6,
+    bottom: 6,
     width: 24,
     height: 24,
     borderRadius: t.r(12),

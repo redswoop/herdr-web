@@ -67,6 +67,13 @@ export function Transcript({
   const last = items[items.length - 1];
   const lastKey = !last ? '' : last.type === 'mine' ? `m${last.mine.key}` : `e${last.key}`;
   useEffect(() => {
+    // your own send always lands in view, however far up you were reading;
+    // someone else's new content only lights the pill
+    if (last?.type === 'mine') {
+      listRef.current?.scrollToOffset({ offset: 0, animated: true });
+      setFresh(false);
+      return;
+    }
     if (away) setFresh(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastKey]);
