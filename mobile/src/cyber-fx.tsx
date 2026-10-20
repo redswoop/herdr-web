@@ -6,6 +6,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { StyleSheet, Text, View, type ViewStyle } from 'react-native';
 import Animated, {
+  cancelAnimation,
   Easing,
   FadeOut,
   useAnimatedStyle,
@@ -46,20 +47,35 @@ export function FlickerIn({ children, delay = 0, style }: { children: ReactNode;
 }
 
 /** a bright dash that runs the length of a rail every few seconds */
-export function RailPacket({ color, period = 4200 }: { color?: string; period?: number }) {
+/** A packet sliding along a rail. `active` false parks it: a perpetual
+ *  animation recomposites the whole screen every frame (scanlines, vignette,
+ *  bloom included) — idle on the agent screen that was ~20% of a core on the
+ *  Simulator, the battery burn Armen felt on 2026-10-20. Run it while
+ *  something is actually happening. */
+export function RailPacket({ color, period = 4200, active = true }: { color?: string; period?: number; active?: boolean }) {
   const t = useTheme();
   const [w, setW] = useState(0);
   const x = useSharedValue(-80);
   useEffect(() => {
-    if (!t.cyber || !w) return;
+    if (!t.cyber || !w || !active) {
+      cancelAnimation(x);
+      x.value = -80;
+      return;
+    }
     x.value = -80;
+    // slide across, snap home, then REST: a withDelay produces no frames,
+    // where the old slow return kept the screen compositing for the whole period
     x.value = withRepeat(
-      withSequence(withTiming(w + 80, { duration: 900, easing: Easing.inOut(Easing.quad) }), withTiming(-80, { duration: period - 900 })),
+      withSequence(
+        withTiming(w + 80, { duration: 900, easing: Easing.inOut(Easing.quad) }),
+        withTiming(-80, { duration: 0 }),
+        withDelay(period - 900, withTiming(-80, { duration: 0 })),
+      ),
       -1,
     );
-  }, [t.cyber, w, period, x]);
+  }, [t.cyber, w, period, x, active]);
   const a = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }] }));
-  if (!t.cyber) return null;
+  if (!t.cyber || !active) return null;
   const c = color ?? t.colors.red;
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill} onLayout={(e) => setW(e.nativeEvent.layout.width)}>

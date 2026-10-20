@@ -108,7 +108,7 @@ export function AgentHeader({
       {t.cyber ? (
         <View>
           <NeonRail />
-          <RailPacket />
+          <RailPacket active={working} />
         </View>
       ) : (
         <View style={styles.hairline} />

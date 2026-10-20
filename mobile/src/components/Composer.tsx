@@ -350,7 +350,7 @@ export function Composer({
     <View style={styles.wrap}>
       <View style={styles.rail}>
         <NeonRail />
-        <RailPacket color={t.colors.accent} period={6500} />
+        <RailPacket color={t.colors.accent} period={6500} active={working} />
       </View>
       {atts.length > 0 && (
         <View style={styles.attRow}>

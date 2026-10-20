@@ -116,7 +116,11 @@ export function Transcript({
       }
       keyboardDismissMode="interactive"
       keyboardShouldPersistTaps="handled"
-      // inverted: the footer sits at the TOP — where history continues
+      // inverted: the end of the list is the TOP — reaching it pages history in
+      onEndReached={older > 0 && !loadingOlder && onLoadOlder ? () => onLoadOlder() : undefined}
+      onEndReachedThreshold={0.6}
+      // the footer sits at the top too: progress while paging, a tap if the
+      // threshold didn't fire
       ListFooterComponent={
         older > 0 && onLoadOlder ? (
           <Pressable

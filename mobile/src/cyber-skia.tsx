@@ -4,7 +4,7 @@
    is native, and a dev client built before it was added must still boot. */
 import { useEffect, useMemo, useState, type ComponentType } from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
-import { useDerivedValue, type SharedValue } from 'react-native-reanimated';
+import { useDerivedValue, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import { useTheme } from './theme';
 
 type SkiaMod = typeof import('@shopify/react-native-skia');
@@ -150,6 +150,9 @@ function makePlate(mod: SkiaMod): ComponentType<PlateProps> {
 
 const GLYPHS = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉ0123456789ABCDEF<>/\\|=+*#%&';
 const CELL = 14;
+/** rain steps, per second: a JS timer ticks a shared value so the canvas
+ *  redraws 8×/s instead of every frame (useClock) — rain is stepwise anyway */
+const RAIN_FPS = 8;
 const COLS_MAX = 22;
 
 interface Column {
@@ -183,7 +186,7 @@ interface RainProps {
 }
 
 function makeRain(mod: SkiaMod): ComponentType<RainProps> {
-  const { Canvas, Group, Text: SkText, matchFont, useClock } = mod;
+  const { Canvas, Group, Text: SkText, matchFont } = mod;
   return function Rain({ width, height, color, dim, opacity }: RainProps) {
     const font = useMemo(() => matchFont({ fontFamily: 'Menlo', fontSize: 11 }), []);
     const rows = Math.ceil(height / CELL) + 2;
@@ -198,11 +201,17 @@ function makeRain(mod: SkiaMod): ComponentType<RainProps> {
         phase: Math.floor(Math.random() * 1000),
       }));
     }, [width, rows]);
-    const clock = useClock();
-    // one derived value per frame feeds every glyph: the row of each head
+    const tick = useSharedValue(0);
+    useEffect(() => {
+      const id = setInterval(() => {
+        tick.value = tick.value + 1;
+      }, 1000 / RAIN_FPS);
+      return () => clearInterval(id);
+    }, [tick]);
+    // one derived value per tick feeds every glyph: the row of each head
     const heads = useDerivedValue(() => {
-      const s = clock.value / 1000;
-      return columns.map((c) => (c.head + s * c.speed) % (rows + c.len));
+      const s = tick.value / RAIN_FPS;
+      return columns.map((c) => Math.floor(c.head + s * c.speed) % (rows + c.len));
     });
     return (
       <Canvas style={[StyleSheet.absoluteFill, { opacity }]} pointerEvents="none">
