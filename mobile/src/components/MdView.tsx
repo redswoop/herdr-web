@@ -3,7 +3,7 @@ import { Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-nati
 import * as Clipboard from 'expo-clipboard';
 import { parseMd, type Block, type Inline } from '@herdr/shared';
 import { tick, toast } from '../toast';
-import { alpha, mix, useStyles, useTheme, type Tokens } from '../theme';
+import { alpha, mix, useStyles, useTheme, type Tokens, px } from '../theme';
 import { chunkFrags, splitInlineSegs, splitPlain } from './segment';
 import { transcriptDebug } from './debug';
 
@@ -91,10 +91,10 @@ function InlineSeg({
   const styles = useStyles(makeStyles);
   const lab = useContext(MdLabContext);
   const base = lab.lineHeight ? styles.base : styles.baseNoLh;
-  if (lab.flatten) return <Text style={base}>{nodes.map((n) => n.text).join('')}</Text>;
+  if (lab.flatten) return <Text style={base} allowFontScaling={false}>{nodes.map((n) => n.text).join('')}</Text>;
   const code = [styles.code, !lab.codeBg && styles.codeNoBg, !lab.codeFont && styles.codeNoFont];
   return (
-    <Text style={base}>
+    <Text style={base} allowFontScaling={false}>
       {nodes.map((n, i) => {
         switch (n.type) {
           case 'text':
@@ -169,7 +169,7 @@ function BlockView({
     return (
       <Pressable style={({ pressed }) => [styles.codeBlock, pressed && styles.pressed]} onPress={() => copy(block.text)}>
         {splitPlain(block.text).map((s, i) => (
-          <Text key={i} style={styles.codeBlockText}>{s}</Text>
+          <Text key={i} style={styles.codeBlockText} allowFontScaling={false}>{s}</Text>
         ))}
         <Text style={styles.copyHint}>tap to copy</Text>
       </Pressable>
@@ -247,14 +247,14 @@ const makeStyles = (t: Tokens) =>
   StyleSheet.create({
   wrap: { gap: 6 },
   block: {},
-  base: { ...t.font('ui'), color: t.colors.text, fontSize: 15, lineHeight: 22 },
-  baseNoLh: { ...t.font('ui'), color: t.colors.text, fontSize: 15 },
+  base: { ...t.font('ui'), color: t.colors.text, fontSize: px(15), lineHeight: px(22) },
+  baseNoLh: { ...t.font('ui'), color: t.colors.text, fontSize: px(15) },
   strong: { ...t.font('ui', '700'), color: t.cyber ? mix(t.colors.text, '#ffffff', 0.5) : t.colors.text, ...t.glow(alpha(t.colors.accent, 0.35), 8) },
   code: {
     ...t.font('mono'),
     backgroundColor: t.cyber ? alpha(t.colors.accent, 0.1) : t.colors.surface3,
     color: t.cyber ? mix(t.colors.accent, t.colors.text, 0.2) : t.colors.accent,
-    fontSize: 13,
+    fontSize: px(13),
     ...t.glow(t.colors.accent, 6),
   },
   codeNoBg: { backgroundColor: undefined },
@@ -272,8 +272,8 @@ const makeStyles = (t: Tokens) =>
   codeBlockText: {
     ...t.font('mono'),
     color: t.colors.text,
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: px(12),
+    lineHeight: px(18),
   },
   pressed: { opacity: 0.6 },
   copyHint: { ...t.font(t.cyber ? 'mono' : 'ui'), ...t.hud, color: t.colors.sub, fontSize: 9, marginTop: 6, opacity: 0.7 },

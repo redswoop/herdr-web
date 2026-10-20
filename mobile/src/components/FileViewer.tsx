@@ -15,7 +15,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 import type { FileInfo } from '@herdr/shared';
 import { getPlatform } from '@herdr/shared';
 import { fileInfoUrl, fileRawUrl } from '../api-urls';
-import { useStyles, useTheme, type Tokens } from '../theme';
+import { px, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 import { MdView } from './MdView';
 import { AudioPlayer, VideoPlayer } from './MediaPlayer';
@@ -198,7 +198,7 @@ export function FileViewer({
               }
             />
           ) : (
-            <SegText style={styles.pre} selectable text={info.content ?? ''} />
+            <SegText style={styles.pre} selectable allowFontScaling={false} text={info.content ?? ''} />
           ))}
 
         {info?.truncated && (
@@ -319,8 +319,8 @@ const makeStyles = (t: Tokens) =>
   pre: {
     ...t.font('mono'),
     color: t.colors.text,
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: px(12),
+    lineHeight: px(18),
   },
   note: { ...t.font('ui'), color: t.colors.sub, fontSize: 12, marginTop: 12 },
   img: { width: '100%', height: 360, borderRadius: t.radius.md },

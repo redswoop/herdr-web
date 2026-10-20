@@ -3,7 +3,20 @@
    Components never import colors: they call useTheme() for inline values and
    useStyles(make) for StyleSheets, which are built once per Tokens identity. */
 import { createContext, createElement, useContext, useEffect, useState, type ReactNode } from 'react';
-import { Platform, StyleSheet, type TextStyle, type ViewStyle } from 'react-native';
+import { PixelRatio, Platform, StyleSheet, type TextStyle, type ViewStyle } from 'react-native';
+
+/**
+ * Dynamic Type by hand for body text that carries a lineHeight. Under Fabric
+ * (RN 0.86, iOS) a Text with lineHeight + RN's own font scaling measures a
+ * paragraph at a wider width than its frame once the scaled values go
+ * fractional — at the "Extra Large" text size a reply's last line was clipped
+ * on the right and the bottom (2026-10-20, reproduced on a Pro Max Simulator
+ * via `simctl ui content_size extra-large`; integer sizes fixed it). Use
+ * `px()` for fontSize/lineHeight on such Text and set allowFontScaling={false}
+ * on it. Read once at launch: a text-size change mid-run shows after relaunch.
+ */
+export const fontScale = PixelRatio.getFontScale();
+export const px = (n: number) => Math.round(n * fontScale);
 import type { Theme } from '@herdr/shared/palettes';
 
 export type { Theme };
