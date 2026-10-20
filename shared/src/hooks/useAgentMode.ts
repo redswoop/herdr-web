@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { agentPath, post } from '../api';
+import { agentPath, get, post } from '../api';
+import { LIVE_MODE_KINDS } from '../modes';
+import { getPlatform } from '../platform';
 import type { AgentStatus, ModeState, PermissionMode } from '../types';
 
 /**
@@ -13,30 +15,32 @@ export function useAgentMode(
   agentKind: string | undefined,
   status: AgentStatus | undefined,
 ) {
-  const isClaude = agentKind === 'claude';
+  const live = !!agentKind && LIVE_MODE_KINDS.includes(agentKind);
   const [mode, setModeState] = useState<ModeState>('unknown');
   const [busy, setBusy] = useState(false);
   const seq = useRef(0);
 
   const refresh = useCallback(async () => {
-    if (!isClaude) return;
+    if (!live) return;
     const mySeq = ++seq.current;
     try {
-      const r = await fetch(agentPath(paneId, 'mode'));
+      const r = await get(agentPath(paneId, 'mode'));
       if (!r.ok) return;
-      const { mode: m } = await r.json();
+      const { mode: m } = (await r.json()) as { mode?: ModeState };
       if (mySeq === seq.current) setModeState(m ?? 'unknown');
-    } catch {}
-  }, [paneId, isClaude]);
+    } catch {
+      // transient — the next status flip retries
+    }
+  }, [paneId, live]);
 
   useEffect(() => {
     seq.current += 1;
     setModeState('unknown');
-    refresh();
+    void refresh();
   }, [paneId, refresh]);
 
   useEffect(() => {
-    refresh();
+    void refresh();
   }, [status, refresh]);
 
   /** LiveTail piggyback — a fresher read than any pending fetch */
@@ -50,9 +54,9 @@ export function useAgentMode(
       setBusy(true);
       try {
         const r = await post(agentPath(paneId, 'mode'), { mode: target });
-        const body = await r.json().catch(() => ({}));
+        const body = (await r.json().catch(() => ({}))) as { error?: string; mode?: ModeState };
         if (!r.ok) {
-          alert(body.error ?? r.statusText);
+          getPlatform().notifyError(body.error ?? r.statusText);
           if (body.mode) accept(body.mode);
           return false;
         }
@@ -65,5 +69,5 @@ export function useAgentMode(
     [paneId, accept],
   );
 
-  return { mode: isClaude ? mode : ('unknown' as ModeState), busy, setMode, accept, refresh };
+  return { mode: live ? mode : ('unknown' as ModeState), busy, setMode, accept, refresh };
 }

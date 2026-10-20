@@ -9,6 +9,7 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
@@ -37,8 +38,11 @@ const KEYS = [
   ['^C', 'C-c'],
 ] as const;
 
-/** Fixed composer field height — scrolls internally instead of growing the chrome. */
-const INPUT_H = 88;
+/** One line of composer: the field starts here and grows with the draft up
+ *  to ~30% of the window, then scrolls (the web composer's rule). */
+const MIN_H = 42;
+/** the buttons match the one-line field, so an empty composer is one even row */
+const BTN = 42;
 
 const IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 
@@ -137,7 +141,11 @@ export function Composer({
   const [atts, setAtts] = useState<Attachment[]>(() => loadAtts(paneId));
   const [selection, setSelection] = useState<{ start: number; end: number } | undefined>();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [contentH, setContentH] = useState(MIN_H);
   const inputRef = useRef<TextInput>(null);
+  const { height: winH } = useWindowDimensions();
+  const maxH = Math.max(MIN_H, Math.round(winH * 0.3));
+  const fieldH = Math.min(Math.max(MIN_H, Math.ceil(contentH)), maxH);
 
   const setText = (t: string) => {
     setTextState(t);
@@ -420,8 +428,9 @@ export function Composer({
         <View style={styles.inputWrap}>
           <TextInput
             ref={inputRef}
-            style={styles.input}
+            style={[styles.input, { height: fieldH }]}
             value={text}
+            onContentSizeChange={(e) => setContentH(e.nativeEvent.contentSize.height)}
             onChangeText={(t) => {
               setText(t);
               setSelection(undefined);
@@ -429,7 +438,7 @@ export function Composer({
             placeholder="prompt…"
             placeholderTextColor={t.colors.sub}
             multiline
-            scrollEnabled
+            scrollEnabled={fieldH >= maxH}
             textAlignVertical="top"
             autoCorrect={false}
             autoCapitalize="none"
@@ -446,6 +455,7 @@ export function Composer({
               style={styles.clear}
               onPress={() => {
                 setText('');
+                setContentH(MIN_H);
                 inputRef.current?.focus();
               }}
               accessibilityLabel="clear draft"
@@ -590,15 +600,14 @@ const makeStyles = (t: Tokens) =>
     paddingHorizontal: 8,
   },
   iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: t.r(20),
+    width: BTN,
+    height: BTN,
+    borderRadius: t.r(BTN / 2),
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: t.cyber ? 'transparent' : t.colors.surface2,
     borderWidth: t.cyber ? 1 : 0,
     borderColor: alpha(t.colors.accent, 0.25),
-    marginBottom: 2,
   },
   iconBtnOn: {
     backgroundColor: alpha(t.colors.accent, 0.18),
@@ -608,10 +617,9 @@ const makeStyles = (t: Tokens) =>
   inputWrap: {
     flex: 1,
     position: 'relative',
-    height: INPUT_H,
   },
   input: {
-    height: INPUT_H,
+    minHeight: MIN_H,
     backgroundColor: t.cyber ? alpha('#000000', 0.45) : t.colors.surface2,
     borderWidth: t.cyber ? 1 : 0,
     borderColor: alpha(t.colors.accent, 0.25),
@@ -628,8 +636,8 @@ const makeStyles = (t: Tokens) =>
   },
   clear: {
     position: 'absolute',
-    right: 8,
-    top: 8,
+    right: 9,
+    top: 9,
     width: 24,
     height: 24,
     borderRadius: t.r(12),
@@ -639,14 +647,13 @@ const makeStyles = (t: Tokens) =>
   },
 
   send: {
-    width: 40,
-    height: 40,
-    borderRadius: t.r(20),
+    width: BTN,
+    height: BTN,
+    borderRadius: t.r(BTN / 2),
     backgroundColor: t.cyber ? t.colors.hot : t.colors.accent,
     ...t.boxGlow(t.colors.hot, 12, 0.6),
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 2,
   },
   sendStop: { backgroundColor: t.cyber ? t.colors.red : t.colors.blocked, ...t.boxGlow(t.colors.red, 12, 0.6) },
   sendDisabled: { opacity: 0.4 },

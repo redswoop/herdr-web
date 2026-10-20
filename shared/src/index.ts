@@ -3,6 +3,7 @@ export * from './api';
 export * from './platform';
 export * from './spawn';
 export * from './chrome';
+export * from './modes';
 export * from './transcript';
 export {
   GROUP_MODES,
@@ -29,3 +30,4 @@ export { md, mdToHtml, esc } from './md/render-html';
 export { useRoster } from './hooks/useRoster';
 export { useAgentSession } from './hooks/useAgentSession';
 export { useBlockedContext } from './hooks/useBlockedContext';
+export { useAgentMode } from './hooks/useAgentMode';

@@ -1,12 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { agentPath, get, getPlatform, stripChrome } from '@herdr/shared';
+import { agentPath, get, getPlatform, stripChrome, type ModeState } from '@herdr/shared';
 import { alpha, mix, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 
 const OPEN_KEY = 'herdr.liveTail';
 
-export function LiveTail({ paneId }: { paneId: string }) {
+export function LiveTail({
+  paneId,
+  onMode,
+}: {
+  paneId: string;
+  /** the /screen payload carries the footer-parsed permission mode — feed it
+   *  to the header chip so it stays live while the agent works */
+  onMode?: (mode: ModeState) => void;
+}) {
   const t = useTheme();
   const styles = useStyles(makeStyles);
   const kv = getPlatform().kv;
@@ -24,8 +32,11 @@ export function LiveTail({ paneId }: { paneId: string }) {
       try {
         const r = await get(agentPath(paneId, 'screen'));
         if (!r.ok || !alive) return;
-        const { text: raw } = (await r.json()) as { text?: string };
-        const lines = (raw ?? '').split('\n');
+        const { text: raw, mode } = (await r.json()) as { text?: string; mode?: ModeState };
+        if (!alive) return;
+        if (mode) onMode?.(mode);
+        // grok paints a █ scrollbar column on the right edge — pure noise here
+        const lines = (raw ?? '').split('\n').map((l) => l.replace(/\s*█\s*$/, ''));
         const end = stripChrome(lines);
         const body = lines.slice(0, end).join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
         if (alive) setText(body || null);
@@ -39,7 +50,7 @@ export function LiveTail({ paneId }: { paneId: string }) {
       alive = false;
       clearInterval(id);
     };
-  }, [paneId, open]);
+  }, [paneId, open, onMode]);
 
   useEffect(() => {
     if (text != null) scrollRef.current?.scrollToEnd({ animated: false });

@@ -8,9 +8,15 @@ import { Icon } from './Icon';
 export function BlockedCard({
   ctx,
   onAnswer,
+  screenLive,
+  onToggleScreen,
 }: {
   ctx: BlockedCtx;
   onAnswer: (body: AnswerBody) => Promise<boolean>;
+  /** a multi-select's checked boxes live only on the TUI screen — let the
+   *  card pull the live mirror up so the toggles can be seen */
+  screenLive?: boolean;
+  onToggleScreen?: () => void;
 }) {
   const t = useTheme();
   const styles = useStyles(makeStyles);
@@ -68,10 +74,18 @@ export function BlockedCard({
                 expect: o.label.slice(0, 30),
               }),
             )}
-            {q.multiSelect &&
-              opt(`${qi}:done`, 'done ⏎ (multi-select: taps toggle)', ['Enter'], {
-                cls: 'confirm',
-              })}
+            {q.multiSelect && (
+              <View style={styles.multiRow}>
+                <View style={{ flex: 1 }}>
+                  {opt(`${qi}:done`, 'done ⏎', ['Enter'], { cls: 'confirm', desc: 'multi-select: taps toggle' })}
+                </View>
+                {!!onToggleScreen && (
+                  <Pressable style={styles.peek} onPress={onToggleScreen} hitSlop={6}>
+                    <Text style={styles.peekText}>{screenLive ? 'hide screen' : 'view screen'}</Text>
+                  </Pressable>
+                )}
+              </View>
+            )}
           </View>
         ))}
       </View>
@@ -264,6 +278,15 @@ const makeStyles = (t: Tokens) =>
   },
   tape: { marginHorizontal: -12, marginTop: -12, marginBottom: 4 },
   question: { gap: 8 },
+  multiRow: { flexDirection: 'row', alignItems: 'stretch', gap: 8 },
+  peek: {
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderRadius: t.radius.md,
+    borderWidth: 1,
+    borderColor: alpha(t.colors.accent, 0.35),
+  },
+  peekText: { color: t.colors.accent, fontSize: 12, ...t.font('ui', '600'), ...t.hud, ...t.glow(t.colors.accent, 6) },
   qRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   qText: { color: t.cyber ? mix(t.colors.text, '#ffffff', 0.5) : t.colors.text, fontSize: 15, ...t.font('ui', '600'), flex: 1, ...t.phosphor },
   detail: {

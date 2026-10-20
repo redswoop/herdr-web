@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { getPlatform } from '@herdr/shared';
 import { useRoster } from '../../../src/roster';
@@ -20,10 +20,6 @@ export default function FileScreen() {
   const { roster } = useRoster();
   const agent = roster.agents.find((a) => a.paneId === paneId);
   const cwd = agent?.cwd ?? null;
-  // no native header here: Android's full-screen card put the path bar under
-  // the status bar (iOS pads the card itself)
-  const insets = useSafeAreaInsets();
-  const topPad = Platform.OS === 'android' ? insets.top : 0;
 
   const histKey = `herdr.fileHist.${paneId}`;
   const kv = getPlatform().kv;
@@ -53,7 +49,9 @@ export default function FileScreen() {
   );
 
   return (
-    <View style={[styles.root, { paddingTop: topPad }]}>
+    // no native header here; the card's own safe area keeps the path bar
+    // clear of the status bar on both platforms
+    <SafeAreaView edges={['top']} style={styles.root}>
       <FileViewer
         path={path}
         cwd={cwd}
@@ -63,7 +61,7 @@ export default function FileScreen() {
         onLoaded={onLoaded}
         onRemoveHist={(p) => mutateHist((h) => h.filter((x) => x !== p))}
       />
-    </View>
+    </SafeAreaView>
   );
 }
 

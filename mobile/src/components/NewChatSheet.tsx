@@ -23,6 +23,7 @@ import {
   type SpawnTarget,
   type WorktreeEntry,
 } from '@herdr/shared';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { alpha, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 
@@ -216,7 +217,9 @@ export function NewChatSheet({
   };
 
   return (
-    <View style={styles.root}>
+    // the sheet covers the status bar on iOS 26 and Android alike: pad the
+    // top from the view's own safe area (zero when the sheet is inset)
+    <SafeAreaView edges={['top']} style={styles.root}>
       <View style={styles.head}>
         <Text style={styles.title}>new chat</Text>
         <Pressable onPress={onClose} hitSlop={12} disabled={busy} accessibilityLabel="close">
@@ -422,7 +425,7 @@ export function NewChatSheet({
           )}
         </Pressable>
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 

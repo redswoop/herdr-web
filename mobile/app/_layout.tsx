@@ -67,7 +67,8 @@ function Shell() {
         name="new-chat"
         options={{ title: 'new chat', presentation: 'modal', headerShown: false }}
       />
-      <Stack.Screen name="agent/[paneId]/index" options={{ title: 'agent' }} />
+      {/* draws its own header: back, who/where, rewind, mode, status */}
+      <Stack.Screen name="agent/[paneId]/index" options={{ title: 'agent', headerShown: false }} />
       <Stack.Screen
         name="agent/[paneId]/file"
         options={{ title: 'file', headerShown: false, presentation: 'card' }}

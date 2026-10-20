@@ -2,19 +2,13 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { type SpawnTarget } from '@herdr/shared';
 import { useRoster } from '../src/roster';
 import { NewChatSheet } from '../src/components/NewChatSheet';
-import { Platform, StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StyleSheet, View } from 'react-native';
 import { useStyles, type Tokens } from '../src/theme';
 
 export default function NewChatScreen() {
   const styles = useStyles(makeStyles);
   const router = useRouter();
   const { roster } = useRoster();
-  // headerShown is off, so nothing pads the top for us. iOS presents the
-  // modal as a page sheet below the status bar; Android's is full-screen and
-  // put the title under the clock.
-  const insets = useSafeAreaInsets();
-  const topPad = Platform.OS === 'android' ? insets.top : 0;
   const params = useLocalSearchParams<{ workspaceId?: string; cwd?: string }>();
 
   const target: SpawnTarget | undefined =
@@ -26,7 +20,7 @@ export default function NewChatScreen() {
       : undefined;
 
   return (
-    <View style={[styles.root, { paddingTop: topPad }]}>
+    <View style={styles.root}>
       <NewChatSheet
         roster={roster}
         target={target}

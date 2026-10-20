@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   Pressable,
@@ -50,7 +50,22 @@ export function Transcript({
   onInterrupt: () => void;
   onOpenFile: (path: string) => void;
 }) {
+  const t = useTheme();
   const styles = useStyles(makeStyles);
+  const listRef = useRef<FlatList>(null);
+  // scrolled up into history: the newest cell is off the bottom. New content
+  // then arrives out of sight, so a pill offers the way back (web's jump pill).
+  const [away, setAway] = useState(false);
+  const [fresh, setFresh] = useState(false);
+  const last = items[items.length - 1];
+  const lastKey = !last ? '' : last.type === 'mine' ? `m${last.mine.key}` : `e${last.key}`;
+  useEffect(() => {
+    if (away) setFresh(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastKey]);
+  useEffect(() => {
+    if (!away) setFresh(false);
+  }, [away]);
   const nodes = useMemo(() => buildNodes(items, working), [items, working]);
   // inverted list: reverse so newest is near index 0 (keyboard side)
   const data = useMemo(() => {
@@ -76,11 +91,18 @@ export function Transcript({
   }
 
   return (
+    <View style={styles.list}>
     <FlatList
+      ref={listRef}
       style={styles.list}
       contentContainerStyle={styles.listContent}
       data={data}
       inverted={!transcriptDebug.noInverted}
+      onScroll={(e) => {
+        const y = e.nativeEvent.contentOffset.y;
+        setAway((a) => (a ? y > 80 : y > 240));
+      }}
+      scrollEventThrottle={100}
       keyExtractor={(n, i) => ('key' in n ? n.key : `w${i}`)}
       maintainVisibleContentPosition={
         transcriptDebug.noMvcp ? undefined : { minIndexForVisible: 0, autoscrollToTopThreshold: 120 }
@@ -107,6 +129,17 @@ export function Transcript({
         );
       }}
     />
+    {away && (
+      <Pressable
+        style={[styles.pill, fresh && styles.pillFresh]}
+        onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+        accessibilityLabel="jump to latest"
+      >
+        <Icon name="down" size={16} color={fresh ? t.colors.accentInk : t.colors.accent} />
+        {fresh && <Text style={styles.pillText}>new</Text>}
+      </Pressable>
+    )}
+    </View>
   );
 
   function renderNode(n: (typeof data)[number]) {
@@ -408,6 +441,25 @@ const MineBubble = memo(function MineBubble({
 const makeStyles = (t: Tokens) =>
   StyleSheet.create({
   list: { flex: 1 },
+  pill: {
+    position: 'absolute',
+    right: 14,
+    bottom: 12,
+    height: 34,
+    minWidth: 34,
+    paddingHorizontal: 9,
+    borderRadius: t.r(17),
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    backgroundColor: t.cyber ? alpha(t.colors.bg, 0.9) : t.colors.surface2,
+    borderWidth: 1,
+    borderColor: alpha(t.colors.accent, 0.5),
+    ...t.boxGlow(t.colors.accent, 12, 0.5),
+  },
+  pillFresh: { backgroundColor: t.colors.accent, borderColor: t.colors.accent },
+  pillText: { color: t.colors.accentInk, fontSize: 11, ...t.font('ui', '700'), ...t.hud },
   listContent: { paddingHorizontal: 14, paddingVertical: 10, gap: 8 },
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   empty: { ...t.font('ui'), color: t.colors.sub, textAlign: 'center' },

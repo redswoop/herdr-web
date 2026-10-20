@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { chipName, isTuiChrome } from '@herdr/shared';
+import { MODE_DESC, MODE_LABEL, MODE_ORDER, chipName, isTuiChrome, useAgentMode } from '@herdr/shared';
 import { agentPath, errorOf, post } from '../api';
-import { useAgentMode } from '../hooks/useAgentMode';
 import { useAgentSession } from '../hooks/useAgentSession';
 import { useBlockedContext } from '../hooks/useBlockedContext';
 import { WIDE, useMediaQuery } from '../hooks/useMediaQuery';
-import type { Agent, AnswerBody, ModeState, PermissionMode, RestoredDraft, RewindState, SessionEntry } from '../types';
+import type { Agent, AnswerBody, RestoredDraft, RewindState, SessionEntry } from '../types';
 import { BlockedCard } from './BlockedCard';
 import { ResumeCard } from './ResumeCard';
 import { RewindCard } from './RewindCard';
@@ -15,23 +14,6 @@ import { LiveTail } from './LiveTail';
 import { ScreenMirror } from './ScreenMirror';
 import { Transcript } from './Transcript';
 import { Split, SplitHandle, SplitPane } from './ui/Split';
-
-const MODE_LABEL: Record<ModeState, string> = {
-  default: 'manual',
-  acceptEdits: 'edits',
-  plan: 'plan',
-  auto: 'auto',
-  bypassPermissions: 'bypass',
-  unknown: '—',
-};
-const MODE_DESC: Record<PermissionMode, string> = {
-  default: 'approve every tool use',
-  acceptEdits: 'file edits auto-approved',
-  plan: 'read-only until you approve a plan',
-  auto: 'runs tools without asking',
-  bypassPermissions: 'no permission checks at all',
-};
-const MODE_ORDER: PermissionMode[] = ['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions'];
 
 export function AgentView({
   paneId,
