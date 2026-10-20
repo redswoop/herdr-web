@@ -11,6 +11,26 @@ import {
 } from '../session-reducer';
 import type { AgentStatus, Item, Mine, MineState, RestoredDraft, TEvent } from '../types';
 
+/* Per-pane memory of the last visit: items, the stream offset to resume
+   from, the paged window and the key/clock counters. Coming back to a pane
+   renders this at once and opens the stream where it left off — no fetch,
+   no blank screen (the thing Armen read as "an aggressive refresh",
+   2026-10-20). The server replays everything since the offset and sends a
+   reset if the file changed underneath, so this stays correct. */
+type PaneMemory = {
+  items: Item[];
+  offset: number;
+  win: { start: number; total: number } | null;
+  nextKey: number;
+  maxAt: number;
+};
+const paneMemory = new Map<string, PaneMemory>();
+const PANE_MEMORY_MAX = 8;
+export function clearPaneMemory(paneId?: string) {
+  if (paneId) paneMemory.delete(paneId);
+  else paneMemory.clear();
+}
+
 /**
  * Owns the transcript item list for one agent: events streamed from the
  * session file, merged chronologically with optimistic locally-sent bubbles.
@@ -51,6 +71,23 @@ export function useAgentSession(
 
   const clockRef = useRef(createAtClock());
   const nextKey = useCallback(() => keyRef.current++, []);
+  const offsetRef = useRef(0); // where the live stream stands; the resume point
+
+  // remember every state change for the next visit
+  useEffect(() => {
+    // effects run in order: on a pane switch this one sees the OLD pane's
+    // items under the new paneId until the load effect below has reset them
+    if (!loaded || prevPaneRef.current !== paneId) return;
+    paneMemory.delete(paneId);
+    paneMemory.set(paneId, {
+      items,
+      offset: offsetRef.current,
+      win: winRef.current,
+      nextKey: keyRef.current,
+      maxAt: clockRef.current.maxAt(),
+    });
+    while (paneMemory.size > PANE_MEMORY_MAX) paneMemory.delete(paneMemory.keys().next().value!);
+  }, [paneId, items, loaded]);
 
   useEffect(() => {
     if (status === 'working') {
@@ -91,9 +128,10 @@ export function useAgentSession(
     // not be forgotten mid-flight. A pane SWITCH resets everything.
     const paneSwitch = prevPaneRef.current !== paneId;
     prevPaneRef.current = paneId;
+    const memory = paneSwitch ? paneMemory.get(paneId) : undefined;
     const LOCAL_KINDS = new Set(['salvage', 'interrupted', 'command_err']);
     setItems((prev) => {
-      if (paneSwitch) return [];
+      if (paneSwitch) return memory?.items ?? [];
       const kept: Item[] = [];
       for (const it of prev) {
         if (it.type === 'event' && LOCAL_KINDS.has(it.ev.kind)) kept.push(it);
@@ -107,21 +145,53 @@ export function useAgentSession(
       return kept;
     });
     setError(null);
-    setLoaded(false);
+    setLoaded(!!memory);
     if (paneSwitch) {
-      winRef.current = null;
-      setOlder(0);
+      winRef.current = memory?.win ?? null;
+      offsetRef.current = memory?.offset ?? 0;
+      keyRef.current = memory?.nextKey ?? keyRef.current;
+      setOlder(memory?.win?.start ?? 0);
       setLoadingOlder(false);
       setSubmitted(false);
       setRestoredDraft(null);
       inflightRef.current = null; // an in-flight POST belongs to the previous pane
       tuiClearRef.current = null;
-      clockRef.current = createAtClock();
+      clockRef.current = createAtClock(memory?.maxAt ?? 0);
       if (decayRef.current) {
         clearTimeout(decayRef.current);
         decayRef.current = null;
       }
     }
+
+    const listen = (offset: number) => {
+      offsetRef.current = offset;
+      es = platform.openSse(apiUrl(`${agentPath(paneId, 'stream')}?offset=${offset}`));
+      es.onopen = bump;
+      es.addEventListener('ping', bump);
+      es.addEventListener('events', (e) => {
+        bump();
+        if (alive) apply(JSON.parse((e as MessageEvent).data));
+      });
+      es.addEventListener('offset', (e) => {
+        const n = Number((e as MessageEvent).data);
+        if (Number.isFinite(n)) offsetRef.current = n;
+      });
+      es.addEventListener('reset', () => {
+        if (alive) setGen((g) => g + 1);
+      });
+      es.onerror = () => {
+        // never let the transport auto-reconnect: it reuses the ORIGINAL
+        // ?offset=, replaying everything since this stream opened as
+        // duplicates. Tear down and reload the transcript cleanly instead —
+        // after a beat, so a proxy that hard-rejects the stream (tailscale
+        // 502 during a daemon restart) can't spin this into a hot loop.
+        if (alive) {
+          es?.close();
+          es = null;
+          retry = setTimeout(() => setGen((g) => g + 1), 2500);
+        }
+      };
+    };
 
     const load = async () => {
       try {
@@ -143,28 +213,7 @@ export function useAgentSession(
         setLoaded(true);
         apply(events);
         bump();
-        es = platform.openSse(apiUrl(`${agentPath(paneId, 'stream')}?offset=${offset}`));
-        es.onopen = bump;
-        es.addEventListener('ping', bump);
-        es.addEventListener('events', (e) => {
-          bump();
-          if (alive) apply(JSON.parse((e as MessageEvent).data));
-        });
-        es.addEventListener('reset', () => {
-          if (alive) setGen((g) => g + 1);
-        });
-        es.onerror = () => {
-          // never let the transport auto-reconnect: it reuses the ORIGINAL
-          // ?offset=, replaying everything since this stream opened as
-          // duplicates. Tear down and reload the transcript cleanly instead —
-          // after a beat, so a proxy that hard-rejects the stream (tailscale
-          // 502 during a daemon restart) can't spin this into a hot loop.
-          if (alive) {
-            es?.close();
-            es = null;
-            retry = setTimeout(() => setGen((g) => g + 1), 2500);
-          }
-        };
+        listen(offset);
       } catch (e) {
         if (!alive) return;
         setError(String((e as Error).message ?? e));
@@ -180,7 +229,12 @@ export function useAgentSession(
     const dog = setInterval(() => {
       if (alive && es && stale()) setGen((g) => g + 1);
     }, 10_000);
-    load();
+    if (memory) {
+      bump();
+      listen(memory.offset); // the remembered transcript is already showing
+    } else {
+      load();
+    }
 
     return () => {
       alive = false;

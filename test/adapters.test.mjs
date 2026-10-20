@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { adapterFor, classifyBlocked, grokScanSessions, pickActiveByPid, readEvents } from '../lib/adapters.js';
+import { adapterFor, classifyBlocked, grokScanSessions, pickActiveByPid, readEvents, readEventsCached } from '../lib/adapters.js';
 
 const grok = adapterFor('grok');
 const claude = adapterFor('claude');
@@ -658,3 +658,31 @@ test('pi find + list: reported path (missing = nothing yet), resume pin, cwd sin
     [OLD, 'old prompt', null],
   ]);
 });
+
+test('readEventsCached: parses only what was appended, re-reads after truncation', async () => {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'herdr-adapters-cache-'));
+  const file = path.join(dir, 'log.jsonl');
+  let translated = 0;
+  const countingAdapter = { translate: (o) => { translated += 1; return [{ kind: 'note', text: o.v }]; } };
+
+  await fsp.writeFile(file, '{"v":"a"}\n{"v":"b"}\n');
+  let r = await readEventsCached(countingAdapter, file);
+  assert.deepEqual(r.events.map((e) => e.text), ['a', 'b']);
+  assert.equal(translated, 2);
+
+  r = await readEventsCached(countingAdapter, file); // nothing new: no parse work
+  assert.deepEqual(r.events.map((e) => e.text), ['a', 'b']);
+  assert.equal(translated, 2);
+
+  await fsp.appendFile(file, '{"v":"c"}\n');
+  r = await readEventsCached(countingAdapter, file); // only the new line
+  assert.deepEqual(r.events.map((e) => e.text), ['a', 'b', 'c']);
+  assert.equal(translated, 3);
+  const full = await readEvents(countingAdapter, file, 0);
+  assert.equal(r.offset, full.offset);
+
+  await fsp.writeFile(file, '{"v":"z"}\n'); // rewritten shorter: start over
+  r = await readEventsCached(countingAdapter, file);
+  assert.deepEqual(r.events.map((e) => e.text), ['z']);
+});
+

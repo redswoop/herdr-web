@@ -42,7 +42,12 @@ fixes (scroll on send, clear-button baseline, About row) and **herdr
 management verbs**: `POST /api/agent/:pane/rename|close` and
 `/api/workspace/:id/rename|close` (server, e2e-tested), Capra long-press on
 a row / workspace header and tap on the agent header name → rename, close.
+Entering a pane no longer blanks: the shared hook remembers the last 8
+panes (items + stream offset, resumes the stream instead of fetching) and
+the server keeps an incremental parse cache per session file (transcript
+GET 0.22 s → 3 ms); the stream now emits `offset` frames.
 Open: push (phase 5), the same verbs on web (no rename/close UI there yet),
+a disk cache of the last panes for cold launches,
 a motion setting (full/calm/off) + Reduce Motion, alt icon/splash, ticker
 and scramble, local `eas build --local` on the Mac, the notify.test.mjs
 ordering flake.

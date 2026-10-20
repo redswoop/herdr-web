@@ -12,7 +12,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setPlatform, type SseClient } from '../src/platform';
-import { useAgentSession } from '../src/hooks/useAgentSession';
+import { clearPaneMemory, useAgentSession } from '../src/hooks/useAgentSession';
 import type { TEvent } from '../src/types';
 
 class FakeSse implements SseClient {
@@ -59,6 +59,7 @@ const textsOf = (items: ReturnType<typeof useAgentSession>['items']) =>
   items.map((it) => (it.type === 'mine' ? `mine:${it.mine.text}` : `${it.ev.kind}:${it.ev.text}`));
 
 beforeEach(() => {
+  clearPaneMemory();
   vi.useFakeTimers();
   sses = [];
   fetchLog = [];
@@ -239,5 +240,35 @@ describe('useAgentSession', () => {
     await flush();
     expect(fetchLog.filter((f) => f.includes('/transcript')).at(-1)).toContain('tail=4');
     expect(textsOf(result.current.items)).toEqual(['user:u1', 'assistant:a1', 'user:u2', 'assistant:a2']);
+  });
+
+  it('coming back to a pane shows the remembered transcript and resumes the stream, no fetch', async () => {
+    const { result, rerender } = renderHook(
+      ({ pane }: { pane: string }) => useAgentSession(pane, 'idle', 'grok'),
+      { initialProps: { pane: 'w1:p1' } },
+    );
+    await flush();
+    expect(textsOf(result.current.items)).toEqual(['user:hello', 'assistant:hi there']);
+    // live traffic moves the resume point along
+    await act(async () => {
+      lastSse().emit('events', [asstEv('more')]);
+      lastSse().emit('offset', 160);
+    });
+    transcript = { events: [userEv('other pane')], offset: 40 };
+    rerender({ pane: 'w1:p2' });
+    await flush();
+    expect(textsOf(result.current.items)).toEqual(['user:other pane']);
+    const fetchesBefore = fetchLog.filter((f) => f.includes('/transcript')).length;
+    rerender({ pane: 'w1:p1' });
+    // synchronously: the old transcript is already there, loaded, no spinner
+    expect(result.current.loaded).toBe(true);
+    expect(textsOf(result.current.items)).toEqual(['user:hello', 'assistant:hi there', 'assistant:more']);
+    await flush();
+    expect(fetchLog.filter((f) => f.includes('/transcript')).length).toBe(fetchesBefore);
+    expect(lastSse().url).toContain('offset=160');
+    // and a server reset still forces the clean reload
+    await act(async () => lastSse().emit('reset'));
+    await flush();
+    expect(fetchLog.filter((f) => f.includes('/transcript')).length).toBe(fetchesBefore + 1);
   });
 });

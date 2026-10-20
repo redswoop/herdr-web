@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rpc, subscribe, isPromptable } from './lib/herdr.js';
-import { adapterFor, lastTurnAt, readEvents, listSessions, classifyBlocked } from './lib/adapters.js';
+import { adapterFor, lastTurnAt, readEvents, readEventsCached, listSessions, classifyBlocked } from './lib/adapters.js';
 import { trimEvents, windowEvents } from './lib/transcript-window.js';
 import {
   parseMenuScreen, parseMenuFor, codexComposerText, piComposerText, isGrokProjectPicker, isGrokModalOverlay,
@@ -1594,7 +1594,7 @@ const server = http.createServer(async (req, res) => {
           // fresh session: no jsonl until the first message — not an error
           return sendJson(res, 200, { events: [], offset: 0, pending: true, sessionId: null });
         }
-        const { events: all, offset } = await readEvents(adapter, session.file, 0);
+        const { events: all, offset } = await readEventsCached(adapter, session.file);
         // ?tail=N → the newest N (turn-aligned); ?end=I pages further back.
         // `start` tells the client how many older events it can still ask for.
         const tail = Number(url.searchParams.get('tail') ?? 0);
@@ -1646,6 +1646,8 @@ const server = http.createServer(async (req, res) => {
             offset = r.offset;
             if (r.events.length) {
               res.write(`event: events\ndata: ${JSON.stringify(trimEvents(r.events))}\n\n`);
+              // where the client can resume from later without a reload
+              res.write(`event: offset\ndata: ${offset}\n\n`);
             }
           }
         };
