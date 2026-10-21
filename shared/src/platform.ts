@@ -24,6 +24,13 @@ export interface Platform {
   kv: KvStore;
   /** Subscribe to foreground/online wake events. Returns unsubscribe. */
   onWake(cb: () => void): () => void;
+  /**
+   * Link state straight from the OS (NetInfo / navigator.onLine): `false`
+   * the moment the device loses its network, long before any stream goes
+   * stale. Optional — a platform without it leaves detection to the
+   * watchdogs. Returns unsubscribe.
+   */
+  onLink?(cb: (up: boolean) => void): () => void;
   isForeground(): boolean;
   notifyError(msg: string): void;
 }

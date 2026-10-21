@@ -42,7 +42,7 @@ export default function AgentScreen() {
   const styles = useStyles(makeStyles);
   const { paneId: raw } = useLocalSearchParams<{ paneId: string }>();
   const paneId = decodeURIComponent(raw ?? '');
-  const { roster } = useRoster();
+  const { roster, connected } = useRoster();
   const agent = roster.agents.find((a) => a.paneId === paneId);
   const status = agent?.status;
   const navigation = useNavigation();
@@ -56,8 +56,11 @@ export default function AgentScreen() {
     height: Math.max(0, insets.bottom - Math.abs(kb.height.value)),
   }));
 
-  const { items, error, loaded, send, interrupt, cooldown, working, restoredDraft, inject, older, loadingOlder, loadOlder } =
+  const { items, error, linked, loaded, send, interrupt, cooldown, working, restoredDraft, inject, older, loadingOlder, loadOlder } =
     useAgentSession(paneId, status, agent?.agent, { tail: TAIL });
+  // the roster stream feeds the status pill, the pane stream feeds the
+  // transcript: the header is honest only when both are up
+  const online = connected && linked;
   const { ctx, refresh } = useBlockedContext(paneId, status);
   const { mode, busy: modeBusy, setMode, accept: acceptMode } = useAgentMode(paneId, agent?.agent, status);
 
@@ -340,6 +343,7 @@ export default function AgentScreen() {
         agent={agent}
         status={status}
         working={working}
+        online={online}
         mode={mode}
         modeBusy={modeBusy}
         rewindBusy={rewindBusy}
@@ -388,7 +392,7 @@ export default function AgentScreen() {
           onClose={() => setResumeOpen(false)}
         />
       )}
-      {working && !dialog && !blocked && <LiveTail paneId={paneId} onMode={acceptMode} />}
+      {working && !dialog && !blocked && <LiveTail paneId={paneId} online={online} onMode={acceptMode} />}
       {(dialog || mirror) && (
         <ScreenMirror
           paneId={paneId}

@@ -8,9 +8,12 @@ const OPEN_KEY = 'herdr.liveTail';
 
 export function LiveTail({
   paneId,
+  online = true,
   onMode,
 }: {
   paneId: string;
+  /** false while the link is down: the poll pauses and the header says so */
+  online?: boolean;
   /** the /screen payload carries the footer-parsed permission mode — feed it
    *  to the header chip so it stays live while the agent works */
   onMode?: (mode: ModeState) => void;
@@ -20,18 +23,25 @@ export function LiveTail({
   const kv = getPlatform().kv;
   const [open, setOpen] = useState(() => kv.get(OPEN_KEY) !== 'closed');
   const [text, setText] = useState<string | null>(null);
+  // the last poll failed: the frame on screen is old
+  const [stalled, setStalled] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
+  const paused = !online || stalled;
 
   useEffect(() => {
     if (!open) {
       setText(null);
+      setStalled(false);
       return;
     }
+    if (!online) return; // no point polling into a dead link; the frame stays as a hint
     let alive = true;
     const tick = async () => {
       try {
         const r = await get(agentPath(paneId, 'screen'));
-        if (!r.ok || !alive) return;
+        if (!alive) return;
+        setStalled(!r.ok);
+        if (!r.ok) return;
         const { text: raw, mode } = (await r.json()) as { text?: string; mode?: ModeState };
         if (!alive) return;
         if (mode) onMode?.(mode);
@@ -41,7 +51,7 @@ export function LiveTail({
         const body = lines.slice(0, end).join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
         if (alive) setText(body || null);
       } catch {
-        // ignore transient
+        if (alive) setStalled(true); // transient or not, say the frame is stale
       }
     };
     tick();
@@ -50,7 +60,7 @@ export function LiveTail({
       alive = false;
       clearInterval(id);
     };
-  }, [paneId, open, onMode]);
+  }, [paneId, open, online, onMode]);
 
   useEffect(() => {
     if (text != null) scrollRef.current?.scrollToEnd({ animated: false });
@@ -66,13 +76,17 @@ export function LiveTail({
     <View style={styles.wrap}>
       <Pressable style={styles.head} onPress={toggle}>
         <View style={styles.headLeft}>
-          <View style={styles.liveDot} />
+          <View style={[styles.liveDot, paused && styles.liveDotOff]} />
           <Text style={styles.title}>live screen</Text>
         </View>
-        <Text style={styles.sub} numberOfLines={1}>
-          {open
-            ? 'streaming from the TUI — transcript catches up as steps complete'
-            : 'tap to watch the TUI while it works'}
+        <Text style={[styles.sub, paused && styles.subOff]} numberOfLines={1}>
+          {paused
+            ? online
+              ? 'tail paused — last poll failed, retrying'
+              : 'tail paused — link down'
+            : open
+              ? 'streaming from the TUI — transcript catches up as steps complete'
+              : 'tap to watch the TUI while it works'}
         </Text>
         <Icon name={open ? 'chevron-down' : 'chevron-up'} size={16} color={t.colors.sub} />
       </Pressable>
@@ -106,6 +120,11 @@ const makeStyles = (t: Tokens) =>
     backgroundColor: t.colors.working,
     ...t.boxGlow(t.colors.working, 9, 0.8),
   },
+  liveDotOff: {
+    backgroundColor: t.colors.blocked,
+    ...t.boxGlow(t.colors.blocked, 9, 0.8),
+  },
+  subOff: { color: t.colors.blocked },
   title: { color: t.cyber ? t.colors.working : t.colors.sub, fontSize: t.cyber ? 11 : 12, ...t.font('ui', '600'), textTransform: 'uppercase', ...t.hud, ...t.glow(t.colors.working, 6) },
   sub: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: t.sz('code', 11), flex: 1, opacity: 0.8 },
   chev: { color: t.colors.sub },

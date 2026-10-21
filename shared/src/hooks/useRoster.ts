@@ -25,9 +25,12 @@ export function useRoster() {
       lastMsg = Date.now();
     };
     const stale = () => Date.now() - lastMsg > 20_000;
+    // the OS says there's no network: stop retrying into the void and wait
+    // for the link to come back (onLink flips this and reloads)
+    let linkDown = false;
 
     const schedule = (ms: number) => {
-      if (!alive || retry) return;
+      if (!alive || retry || linkDown) return;
       retry = setTimeout(() => {
         retry = null;
         load();
@@ -111,8 +114,24 @@ export function useRoster() {
     };
 
     const unsubWake = platform.onWake(wake);
+    const unsubLink =
+      platform.onLink?.((up) => {
+        if (!alive || up === !linkDown) return; // no transition for us
+        linkDown = !up;
+        if (!up) {
+          setConnected(false);
+          es?.close();
+          es = null;
+          if (retry) {
+            clearTimeout(retry);
+            retry = null;
+          }
+        } else {
+          load();
+        }
+      }) ?? (() => {});
     const dog = setInterval(() => {
-      if (alive && es && stale()) {
+      if (alive && es && stale() && !linkDown) {
         setConnected(false);
         load();
       }
@@ -125,6 +144,7 @@ export function useRoster() {
       if (retry) clearTimeout(retry);
       clearInterval(dog);
       unsubWake();
+      unsubLink();
     };
   }, []);
 

@@ -27,6 +27,7 @@ export function AgentHeader({
   agent,
   status,
   working,
+  online = true,
   mode,
   modeBusy,
   rewindBusy,
@@ -39,6 +40,8 @@ export function AgentHeader({
   agent: Agent | undefined;
   status: AgentStatus | undefined;
   working: boolean;
+  /** both streams up; false swaps the status pill for LINK LOST */
+  online?: boolean;
   mode: ModeState;
   modeBusy: boolean;
   rewindBusy: boolean;
@@ -56,7 +59,7 @@ export function AgentHeader({
   const liveMode = !!kind && LIVE_MODE_KINDS.includes(kind) && mode !== 'unknown';
   const canRewind = kind === 'claude';
   const blocked = status === 'blocked';
-  const sColor = t.status(status);
+  const sColor = online ? t.status(status) : t.colors.blocked; // the skin's attention colour
   const mColor = modeColor(t, mode);
 
   return (
@@ -107,9 +110,11 @@ export function AgentHeader({
             <Text style={[styles.chipText, { color: mColor }, t.glow(mColor, 6)]}>{MODE_LABEL[mode]}</Text>
           </Pressable>
         )}
-        <View style={styles.status}>
-          <StatusDot status={status} color={sColor} size={8} />
-          <Text style={[styles.statusText, { color: sColor }, t.glow(sColor, 6)]}>{status ?? '—'}</Text>
+        <View style={styles.status} accessibilityLabel={online ? `status ${status ?? 'unknown'}` : 'link lost, reconnecting'}>
+          <StatusDot status={online ? status : 'blocked'} color={sColor} size={8} />
+          <Text style={[styles.statusText, { color: sColor }, t.glow(sColor, 6)]}>
+            {online ? status ?? '—' : 'link lost'}
+          </Text>
         </View>
       </View>
       {t.cyber ? (

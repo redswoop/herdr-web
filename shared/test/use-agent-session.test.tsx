@@ -45,6 +45,8 @@ class FakeSse implements SseClient {
 }
 
 let sses: FakeSse[] = [];
+const linkCbs = new Set<(up: boolean) => void>();
+const setLink = (up: boolean) => act(async () => linkCbs.forEach((cb) => cb(up)));
 let transcript: { events: TEvent[]; offset: number };
 let fetchLog: string[] = [];
 
@@ -62,6 +64,7 @@ beforeEach(() => {
   clearPaneMemory();
   vi.useFakeTimers();
   sses = [];
+  linkCbs.clear();
   fetchLog = [];
   transcript = { events: [userEv('hello'), asstEv('hi there')], offset: 100 };
   setPlatform({
@@ -72,6 +75,10 @@ beforeEach(() => {
     },
     kv: { get: () => null, set: () => {}, remove: () => {} },
     onWake: () => () => {},
+    onLink: (cb) => {
+      linkCbs.add(cb);
+      return () => linkCbs.delete(cb);
+    },
     isForeground: () => true,
     notifyError: () => {},
   });
@@ -270,5 +277,90 @@ describe('useAgentSession', () => {
     await act(async () => lastSse().emit('reset'));
     await flush();
     expect(fetchLog.filter((f) => f.includes('/transcript')).length).toBe(fetchesBefore + 1);
+  });
+  describe('link state', () => {
+    it('is linked once the stream opens, unlinked on a stream error', async () => {
+      const { result } = renderHook(() => useAgentSession('w1:p1', 'idle', 'grok'));
+      await flush();
+      expect(result.current.linked).toBe(true);
+      await act(async () => lastSse().onerror?.());
+      expect(result.current.linked).toBe(false);
+      await advance(2600);
+      await flush();
+      await act(async () => lastSse().onopen?.());
+      expect(result.current.linked).toBe(true);
+    });
+
+    it('unlinks when the OS link drops and holds every retry until it is back', async () => {
+      const { result } = renderHook(() => useAgentSession('w1:p1', 'idle', 'grok'));
+      await flush();
+      const before = fetchLog.filter((f) => f.includes('/transcript')).length;
+      await setLink(false);
+      expect(result.current.linked).toBe(false);
+      expect(lastSse().isClosed()).toBe(true);
+      // the watchdog and the retry beat both pass with no network: nothing fires
+      await advance(45_000);
+      expect(fetchLog.filter((f) => f.includes('/transcript'))).toHaveLength(before);
+      expect(sses).toHaveLength(1);
+      // link back: one clean reload + a fresh stream
+      await setLink(true);
+      await flush();
+      expect(fetchLog.filter((f) => f.includes('/transcript'))).toHaveLength(before + 1);
+      expect(sses).toHaveLength(2);
+      await act(async () => lastSse().onopen?.());
+      expect(result.current.linked).toBe(true);
+      expect(textsOf(result.current.items)).toEqual(['user:hello', 'assistant:hi there']);
+    });
+
+    it('a platform that replays "up" on every subscribe does not cause reload loops', async () => {
+      await setLink(true); // nothing has gone down: must be ignored
+      renderHook(() => useAgentSession('w1:p1', 'idle', 'grok'));
+      await flush();
+      await setLink(true);
+      await setLink(true);
+      await flush();
+      expect(fetchLog.filter((f) => f.includes('/transcript'))).toHaveLength(1);
+      expect(sses).toHaveLength(1);
+    });
+
+    it('keeps the transcript on screen while a reconnect cannot reload', async () => {
+      const { result } = renderHook(() => useAgentSession('w1:p1', 'idle', 'grok'));
+      await flush();
+      const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+      fetchMock.mockImplementation(async () => {
+        throw new TypeError('Network request failed');
+      });
+      await act(async () => lastSse().onerror?.());
+      await advance(2600);
+      await flush();
+      // the reload failed: what was there stays, under linked=false
+      expect(result.current.linked).toBe(false);
+      expect(textsOf(result.current.items)).toEqual(['user:hello', 'assistant:hi there']);
+      // server back: one clean reload, still no duplicates
+      fetchMock.mockImplementation(async (url: string) =>
+        new Response(JSON.stringify(url.includes('/transcript') ? transcript : {}), { status: 200 }),
+      );
+      await advance(2600);
+      await flush();
+      expect(textsOf(result.current.items)).toEqual(['user:hello', 'assistant:hi there']);
+      expect(result.current.linked).toBe(true);
+    });
+
+    it('a failed reload while offline does not spin', async () => {
+      const { result } = renderHook(() => useAgentSession('w1:p1', 'idle', 'grok'));
+      await flush();
+      await setLink(false);
+      const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+      fetchMock.mockImplementation(async () => {
+        throw new TypeError('Network request failed');
+      });
+      // an error-driven reload while offline: fails once, then waits for the link
+      await act(async () => lastSse().onerror?.());
+      await advance(10_000);
+      const calls = fetchMock.mock.calls.length;
+      await advance(30_000);
+      expect(fetchMock.mock.calls.length).toBe(calls);
+      expect(result.current.linked).toBe(false);
+    });
   });
 });

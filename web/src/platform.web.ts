@@ -64,6 +64,16 @@ const webPlatform: Platform = {
       window.removeEventListener('online', wake);
     };
   },
+  onLink(cb) {
+    const up = () => cb(true);
+    const down = () => cb(false);
+    window.addEventListener('online', up);
+    window.addEventListener('offline', down);
+    return () => {
+      window.removeEventListener('online', up);
+      window.removeEventListener('offline', down);
+    };
+  },
   isForeground() {
     return document.visibilityState === 'visible';
   },

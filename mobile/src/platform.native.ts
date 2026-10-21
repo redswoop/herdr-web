@@ -78,6 +78,21 @@ const kv = {
 
 let foreground = AppState.currentState === 'active';
 
+// One NetInfo subscription for the app; subscribers hear TRANSITIONS only.
+// NetInfo replays the current state to every new listener synchronously, and
+// a hook that re-subscribes per reconnect would hear "up" → reload → "up" …
+let linkUp: boolean | null = null;
+const linkSubs = new Set<(up: boolean) => void>();
+NetInfo.addEventListener((state) => {
+  if (state.isConnected == null) return; // undecided yet
+  const up = state.isConnected && state.isInternetReachable !== false;
+  if (up === linkUp) return;
+  const first = linkUp === null;
+  linkUp = up;
+  if (first) return; // the initial reading is not a transition
+  for (const cb of linkSubs) cb(up);
+});
+
 export function initNativePlatform(opts: { baseUrl: string; token: string | null }): void {
   configureApi({ baseUrl: opts.baseUrl, token: opts.token });
 
@@ -96,6 +111,12 @@ export function initNativePlatform(opts: { baseUrl: string; token: string | null
       return () => {
         sub.remove();
         unNet();
+      };
+    },
+    onLink(cb) {
+      linkSubs.add(cb);
+      return () => {
+        linkSubs.delete(cb);
       };
     },
     isForeground() {

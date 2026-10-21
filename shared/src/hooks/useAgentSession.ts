@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { agentPath, apiUrl, errorOf, get, post } from '../api';
+import { agentPath, apiUrl, describeError, errorOf, get, post } from '../api';
 import { getPlatform } from '../platform';
 import {
   applyEvents,
@@ -54,6 +54,10 @@ export function useAgentSession(
     itemsRef.current = items;
   }, [items]);
   const [error, setError] = useState<string | null>(null);
+  /** the pane's event stream is open and fresh (false while reconnecting / offline) */
+  const [linked, setLinked] = useState(true);
+  // the OS says there's no network: hold every retry until it's back
+  const linkDownRef = useRef(false);
   const [loaded, setLoaded] = useState(false);
   const [cooldown, setCooldown] = useState(false);
   const keyRef = useRef(0);
@@ -130,8 +134,11 @@ export function useAgentSession(
     prevPaneRef.current = paneId;
     const memory = paneSwitch ? paneMemory.get(paneId) : undefined;
     const LOCAL_KINDS = new Set(['salvage', 'interrupted', 'command_err']);
-    setItems((prev) => {
-      if (paneSwitch) return memory?.items ?? [];
+    // What a same-pane reconnect keeps of the current list. Applied the
+    // moment the reload has the fresh transcript in hand — not up front — so
+    // a dead link leaves you reading what you had (under a LINK LOST pill)
+    // instead of a blank pane until the server is back.
+    const prune = (prev: Item[]): Item[] => {
       const kept: Item[] = [];
       for (const it of prev) {
         if (it.type === 'event' && LOCAL_KINDS.has(it.ev.kind)) kept.push(it);
@@ -143,7 +150,8 @@ export function useAgentSession(
         }
       }
       return kept;
-    });
+    };
+    if (paneSwitch) setItems(memory?.items ?? []);
     setError(null);
     setLoaded(!!memory);
     if (paneSwitch) {
@@ -166,7 +174,10 @@ export function useAgentSession(
     const listen = (offset: number) => {
       offsetRef.current = offset;
       es = platform.openSse(apiUrl(`${agentPath(paneId, 'stream')}?offset=${offset}`));
-      es.onopen = bump;
+      es.onopen = () => {
+        bump();
+        if (alive) setLinked(true);
+      };
       es.addEventListener('ping', bump);
       es.addEventListener('events', (e) => {
         bump();
@@ -188,7 +199,8 @@ export function useAgentSession(
         if (alive) {
           es?.close();
           es = null;
-          retry = setTimeout(() => setGen((g) => g + 1), 2500);
+          setLinked(false);
+          if (!linkDownRef.current) retry = setTimeout(() => setGen((g) => g + 1), 2500);
         }
       };
     };
@@ -210,14 +222,17 @@ export function useAgentSession(
         winRef.current = { start, total };
         setOlder(start);
         setError(null);
+        setLinked(true);
         setLoaded(true);
+        if (!paneSwitch) setItems(prune);
         apply(events);
         bump();
         listen(offset);
       } catch (e) {
         if (!alive) return;
-        setError(String((e as Error).message ?? e));
-        retry = setTimeout(load, 2500);
+        setLinked(false);
+        setError(`${describeError(e)} · retrying`);
+        if (!linkDownRef.current) retry = setTimeout(load, 2500);
       }
     };
 
@@ -226,8 +241,27 @@ export function useAgentSession(
       if (es && (es.isClosed() || stale())) setGen((g) => g + 1);
     };
     const unsubWake = platform.onWake(wake);
+    const unsubLink =
+      platform.onLink?.((up) => {
+        if (!alive || up === !linkDownRef.current) return; // no transition for us
+        linkDownRef.current = !up;
+        if (!up) {
+          setLinked(false);
+          es?.close();
+          es = null;
+          if (retry) {
+            clearTimeout(retry);
+            retry = null;
+          }
+        } else {
+          setGen((g) => g + 1);
+        }
+      }) ?? (() => {});
     const dog = setInterval(() => {
-      if (alive && es && stale()) setGen((g) => g + 1);
+      if (alive && es && stale() && !linkDownRef.current) {
+        setLinked(false);
+        setGen((g) => g + 1);
+      }
     }, 10_000);
     if (memory) {
       bump();
@@ -242,6 +276,7 @@ export function useAgentSession(
       if (retry) clearTimeout(retry);
       clearInterval(dog);
       unsubWake();
+      unsubLink();
     };
   }, [paneId, gen, apply, tail]);
 
@@ -262,7 +297,7 @@ export function useAgentSession(
       const stamped = stampEvents(events, nextKey, createAtClock(0));
       setItems((prev) => applyEvents(prev, stamped));
     } catch (e) {
-      getPlatform().notifyError(String((e as Error).message ?? e));
+      getPlatform().notifyError(describeError(e));
     } finally {
       setLoadingOlder(false);
     }
@@ -375,6 +410,7 @@ export function useAgentSession(
   return {
     items,
     error,
+    linked,
     loaded,
     send,
     interrupt,
