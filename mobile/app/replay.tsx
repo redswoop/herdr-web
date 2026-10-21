@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocalSearchParams } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 import {
+  describeError,
   agentPath,
   applyEvents,
   createAtClock,
@@ -64,7 +65,7 @@ export default function ReplayScreen() {
         events = ((await r.json()) as { events: TEvent[] }).events;
         if (end > 0) events = events.slice(0, end);
       } catch (e) {
-        setError(String((e as Error).message ?? e));
+        setError(describeError(e));
         return;
       }
       // cut point: the user prompt that starts the Nth-from-last turn

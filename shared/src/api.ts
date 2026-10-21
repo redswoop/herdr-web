@@ -61,3 +61,46 @@ export const renameWorkspace = (workspaceId: string, name: string) =>
 export const closeWorkspace = (workspaceId: string) =>
   post(`/api/workspace/${encodeURIComponent(workspaceId)}/close`, {});
 
+
+/** The host the client is configured against, for messages — '' on web (relative URLs). */
+export function apiHost(): string {
+  try {
+    return baseUrl ? new URL(baseUrl).host : '';
+  } catch {
+    return '';
+  }
+}
+
+const NETWORK_RE =
+  /offline|network request failed|could not connect|connection (?:refused|reset|lost|closed)|timed? ?out|ENOTFOUND|ECONN|internet connection|load failed|network error|host (?:is )?unreachable/i;
+
+/** Peel the wrappers RN/Expo/undici put around a native error message. */
+function unwrap(msg: string): string {
+  let m = msg.replace(/\s*\(at [^)]*\.(?:swift|kt|java|mm?|cpp):\d+\)\s*$/i, '').trim();
+  for (;;) {
+    const next = m.replace(/^(?:fetch failed|TypeError|Error|UnexpectedException|Exception)\s*:\s*/i, '');
+    if (next === m) return m;
+    m = next.trim();
+  }
+}
+
+/**
+ * A human sentence for a thrown error. Network-class failures (the runtime
+ * couldn't reach the server at all) collapse to "can't reach <host>"; anything
+ * else keeps its message minus the wrappers RN/Expo put around native errors,
+ * e.g. `fetch failed: UnexpectedException: … (at ExpoModulesCore/Promise.swift:56)`.
+ */
+export function describeError(e: unknown): string {
+  if (e == null) return 'something went wrong';
+  const raw =
+    e instanceof Error ? e.message : typeof e === 'string' ? e : ((e as { message?: unknown }).message ?? e);
+  const msg = String(raw ?? '').trim();
+  if (!msg) return 'something went wrong';
+  const inner = unwrap(msg);
+  // undici/RN throw a bare "fetch failed" / "Network request failed" with no detail: that's a network error too
+  if (!inner || /^fetch failed$/i.test(msg) || NETWORK_RE.test(inner)) {
+    const host = apiHost();
+    return host ? `can't reach ${host}` : "can't reach the server";
+  }
+  return inner;
+}

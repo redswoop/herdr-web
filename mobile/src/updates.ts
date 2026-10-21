@@ -3,7 +3,7 @@
    land on the next launch. This module: a silent check+fetch on every
    foreground, a toast when one is ready, and the bits settings shows.
    Lazy-required so a dev client built before expo-updates still boots. */
-import { getPlatform } from '@herdr/shared';
+import { describeError, getPlatform } from '@herdr/shared';
 import { toast } from './toast';
 
 type UpdatesMod = typeof import('expo-updates');
@@ -64,7 +64,7 @@ export async function checkForUpdate(opts: { quiet?: boolean } = {}): Promise<bo
     }
     return ready;
   } catch (e) {
-    if (!opts.quiet) getPlatform().notifyError(String((e as Error).message ?? e));
+    if (!opts.quiet) getPlatform().notifyError(describeError(e));
     return ready;
   } finally {
     busy = false;

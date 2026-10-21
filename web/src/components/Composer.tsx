@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { agentPath, errorOf, post } from '../api';
+import { agentPath, describeError, errorOf, post } from '../api';
 import type { RestoredDraft } from '../types';
 
 /** `path` is the server-side file; null while the upload is in flight. */
@@ -159,7 +159,7 @@ export function Composer({
           mutateAtts(pane, (cur) => (cur.some((a) => a.id === id)
             ? cur.filter((a) => a.id !== id)
             : null));
-          alert(`image upload failed: ${String((e as Error).message ?? e)}`);
+          alert(`image upload failed: ${describeError(e)}`);
         },
       );
     }
@@ -228,7 +228,7 @@ export function Composer({
         persistAtts(pane, sending);
       }
       persistText(pane, t);
-      alert(String((e as Error).message ?? e));
+      alert(describeError(e));
     }
   };
 

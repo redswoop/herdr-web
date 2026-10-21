@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { post } from '../api';
+import { describeError, post } from '../api';
 import type { SessionEntry } from '../types';
 import { ago } from '../util';
 
@@ -33,7 +33,7 @@ export function ResumeCard({
         if (!dead) setSessions(j.sessions);
       })
       .catch((e) => {
-        if (!dead) setError(String((e as Error).message ?? e));
+        if (!dead) setError(describeError(e));
       });
     return () => {
       dead = true;
@@ -55,7 +55,7 @@ export function ResumeCard({
       if (!r.ok) throw new Error(j.error ?? r.statusText);
       onGo(j.paneId as string);
     } catch (e) {
-      alert(String((e as Error).message ?? e));
+      alert(describeError(e));
       setBusy(null);
     }
   };

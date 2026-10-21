@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { describeError } from '../api';
 
 /**
  * Full-screen unlock shown when the server answers 401. Pasting the token
@@ -26,7 +27,7 @@ export function TokenGate() {
       if (!r.ok) throw new Error(r.statusText);
       location.reload();
     } catch (e) {
-      setError(String((e as Error).message ?? e));
+      setError(describeError(e));
       setBusy(false);
     }
   };

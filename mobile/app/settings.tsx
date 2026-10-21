@@ -16,7 +16,7 @@ import { useRouter } from 'expo-router';
 import { useBoot } from '../src/boot';
 import { Screen } from '../src/cyber';
 import { palettesFor, type Theme } from '@herdr/shared/palettes';
-import { FONT_AREAS, FONT_MAX, FONT_MIN, FONT_STEP } from '@herdr/shared';
+import { describeError, FONT_AREAS, FONT_MAX, FONT_MIN, FONT_STEP } from '@herdr/shared';
 import { paletteOf, setFont, setPalette, setTheme } from '../src/prefs';
 import { setAutocorrect, useAutocorrect } from '../src/device-prefs';
 import { checkForUpdate, restartForUpdate, updateInfo, updateReady } from '../src/updates';
@@ -72,7 +72,7 @@ export default function SettingsScreen() {
       setOk('connected — roster looks good');
       setTimeout(() => router.replace('/'), 300);
     } catch (e) {
-      setError(String((e as Error).message ?? e));
+      setError(describeError(e));
     } finally {
       setBusy(false);
     }

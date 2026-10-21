@@ -14,6 +14,7 @@ import {
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import {
+  describeError,
   agentPath,
   apiUrl,
   errorOf,
@@ -231,7 +232,7 @@ export function Composer({
           cur.some((a) => a.id === id) ? cur.filter((a) => a.id !== id) : null,
         );
         getPlatform().notifyError(
-          `upload failed: ${String((e as Error).message ?? e)}`,
+          `upload failed: ${describeError(e)}`,
         );
       },
     );
@@ -346,7 +347,7 @@ export function Composer({
     } catch (e) {
       setText(t);
       mutateAtts(pane, () => sending);
-      getPlatform().notifyError(String((e as Error).message ?? e));
+      getPlatform().notifyError(describeError(e));
     }
   };
 

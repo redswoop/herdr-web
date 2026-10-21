@@ -6,4 +6,5 @@ export {
   errorOf,
   agentPath,
   getApiConfig,
+  describeError,
 } from '@herdr/shared/api';

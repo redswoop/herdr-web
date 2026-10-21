@@ -13,7 +13,7 @@ import {
 import * as Sharing from 'expo-sharing';
 import { Directory, File, Paths } from 'expo-file-system';
 import type { FileInfo } from '@herdr/shared';
-import { getPlatform } from '@herdr/shared';
+import { describeError, getPlatform } from '@herdr/shared';
 import { fileInfoUrl, fileRawUrl } from '../api-urls';
 import { useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
@@ -104,7 +104,7 @@ export function FileViewer({
         await Share.share({ url: file.uri, message: info.path });
       }
     } catch (e) {
-      getPlatform().notifyError(String((e as Error).message ?? e));
+      getPlatform().notifyError(describeError(e));
     } finally {
       setSharing(false);
     }

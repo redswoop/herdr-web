@@ -3,7 +3,7 @@
    Native sheets and prompts: they're quick, keyboard-correct and the user
    already knows them. */
 import { ActionSheetIOS, Alert, Platform } from 'react-native';
-import { chipName, closeAgent, closeWorkspace, errorOf, renameAgent, renameWorkspace, type Agent } from '@herdr/shared';
+import { chipName, closeAgent, closeWorkspace, describeError, errorOf, renameAgent, renameWorkspace, type Agent } from '@herdr/shared';
 import { tick, toast } from './toast';
 
 function sheet(title: string, options: { label: string; destructive?: boolean; run: () => void }[]) {
@@ -43,7 +43,7 @@ async function run(label: string, p: Promise<Response>) {
     toast(label);
     return true;
   } catch (e) {
-    Alert.alert('herdr said no', String((e as Error).message ?? e));
+    Alert.alert('herdr said no', describeError(e));
     return false;
   }
 }

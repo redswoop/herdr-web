@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
+  describeError,
   MODE_KINDS,
   RESUME_KINDS,
   SPAWN_MODES,
@@ -185,7 +186,7 @@ export function NewChatSheet({
       const { paneId } = (await r.json()) as { paneId: string };
       onCreated(paneId);
     } catch (e) {
-      setError(String((e as Error).message ?? e));
+      setError(describeError(e));
       setBusy(false);
     }
   };

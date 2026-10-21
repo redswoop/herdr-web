@@ -17,7 +17,7 @@ import {
   type Place,
   type SpawnMode,
 } from '@herdr/shared';
-import { errorOf, post } from '../api';
+import { describeError, errorOf, post } from '../api';
 import { rememberKind, lastKind, type SpawnTarget } from '../spawn';
 import { ago, agoShort, basename, shortPath } from '../util';
 import type { AgentKind, Project, Roster, SessionEntry, WorktreeEntry } from '../types';
@@ -177,7 +177,7 @@ export function NewChatDialog({
       const { paneId } = (await r.json()) as { paneId: string };
       onCreated(paneId);
     } catch (e) {
-      setError(String((e as Error).message ?? e));
+      setError(describeError(e));
       setBusy(false);
     }
   };

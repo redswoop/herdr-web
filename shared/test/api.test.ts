@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import { apiUrl, configureApi, getApiConfig } from '../src/api';
+import { apiUrl, configureApi, describeError, getApiConfig } from '../src/api';
 
 describe('apiUrl', () => {
   beforeEach(() => {
@@ -24,5 +24,37 @@ describe('apiUrl', () => {
   it('strips trailing slash on baseUrl', () => {
     configureApi({ baseUrl: 'https://h/' });
     expect(getApiConfig().baseUrl).toBe('https://h');
+  });
+});
+
+describe('describeError', () => {
+  beforeEach(() => {
+    configureApi({ baseUrl: '', token: null });
+  });
+
+  it('collapses an iOS offline error to the host', () => {
+    configureApi({ baseUrl: 'https://stormer.tail93d23c.ts.net' });
+    expect(
+      describeError(
+        new TypeError(
+          'fetch failed: UnexpectedException: The Internet connection appears to be offline. (at ExpoModulesCore/Promise.swift:56)',
+        ),
+      ),
+    ).toBe("can't reach stormer.tail93d23c.ts.net");
+  });
+
+  it('names no host on web', () => {
+    expect(describeError(new TypeError('Network request failed'))).toBe("can't reach the server");
+    expect(describeError(new TypeError('Load failed'))).toBe("can't reach the server");
+  });
+
+  it('strips native wrappers from other errors', () => {
+    expect(describeError(new Error('fetch failed: UnexpectedException: boom (at ExpoModulesCore/Promise.swift:56)'))).toBe('boom');
+  });
+
+  it('passes server messages through', () => {
+    expect(describeError(new Error('pane not found'))).toBe('pane not found');
+    expect(describeError('plain string')).toBe('plain string');
+    expect(describeError(undefined)).toBe('something went wrong');
   });
 });

@@ -4,7 +4,7 @@
    instead of hazard-taped: these are yours, not the agent's. */
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
-import { get, post, type RewindState, type SessionEntry } from '@herdr/shared';
+import { describeError, get, post, type RewindState, type SessionEntry } from '@herdr/shared';
 import { Brackets } from '../cyber';
 import { alpha, mix, useStyles, useTheme, type Tokens } from '../theme';
 
@@ -121,7 +121,7 @@ export function ResumeCard({
         if (!dead) setSessions(j.sessions);
       })
       .catch((e) => {
-        if (!dead) setError(String((e as Error).message ?? e));
+        if (!dead) setError(describeError(e));
       });
     return () => {
       dead = true;
@@ -142,7 +142,7 @@ export function ResumeCard({
       if (!r.ok) throw new Error(j.error ?? r.statusText);
       onGo(j.paneId as string);
     } catch (e) {
-      setError(String((e as Error).message ?? e));
+      setError(describeError(e));
       setBusy(null);
     }
   };
