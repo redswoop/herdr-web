@@ -49,10 +49,11 @@ async function run(label: string, p: Promise<Response>) {
 }
 
 /** long-press on an agent: rename or close */
-export function agentMenu(a: Agent, opts: { onOpen?: () => void; onClosed?: () => void } = {}) {
+export function agentMenu(a: Agent, opts: { onOpen?: () => void; onClosed?: () => void; onFiles?: () => void } = {}) {
   const name = chipName(a);
   const options = [];
   if (opts.onOpen) options.push({ label: 'Open', run: opts.onOpen });
+  if (opts.onFiles) options.push({ label: 'Files…', run: opts.onFiles });
   options.push({
     label: 'Rename…',
     run: () => prompt('Rename', 'The tab and the agent both take the new name.', name, (text) => void run('renamed', renameAgent(a.paneId, text))),

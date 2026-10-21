@@ -350,7 +350,7 @@ export default function AgentScreen() {
         onBack={goBack}
         onSetMode={setMode}
         onRewind={openRewind}
-        onMenu={agent ? () => agentMenu(agent, { onClosed: goBack }) : undefined}
+        onMenu={agent ? () => agentMenu(agent, { onClosed: goBack, onFiles: () => onOpenFile(agent.cwd ?? '~') }) : undefined}
       />
       {blocked && (
         <View style={styles.blockedBanner}>

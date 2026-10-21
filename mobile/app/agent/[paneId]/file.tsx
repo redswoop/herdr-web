@@ -9,14 +9,24 @@ import { useStyles, type Tokens } from '../../../src/theme';
 
 export default function FileScreen() {
   const styles = useStyles(makeStyles);
-  const { paneId: rawPane, path: rawPath } = useLocalSearchParams<{
+  const { paneId: rawPane, path: rawPath, depth: rawDepth } = useLocalSearchParams<{
     paneId: string;
     path: string;
+    depth?: string;
   }>();
   const paneId = decodeURIComponent(rawPane ?? '');
-  const initialPath = decodeURIComponent(rawPath ?? '');
-  const [path, setPath] = useState(initialPath);
+  const path = decodeURIComponent(rawPath ?? '');
+  // how many file cards sit between this one and the chat: X dismisses them all
+  const depth = Math.max(1, Number(rawDepth) || 1);
   const router = useRouter();
+  // Every hop (a folder, `..`, a link inside a markdown file) is its own card,
+  // so the swipe-back gesture retraces your steps instead of dumping you in
+  // the chat. The X is the way out in one go.
+  const navigate = useCallback(
+    (p: string) =>
+      router.push({ pathname: '/agent/[paneId]/file', params: { paneId, path: p, depth: String(depth + 1) } }),
+    [router, paneId, depth],
+  );
   const { roster } = useRoster();
   const agent = roster.agents.find((a) => a.paneId === paneId);
   const cwd = agent?.cwd ?? null;
@@ -56,8 +66,9 @@ export default function FileScreen() {
         path={path}
         cwd={cwd}
         history={history}
-        onClose={() => router.back()}
-        onNavigate={setPath}
+        onBack={() => router.back()}
+        onClose={() => router.dismiss(depth)}
+        onNavigate={navigate}
         onLoaded={onLoaded}
         onRemoveHist={(p) => mutateHist((h) => h.filter((x) => x !== p))}
       />

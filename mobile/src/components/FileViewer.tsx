@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  FlatList,
   Image,
   Pressable,
   ScrollView,
@@ -9,6 +10,7 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import * as Sharing from 'expo-sharing';
 import { Directory, File, Paths } from 'expo-file-system';
@@ -30,11 +32,14 @@ function fmtSize(n: number): string {
 
 const parent = (p: string) => p.replace(/\/[^/]+\/?$/, '') || '/';
 const join = (dir: string, name: string) => `${dir === '/' ? '' : dir}/${name}`;
+// what the server serves as kind 'image' (IMG_MIME)
+const IMG_RE = /\.(png|jpe?g|gif|webp|svg|avif|ico|bmp)$/i;
 
 export function FileViewer({
   path,
   cwd,
   history,
+  onBack,
   onClose,
   onNavigate,
   onLoaded,
@@ -43,6 +48,9 @@ export function FileViewer({
   path: string;
   cwd: string | null;
   history: string[];
+  /** one step back along the way you came (the previous file card) */
+  onBack: () => void;
+  /** straight back to the chat, however deep you are */
   onClose: () => void;
   onNavigate: (path: string) => void;
   onLoaded: (resolvedPath: string) => void;
@@ -50,19 +58,33 @@ export function FileViewer({
 }) {
   const t = useTheme();
   const styles = useStyles(makeStyles);
+  const { width: winW } = useWindowDimensions();
   const [info, setInfo] = useState<FileInfo | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [raw, setRaw] = useState(false);
   const [edit, setEdit] = useState(path);
   const [histOpen, setHistOpen] = useState(false);
+  // The file this card shows. `path` is fixed for the card's life (every
+  // navigation is a new card); only a swipe through sibling images moves it.
+  const [cur, setCur] = useState(path);
+  const viaSwipeRef = useRef(false);
+  // sibling images of an image, for swiping sideways through the folder
+  const [gallery, setGallery] = useState<{ dir: string; items: string[] } | null>(null);
+  const [galleryH, setGalleryH] = useState(0);
 
   useEffect(() => {
     let gone = false;
-    setInfo(null);
-    setErr(null);
-    setRaw(false);
-    setEdit(path);
-    fetch(fileInfoUrl(path, cwd))
+    const viaSwipe = viaSwipeRef.current;
+    viaSwipeRef.current = false;
+    if (!viaSwipe) {
+      // a swipe keeps the previous image's info (and the gallery) on screen
+      // while the next one's meta loads — no spinner flash between pages
+      setInfo(null);
+      setErr(null);
+      setRaw(false);
+    }
+    setEdit(cur);
+    fetch(fileInfoUrl(cur, cwd))
       .then(async (r) => {
         const j = (await r.json()) as FileInfo & { error?: string };
         if (gone) return;
@@ -70,18 +92,43 @@ export function FileViewer({
         else {
           setInfo(j);
           setEdit(j.path);
-          onLoaded(j.path);
+          if (!viaSwipe) onLoaded(j.path); // paging through 40 renders is not 40 history entries
         }
       })
       .catch((e) => {
-        if (!gone) setErr(String(e));
+        if (!gone) setErr(describeError(e));
       });
     return () => {
       gone = true;
     };
-  }, [path, cwd, onLoaded]);
+  }, [cur, cwd, onLoaded]);
+
+  // an image: list the folder once, keep the images, page through them
+  const galleryDir = info?.kind === 'image' ? parent(info.path) : null;
+  useEffect(() => {
+    if (!galleryDir) return;
+    let gone = false;
+    fetch(fileInfoUrl(galleryDir, null))
+      .then(async (r) => {
+        const j = (await r.json()) as FileInfo;
+        if (gone || !r.ok) return;
+        const items = (j.entries ?? [])
+          .filter((e) => !e.dir && IMG_RE.test(e.name))
+          .map((e) => join(galleryDir, e.name));
+        if (items.length > 1) setGallery({ dir: galleryDir, items });
+      })
+      .catch(() => {});
+    return () => {
+      gone = true;
+    };
+  }, [galleryDir]);
+  const galleryIdx = gallery ? gallery.items.indexOf(info?.path ?? cur) : -1;
+  const galleryActive = !!gallery && galleryIdx >= 0;
 
   const isMd = /\.(md|markdown)$/i.test(info?.path ?? path);
+  // the folder above: a file's own folder, a folder's parent; nothing at /
+  const shown = info?.path ?? path;
+  const upPath = shown && shown !== '/' && /^[~/]/.test(shown) ? parent(shown) : null;
 
   // Download to the cache and share the LOCAL file. The raw URL carries
   // ?token= — handing it to the share sheet leaked the daemon's token into
@@ -113,7 +160,7 @@ export function FileViewer({
   return (
     <View style={styles.root}>
       <View style={styles.bar}>
-        <Pressable onPress={onClose} hitSlop={10} style={styles.barBtn} accessibilityLabel="close">
+        <Pressable onPress={onBack} hitSlop={10} style={styles.barBtn} accessibilityLabel="back">
           <Icon name="back" size={22} color={t.colors.accent} />
         </Pressable>
         <TextInput
@@ -156,6 +203,19 @@ export function FileViewer({
             <Icon name="history" size={18} color={t.colors.accent} />
           </Pressable>
         )}
+        {upPath && (
+          <Pressable
+            style={styles.barBtn}
+            onPress={() => onNavigate(upPath)}
+            hitSlop={6}
+            accessibilityLabel="up one folder"
+          >
+            <Icon name="chevron-up" size={20} color={t.colors.accent} />
+          </Pressable>
+        )}
+        <Pressable onPress={onClose} hitSlop={10} style={styles.barBtn} accessibilityLabel="close, back to chat">
+          <Icon name="close" size={22} color={t.colors.accent} />
+        </Pressable>
       </View>
 
       {histOpen && history.length > 0 && (
@@ -181,7 +241,36 @@ export function FileViewer({
         </View>
       )}
 
-      <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
+      {galleryActive && gallery && (
+        <FlatList
+          style={styles.body}
+          onLayout={(e) => setGalleryH(e.nativeEvent.layout.height)}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          data={gallery.items}
+          keyExtractor={(p) => p}
+          initialScrollIndex={galleryIdx}
+          getItemLayout={(_, i) => ({ length: winW, offset: winW * i, index: i })}
+          initialNumToRender={1}
+          maxToRenderPerBatch={2}
+          windowSize={3}
+          onMomentumScrollEnd={(e) => {
+            const i = Math.round(e.nativeEvent.contentOffset.x / winW);
+            const p = gallery.items[i];
+            if (p && p !== cur) {
+              viaSwipeRef.current = true;
+              setCur(p);
+            }
+          }}
+          renderItem={({ item }) => (
+            <View style={{ width: winW, height: galleryH || undefined, flex: galleryH ? undefined : 1 }}>
+              <Image source={{ uri: fileRawUrl(item) }} style={styles.galleryImg} resizeMode="contain" />
+            </View>
+          )}
+        />
+      )}
+      <ScrollView style={[styles.body, galleryActive && styles.hidden]} contentContainerStyle={styles.bodyContent}>
         {err && <Text style={styles.empty}>{err}</Text>}
         {!err && !info && (
           <View style={styles.loading}>
@@ -205,7 +294,7 @@ export function FileViewer({
           <Text style={styles.note}>showing first 512 KB of {fmtSize(info.size)}</Text>
         )}
 
-        {info?.kind === 'image' && (
+        {info?.kind === 'image' && !galleryActive && (
           <Image
             source={{ uri: fileRawUrl(info.path) }}
             style={styles.img}
@@ -264,6 +353,7 @@ export function FileViewer({
 
       {info && info.kind !== 'dir' && (
         <Text style={styles.meta}>
+          {galleryActive && gallery ? `${galleryIdx + 1} / ${gallery.items.length} · ` : ''}
           {fmtSize(info.size)} · {new Date(info.mtime).toLocaleString()}
         </Text>
       )}
@@ -324,6 +414,8 @@ const makeStyles = (t: Tokens) =>
   },
   note: { ...t.font('ui'), color: t.colors.sub, fontSize: t.sz('ui', 12), marginTop: 12 },
   img: { width: '100%', height: 360, borderRadius: t.radius.md },
+  galleryImg: { width: '100%', height: '100%' },
+  hidden: { display: 'none' },
   mediaBox: { alignItems: 'center', gap: 10, marginTop: 20 },
   mediaBtn: {
     marginTop: 8,
