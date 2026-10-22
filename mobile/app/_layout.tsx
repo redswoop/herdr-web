@@ -82,6 +82,11 @@ function Shell() {
         name="agent/[paneId]/file"
         options={{ title: 'file', headerShown: false, presentation: 'card' }}
       />
+      {/* images ride a sheet: swipe down lets go, like settings */}
+      <Stack.Screen
+        name="agent/[paneId]/image"
+        options={{ title: 'image', headerShown: false, presentation: 'modal' }}
+      />
     </Stack>
       {t.cyber && <CyberOverlay />}
       <ToastHost />

@@ -1,16 +1,10 @@
 /* A photo-viewer image: pinch to zoom, drag to pan while zoomed, double-tap
-   to toggle 2.5×, and — at 1× — a vertical drag that lets go of the viewer.
-   Reanimated keeps the whole gesture on the UI thread; only the two
-   zoomed/dismiss decisions cross to JS. */
+   to toggle 2.5×. Letting go of the viewer is the sheet's own swipe-down,
+   not ours. Reanimated keeps the gesture on the UI thread; only the
+   zoomed/flat decision crosses to JS. */
 import { useEffect } from 'react';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, {
-  runOnJS,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  withTiming,
-} from 'react-native-reanimated';
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
 const MAX = 6;
 const DOUBLE = 2.5;
@@ -22,7 +16,6 @@ export function ZoomImage({
   height,
   zoomed,
   onZoom,
-  onSwipeDown,
 }: {
   uri: string;
   width: number;
@@ -30,8 +23,6 @@ export function ZoomImage({
   /** owner's view of the zoom state (controls the pager's scrollEnabled) */
   zoomed: boolean;
   onZoom: (zoomed: boolean) => void;
-  /** a decisive vertical drag at 1× */
-  onSwipeDown?: () => void;
 }) {
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
@@ -39,7 +30,6 @@ export function ZoomImage({
   const ty = useSharedValue(0);
   const savedTx = useSharedValue(0);
   const savedTy = useSharedValue(0);
-  const dropY = useSharedValue(0); // the dismiss drag, separate from zoom panning
 
   // the owner paged away and back, or the image changed: start flat
   useEffect(() => {
@@ -49,8 +39,7 @@ export function ZoomImage({
     ty.value = 0;
     savedTx.value = 0;
     savedTy.value = 0;
-    dropY.value = 0;
-  }, [uri, scale, savedScale, tx, ty, savedTx, savedTy, dropY]);
+  }, [uri, scale, savedScale, tx, ty, savedTx, savedTy]);
 
   const clampPan = (s: number, x: number, y: number) => {
     'worklet';
@@ -115,37 +104,11 @@ export function ZoomImage({
       runOnJS(onZoom)(true);
     });
 
-  // at 1×: a vertical drag — never a horizontal one, that's the pager's
-  const drop = Gesture.Pan()
-    .enabled(!zoomed && !!onSwipeDown)
-    .activeOffsetY([24, 24])
-    .failOffsetX([-16, 16])
-    .onUpdate((e) => {
-      dropY.value = e.translationY;
-    })
-    .onEnd((e) => {
-      if (e.translationY > 120 || e.velocityY > 900) {
-        dropY.value = withTiming(height, { duration: 180 });
-        if (onSwipeDown) runOnJS(onSwipeDown)();
-      } else {
-        dropY.value = withSpring(0, SPRING);
-      }
-    });
+  const gesture = Gesture.Simultaneous(pinch, pan, doubleTap);
 
-  const gesture = Gesture.Simultaneous(pinch, pan, Gesture.Exclusive(doubleTap, drop));
-
-  const style = useAnimatedStyle(() => {
-    const d = Math.max(0, dropY.value);
-    const shrink = 1 - Math.min(0.25, d / (height * 2));
-    return {
-      transform: [
-        { translateX: tx.value },
-        { translateY: ty.value + d },
-        { scale: scale.value * shrink },
-      ],
-      opacity: 1 - Math.min(0.5, d / height),
-    };
-  });
+  const style = useAnimatedStyle(() => ({
+    transform: [{ translateX: tx.value }, { translateY: ty.value }, { scale: scale.value }],
+  }));
 
   return (
     <GestureDetector gesture={gesture}>

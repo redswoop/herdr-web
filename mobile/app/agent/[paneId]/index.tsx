@@ -22,6 +22,7 @@ import {
 import { useRoster } from '../../../src/roster';
 import { AgentHeader } from '../../../src/components/AgentHeader';
 import { agentMenu } from '../../../src/manage';
+import { fileScreenFor } from '../../../src/file-routes';
 import { BlockedCard } from '../../../src/components/BlockedCard';
 import { RewindCard, ResumeCard } from '../../../src/components/Cards';
 import { Composer } from '../../../src/components/Composer';
@@ -320,7 +321,7 @@ export default function AgentScreen() {
 
   const onOpenFile = useCallback(
     (path: string) => {
-      router.push({ pathname: '/agent/[paneId]/file', params: { paneId, path } });
+      router.push({ pathname: fileScreenFor(path), params: { paneId, path } });
     },
     [paneId, router],
   );

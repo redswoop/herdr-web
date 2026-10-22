@@ -1,47 +1,40 @@
 import { useCallback, useState } from 'react';
 import { StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { getPlatform } from '@herdr/shared';
 import { useRoster } from '../../../src/roster';
 import { FileViewer } from '../../../src/components/FileViewer';
+import { fileScreenFor } from '../../../src/file-routes';
 import { useStyles, type Tokens } from '../../../src/theme';
 
 export default function FileScreen() {
   const styles = useStyles(makeStyles);
-  const { paneId: rawPane, path: rawPath, depth: rawDepth, via } = useLocalSearchParams<{
+  const { paneId: rawPane, path: rawPath, depth: rawDepth } = useLocalSearchParams<{
     paneId: string;
     path: string;
     depth?: string;
-    via?: string;
   }>();
   const paneId = decodeURIComponent(rawPane ?? '');
   const path = decodeURIComponent(rawPath ?? '');
   // how many file cards sit between this one and the chat: X dismisses them all
   const depth = Math.max(1, Number(rawDepth) || 1);
   const router = useRouter();
-  // Every hop (a folder, `..`, a link inside a markdown file) is its own card,
-  // so the swipe-back gesture retraces your steps instead of dumping you in
-  // the chat. The X is the way out in one go.
+  const navigation = useNavigation();
+  // Every hop (a folder, `..`, a link inside a markdown file) is its own
+  // screen, so the swipe-back gesture retraces your steps instead of dumping
+  // you in the chat. Images open as a sheet (swipe down lets go). The X is
+  // the way out in one go.
   const navigate = useCallback(
-    (p: string, v?: 'dir') =>
-      router.push({
-        pathname: '/agent/[paneId]/file',
-        params: { paneId, path: p, depth: String(depth + 1), ...(v ? { via: v } : {}) },
-      }),
+    (p: string) =>
+      router.push({ pathname: fileScreenFor(p), params: { paneId, path: p, depth: String(depth + 1) } }),
     [router, paneId, depth],
   );
-  // Swipe-down on an image means "back to the folder". Picked from a folder
-  // listing: that card is right underneath. Opened from the chat: there is no
-  // folder card, so this one becomes the folder.
-  const dismissImage = useCallback(() => {
-    if (via === 'dir') router.back();
-    else
-      router.replace({
-        pathname: '/agent/[paneId]/file',
-        params: { paneId, path: path.replace(/\/[^/]+\/?$/, '') || '/', depth: String(depth) },
-      });
-  }, [via, router, paneId, path, depth]);
+  // a zoomed image is being dragged around: the sheet must not take the drag
+  const onZoomed = useCallback(
+    (z: boolean) => navigation.setOptions({ gestureEnabled: !z }),
+    [navigation],
+  );
   const { roster } = useRoster();
   const agent = roster.agents.find((a) => a.paneId === paneId);
   const cwd = agent?.cwd ?? null;
@@ -84,7 +77,7 @@ export default function FileScreen() {
         onBack={() => router.back()}
         onClose={() => router.dismiss(depth)}
         onNavigate={navigate}
-        onDismissImage={dismissImage}
+        onZoomed={onZoomed}
         onLoaded={onLoaded}
         onRemoveHist={(p) => mutateHist((h) => h.filter((x) => x !== p))}
       />

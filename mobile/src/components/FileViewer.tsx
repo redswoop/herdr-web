@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
   Pressable,
   ScrollView,
   Share,
@@ -12,6 +11,9 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import * as Sharing from 'expo-sharing';
+// the gallery pager must be gesture-handler's own list so the pinch/pan
+// detectors on each page cooperate with its scroll instead of blocking it
+import { FlatList } from 'react-native-gesture-handler';
 import { Directory, File, Paths } from 'expo-file-system';
 import type { FileInfo } from '@herdr/shared';
 import { describeError, getPlatform } from '@herdr/shared';
@@ -22,6 +24,7 @@ import { MdView } from './MdView';
 import { AudioPlayer, VideoPlayer } from './MediaPlayer';
 import { SegText } from './SegText';
 import { ZoomImage } from './ZoomImage';
+import { IMG_RE } from '../file-routes';
 
 function fmtSize(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -32,8 +35,6 @@ function fmtSize(n: number): string {
 
 const parent = (p: string) => p.replace(/\/[^/]+\/?$/, '') || '/';
 const join = (dir: string, name: string) => `${dir === '/' ? '' : dir}/${name}`;
-// what the server serves as kind 'image' (IMG_MIME)
-const IMG_RE = /\.(png|jpe?g|gif|webp|svg|avif|ico|bmp)$/i;
 
 export function FileViewer({
   path,
@@ -42,7 +43,7 @@ export function FileViewer({
   onBack,
   onClose,
   onNavigate,
-  onDismissImage,
+  onZoomed,
   onLoaded,
   onRemoveHist,
 }: {
@@ -53,10 +54,9 @@ export function FileViewer({
   onBack: () => void;
   /** straight back to the chat, however deep you are */
   onClose: () => void;
-  /** `via: 'dir'` when the path was picked from a folder listing */
-  onNavigate: (path: string, via?: 'dir') => void;
-  /** swipe-down on an image: wherever "back to the folder" is from here */
-  onDismissImage?: () => void;
+  onNavigate: (path: string) => void;
+  /** an image is zoomed in (the owner may want to pin its sheet) */
+  onZoomed?: (zoomed: boolean) => void;
   onLoaded: (resolvedPath: string) => void;
   onRemoveHist: (path: string) => void;
 }) {
@@ -75,8 +75,12 @@ export function FileViewer({
   // sibling images of an image, for swiping sideways through the folder
   const [gallery, setGallery] = useState<{ dir: string; items: string[] } | null>(null);
   const [galleryH, setGalleryH] = useState(0);
-  // a zoomed image owns horizontal drags; the pager waits
-  const [zoomed, setZoomed] = useState(false);
+  // a zoomed image owns drags; the pager (and the sheet) wait
+  const [zoomed, setZoomedState] = useState(false);
+  const setZoomed = (z: boolean) => {
+    setZoomedState(z);
+    onZoomed?.(z);
+  };
 
   useEffect(() => {
     let gone = false;
@@ -278,7 +282,6 @@ export function FileViewer({
                 height={galleryH}
                 zoomed={zoomed}
                 onZoom={setZoomed}
-                onSwipeDown={onDismissImage}
               />
             ) : (
               <View style={{ width: winW, flex: 1 }} />
@@ -317,7 +320,6 @@ export function FileViewer({
             height={360}
             zoomed={zoomed}
             onZoom={setZoomed}
-            onSwipeDown={onDismissImage}
           />
         )}
 
@@ -343,7 +345,7 @@ export function FileViewer({
         {info?.kind === 'dir' && (
           <View style={styles.dir}>
             {info.path !== '/' && (
-              <Pressable style={styles.dirRow} onPress={() => onNavigate(parent(info.path), 'dir')}>
+              <Pressable style={styles.dirRow} onPress={() => onNavigate(parent(info.path))}>
                 <Icon name="folder" size={18} color={t.colors.working} />
                 <Text style={styles.dirName}>..</Text>
               </Pressable>
@@ -352,7 +354,7 @@ export function FileViewer({
               <Pressable
                 key={e.name}
                 style={styles.dirRow}
-                onPress={() => onNavigate(join(info.path, e.name), 'dir')}
+                onPress={() => onNavigate(join(info.path, e.name))}
               >
                 <Icon
                   name={e.dir ? 'folder' : 'file'}
