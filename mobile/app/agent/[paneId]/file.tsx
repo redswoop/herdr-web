@@ -9,10 +9,11 @@ import { useStyles, type Tokens } from '../../../src/theme';
 
 export default function FileScreen() {
   const styles = useStyles(makeStyles);
-  const { paneId: rawPane, path: rawPath, depth: rawDepth } = useLocalSearchParams<{
+  const { paneId: rawPane, path: rawPath, depth: rawDepth, via } = useLocalSearchParams<{
     paneId: string;
     path: string;
     depth?: string;
+    via?: string;
   }>();
   const paneId = decodeURIComponent(rawPane ?? '');
   const path = decodeURIComponent(rawPath ?? '');
@@ -23,10 +24,24 @@ export default function FileScreen() {
   // so the swipe-back gesture retraces your steps instead of dumping you in
   // the chat. The X is the way out in one go.
   const navigate = useCallback(
-    (p: string) =>
-      router.push({ pathname: '/agent/[paneId]/file', params: { paneId, path: p, depth: String(depth + 1) } }),
+    (p: string, v?: 'dir') =>
+      router.push({
+        pathname: '/agent/[paneId]/file',
+        params: { paneId, path: p, depth: String(depth + 1), ...(v ? { via: v } : {}) },
+      }),
     [router, paneId, depth],
   );
+  // Swipe-down on an image means "back to the folder". Picked from a folder
+  // listing: that card is right underneath. Opened from the chat: there is no
+  // folder card, so this one becomes the folder.
+  const dismissImage = useCallback(() => {
+    if (via === 'dir') router.back();
+    else
+      router.replace({
+        pathname: '/agent/[paneId]/file',
+        params: { paneId, path: path.replace(/\/[^/]+\/?$/, '') || '/', depth: String(depth) },
+      });
+  }, [via, router, paneId, path, depth]);
   const { roster } = useRoster();
   const agent = roster.agents.find((a) => a.paneId === paneId);
   const cwd = agent?.cwd ?? null;
@@ -69,6 +84,7 @@ export default function FileScreen() {
         onBack={() => router.back()}
         onClose={() => router.dismiss(depth)}
         onNavigate={navigate}
+        onDismissImage={dismissImage}
         onLoaded={onLoaded}
         onRemoveHist={(p) => mutateHist((h) => h.filter((x) => x !== p))}
       />

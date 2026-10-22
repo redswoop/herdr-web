@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  Image,
   Pressable,
   ScrollView,
   Share,
@@ -22,6 +21,7 @@ import { Icon } from './Icon';
 import { MdView } from './MdView';
 import { AudioPlayer, VideoPlayer } from './MediaPlayer';
 import { SegText } from './SegText';
+import { ZoomImage } from './ZoomImage';
 
 function fmtSize(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -42,6 +42,7 @@ export function FileViewer({
   onBack,
   onClose,
   onNavigate,
+  onDismissImage,
   onLoaded,
   onRemoveHist,
 }: {
@@ -52,7 +53,10 @@ export function FileViewer({
   onBack: () => void;
   /** straight back to the chat, however deep you are */
   onClose: () => void;
-  onNavigate: (path: string) => void;
+  /** `via: 'dir'` when the path was picked from a folder listing */
+  onNavigate: (path: string, via?: 'dir') => void;
+  /** swipe-down on an image: wherever "back to the folder" is from here */
+  onDismissImage?: () => void;
   onLoaded: (resolvedPath: string) => void;
   onRemoveHist: (path: string) => void;
 }) {
@@ -71,6 +75,8 @@ export function FileViewer({
   // sibling images of an image, for swiping sideways through the folder
   const [gallery, setGallery] = useState<{ dir: string; items: string[] } | null>(null);
   const [galleryH, setGalleryH] = useState(0);
+  // a zoomed image owns horizontal drags; the pager waits
+  const [zoomed, setZoomed] = useState(false);
 
   useEffect(() => {
     let gone = false;
@@ -250,6 +256,7 @@ export function FileViewer({
           showsHorizontalScrollIndicator={false}
           data={gallery.items}
           keyExtractor={(p) => p}
+          scrollEnabled={!zoomed}
           initialScrollIndex={galleryIdx}
           getItemLayout={(_, i) => ({ length: winW, offset: winW * i, index: i })}
           initialNumToRender={1}
@@ -263,11 +270,20 @@ export function FileViewer({
               setCur(p);
             }
           }}
-          renderItem={({ item }) => (
-            <View style={{ width: winW, height: galleryH || undefined, flex: galleryH ? undefined : 1 }}>
-              <Image source={{ uri: fileRawUrl(item) }} style={styles.galleryImg} resizeMode="contain" />
-            </View>
-          )}
+          renderItem={({ item }) =>
+            galleryH > 0 ? (
+              <ZoomImage
+                uri={fileRawUrl(item)}
+                width={winW}
+                height={galleryH}
+                zoomed={zoomed}
+                onZoom={setZoomed}
+                onSwipeDown={onDismissImage}
+              />
+            ) : (
+              <View style={{ width: winW, flex: 1 }} />
+            )
+          }
         />
       )}
       <ScrollView style={[styles.body, galleryActive && styles.hidden]} contentContainerStyle={styles.bodyContent}>
@@ -295,10 +311,13 @@ export function FileViewer({
         )}
 
         {info?.kind === 'image' && !galleryActive && (
-          <Image
-            source={{ uri: fileRawUrl(info.path) }}
-            style={styles.img}
-            resizeMode="contain"
+          <ZoomImage
+            uri={fileRawUrl(info.path)}
+            width={winW - 28}
+            height={360}
+            zoomed={zoomed}
+            onZoom={setZoomed}
+            onSwipeDown={onDismissImage}
           />
         )}
 
@@ -324,7 +343,7 @@ export function FileViewer({
         {info?.kind === 'dir' && (
           <View style={styles.dir}>
             {info.path !== '/' && (
-              <Pressable style={styles.dirRow} onPress={() => onNavigate(parent(info.path))}>
+              <Pressable style={styles.dirRow} onPress={() => onNavigate(parent(info.path), 'dir')}>
                 <Icon name="folder" size={18} color={t.colors.working} />
                 <Text style={styles.dirName}>..</Text>
               </Pressable>
@@ -333,7 +352,7 @@ export function FileViewer({
               <Pressable
                 key={e.name}
                 style={styles.dirRow}
-                onPress={() => onNavigate(join(info.path, e.name))}
+                onPress={() => onNavigate(join(info.path, e.name), 'dir')}
               >
                 <Icon
                   name={e.dir ? 'folder' : 'file'}
