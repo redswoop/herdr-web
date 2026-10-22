@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { getPlatform } from '@herdr/shared';
 import { useRoster } from '../../../src/roster';
 import { FileViewer } from '../../../src/components/FileViewer';
@@ -20,7 +20,6 @@ export default function FileScreen() {
   // how many file cards sit between this one and the chat: X dismisses them all
   const depth = Math.max(1, Number(rawDepth) || 1);
   const router = useRouter();
-  const navigation = useNavigation();
   // Every hop (a folder, `..`, a link inside a markdown file) is its own
   // screen, so the swipe-back gesture retraces your steps instead of dumping
   // you in the chat. Images open as a sheet (swipe down lets go). The X is
@@ -29,11 +28,6 @@ export default function FileScreen() {
     (p: string) =>
       router.push({ pathname: fileScreenFor(p), params: { paneId, path: p, depth: String(depth + 1) } }),
     [router, paneId, depth],
-  );
-  // a zoomed image is being dragged around: the sheet must not take the drag
-  const onZoomed = useCallback(
-    (z: boolean) => navigation.setOptions({ gestureEnabled: !z }),
-    [navigation],
   );
   const { roster } = useRoster();
   const agent = roster.agents.find((a) => a.paneId === paneId);
@@ -77,7 +71,6 @@ export default function FileScreen() {
         onBack={() => router.back()}
         onClose={() => router.dismiss(depth)}
         onNavigate={navigate}
-        onZoomed={onZoomed}
         onLoaded={onLoaded}
         onRemoveHist={(p) => mutateHist((h) => h.filter((x) => x !== p))}
       />

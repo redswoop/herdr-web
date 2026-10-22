@@ -1,7 +1,6 @@
 import { useCallback, useState } from 'react';
 import { View } from 'react-native';
 import { Stack } from 'expo-router';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -31,7 +30,7 @@ function Shell() {
   const [booting, setBooting] = useState(true);
   const bootDone = useCallback(() => setBooting(false), []);
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: t.colors.bg }}>
+    <View style={{ flex: 1, backgroundColor: t.colors.bg }}>
     <Stack
       screenOptions={{
         headerStyle: { backgroundColor: t.cyber ? alpha(t.colors.bg, 0.8) : t.colors.surface },
@@ -91,6 +90,6 @@ function Shell() {
       {t.cyber && <CyberOverlay />}
       <ToastHost />
       {booting && <BootLog onDone={bootDone} />}
-    </GestureHandlerRootView>
+    </View>
   );
 }

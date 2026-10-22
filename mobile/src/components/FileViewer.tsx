@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  FlatList,
   Pressable,
   ScrollView,
   Share,
@@ -11,9 +12,6 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import * as Sharing from 'expo-sharing';
-// the gallery pager must be gesture-handler's own list so the pinch/pan
-// detectors on each page cooperate with its scroll instead of blocking it
-import { FlatList } from 'react-native-gesture-handler';
 import { Directory, File, Paths } from 'expo-file-system';
 import type { FileInfo } from '@herdr/shared';
 import { describeError, getPlatform } from '@herdr/shared';
@@ -43,7 +41,6 @@ export function FileViewer({
   onBack,
   onClose,
   onNavigate,
-  onZoomed,
   onLoaded,
   onRemoveHist,
 }: {
@@ -55,8 +52,6 @@ export function FileViewer({
   /** straight back to the chat, however deep you are */
   onClose: () => void;
   onNavigate: (path: string) => void;
-  /** an image is zoomed in (the owner may want to pin its sheet) */
-  onZoomed?: (zoomed: boolean) => void;
   onLoaded: (resolvedPath: string) => void;
   onRemoveHist: (path: string) => void;
 }) {
@@ -75,12 +70,8 @@ export function FileViewer({
   // sibling images of an image, for swiping sideways through the folder
   const [gallery, setGallery] = useState<{ dir: string; items: string[] } | null>(null);
   const [galleryH, setGalleryH] = useState(0);
-  // a zoomed image owns drags; the pager (and the sheet) wait
-  const [zoomed, setZoomedState] = useState(false);
-  const setZoomed = (z: boolean) => {
-    setZoomedState(z);
-    onZoomed?.(z);
-  };
+  // a zoomed image owns drags; the pager holds still
+  const [zoomed, setZoomed] = useState(false);
 
   useEffect(() => {
     let gone = false;
@@ -280,7 +271,6 @@ export function FileViewer({
                 uri={fileRawUrl(item)}
                 width={winW}
                 height={galleryH}
-                zoomed={zoomed}
                 onZoom={setZoomed}
               />
             ) : (
@@ -318,7 +308,6 @@ export function FileViewer({
             uri={fileRawUrl(info.path)}
             width={winW - 28}
             height={360}
-            zoomed={zoomed}
             onZoom={setZoomed}
           />
         )}
