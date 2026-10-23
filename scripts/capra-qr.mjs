@@ -74,8 +74,12 @@ if (!args.includes('--no-token')) {
 }
 
 const link = `capra://settings?${params.toString()}`;
+const token = params.get('token');
 console.log(`\n  server: ${server}`);
-console.log(`  link:   ${link}\n`);
+console.log(`  link:   ${link}`);
+// the clickable form: an https URL terminals and chat apps turn into a link,
+// served by the daemon as a page that bounces into the app
+console.log(`  click:  ${server}/link${token ? `?token=${encodeURIComponent(token)}` : ''}\n`);
 qrcode.generate(link, { small: true });
 console.log('\nPoint the iPhone camera at this. It offers "Open in Capra";');
 console.log('the app adds this host (or refreshes its token) and reconnects on the spot.');

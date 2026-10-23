@@ -130,7 +130,7 @@ All under `/api`, JSON in/out. `:pane` is a herdr pane id like `w1:p2`.
 | route | what |
 |---|---|
 | `GET /api/roster` | agent cards; `stream` variant is SSE; `host` = this server's short name |
-| `GET /api/whoami` · `GET /api/link` | server identity for multi-host clients; the `capra://` enrolment link for this host (see PLAN-MULTIHOST.md) |
+| `GET /api/whoami` · `GET /api/link` · `GET /link` | server identity for multi-host clients; the `capra://` enrolment link for this host, and `/link?token=` as a clickable https page that bounces into the app (see PLAN-MULTIHOST.md) |
 | `GET /api/agent/:pane/transcript` | full translated transcript |
 | `GET /api/agent/:pane/stream` | SSE tail: new events, status changes, session-rebind resets |
 | `GET /api/agent/:pane/screen` | current visible pane text |

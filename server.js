@@ -1465,6 +1465,13 @@ const server = http.createServer(async (req, res) => {
   try {
     const seg = url.pathname.split('/').filter(Boolean); // ['api','agent','w1:p1','stream']
 
+    // The clickable enrolment link: an https URL (terminals and chat apps
+    // link those; capra:// they don't) that bounces into the app. Token
+    // required — it's the token that gets handed over.
+    if (req.method === 'GET' && url.pathname === '/link') {
+      if (!checkAuth(req, res, url)) return;
+      return serveLinkPage(res);
+    }
     if (seg[0] !== 'api') {
       checkAuth(req, res, url, { enforce: false }); // ?token= links still enroll the cookie
       return await serveStatic(url.pathname, res);
@@ -1496,6 +1503,8 @@ const server = http.createServer(async (req, res) => {
         host: HOSTNAME,
         server: PUBLIC_URL,
         link: capraLink({ server: PUBLIC_URL, token: TOKEN, name: HOSTNAME }),
+        // the same thing as something you can click or message
+        openUrl: TOKEN ? `${PUBLIC_URL}/link?token=${encodeURIComponent(TOKEN)}` : `${PUBLIC_URL}/link`,
       });
     }
 
@@ -1850,6 +1859,23 @@ const server = http.createServer(async (req, res) => {
     else res.end();
   }
 });
+
+function serveLinkPage(res) {
+  const link = capraLink({ server: PUBLIC_URL, token: TOKEN, name: HOSTNAME });
+  const esc = (x) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+  const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(HOSTNAME)} → Capra</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0c0f12;color:#dfe6ee;font:17px/1.5 -apple-system,system-ui,sans-serif;text-align:center;padding:24px;box-sizing:border-box}
+a.btn{display:inline-block;margin:18px 0;padding:16px 28px;border-radius:14px;background:#5fe3d4;color:#06201d;font-weight:700;font-size:20px;text-decoration:none}
+small{color:#8a97a5;display:block;max-width:34ch;margin:0 auto}code{word-break:break-all;color:#8a97a5;font-size:12px}</style>
+<div><h1 style="margin:0 0 4px;font-size:22px">${esc(HOSTNAME)}</h1><small>${esc(PUBLIC_URL)}</small>
+<a class="btn" href="${esc(link)}">Open in Capra</a>
+<small>Adds this host to the app, or refreshes its token if it's already there. Opening automatically…</small>
+<p><code>${esc(link)}</code></p></div>
+<script>setTimeout(function(){location.href=${JSON.stringify(link)}},400)</script>`;
+  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+  res.end(html);
+}
 
 async function serveStatic(pathname, res) {
   let rel = pathname === '/' ? 'index.html' : pathname.slice(1);

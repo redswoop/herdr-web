@@ -5,10 +5,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import * as Clipboard from 'expo-clipboard';
 import { describeError, type ServerConf, type WhoAmI } from '@herdr/shared';
 import { useBoot } from '../boot';
 import { useRoster } from '../roster';
 import { loadServers, makePrimary, removeServer, renameServer, upsertServer } from '../settings-store';
+import { looksLikeCapraLink, parseCapraLink } from '../capra-link';
 import { alpha, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 
@@ -56,8 +58,31 @@ export function ServerList() {
     await remount();
   };
 
+  // a pasted enrolment link (capra://… or https://…/link?token=…) fills both
+  // fields; either box accepts it, so the paste can land wherever the thumb is
+  const takeLink = (text: string): boolean => {
+    const l = parseCapraLink(text);
+    if (!l) return false;
+    setBaseUrl(l.server);
+    if (l.token) setToken(l.token);
+    setError(null);
+    return true;
+  };
+  const onUrlChange = (v: string) => (looksLikeCapraLink(v) && takeLink(v)) || setBaseUrl(v);
+  const onTokenChange = (v: string) => (looksLikeCapraLink(v) && takeLink(v)) || setToken(v);
+  const pasteLink = async () => {
+    try {
+      const text = await Clipboard.getStringAsync();
+      if (!takeLink(text)) setError(text.trim() ? "the clipboard isn't a Capra link" : 'clipboard is empty');
+    } catch (e) {
+      setError(describeError(e));
+    }
+  };
+
   const add = async () => {
-    const url = baseUrl.trim().replace(/\/$/, '');
+    const pasted = parseCapraLink(baseUrl);
+    const url = (pasted?.server ?? baseUrl).trim().replace(/\/$/, '');
+    const tok = (pasted?.token ?? token).trim();
     if (!url && Platform.OS !== 'web') {
       setError('server URL is required');
       return;
@@ -65,9 +90,9 @@ export function ServerList() {
     setBusy('add');
     setError(null);
     try {
-      const who = await probe(url, token.trim());
+      const who = await probe(url, tok);
       await apply(async () => {
-        await upsertServer({ baseUrl: url, token: token.trim() || null, name: who.host });
+        await upsertServer({ baseUrl: url, token: tok || null, name: pasted?.name ?? who.host });
       });
       setBaseUrl('');
       setToken('');
@@ -150,13 +175,17 @@ export function ServerList() {
       {adding ? (
         <View style={styles.form}>
           <Text style={styles.hint} allowFontScaling={false}>
-            Fastest: on the box run <Text style={styles.mono}>npm run link</Text> and scan the QR — it opens here with
-            everything filled in. Or paste the tailscale-serve HTTPS URL and token:
+            On the box, <Text style={styles.mono}>npm run link</Text> prints a QR and a link. Scan the QR, paste the
+            link here, or type the tailscale-serve HTTPS URL and token:
           </Text>
+          <Pressable style={styles.pasteRow} onPress={pasteLink} accessibilityLabel="paste a Capra link">
+            <Icon name="plus" size={14} color={t.colors.accent} />
+            <Text style={styles.addText}>paste link from clipboard</Text>
+          </Pressable>
           <TextInput
             style={styles.input}
             value={baseUrl}
-            onChangeText={setBaseUrl}
+            onChangeText={onUrlChange}
             placeholder="https://host.….ts.net"
             placeholderTextColor={t.colors.sub}
             autoCapitalize="none"
@@ -167,7 +196,7 @@ export function ServerList() {
           <TextInput
             style={styles.input}
             value={token}
-            onChangeText={setToken}
+            onChangeText={onTokenChange}
             placeholder="HERDR_WEB_TOKEN"
             placeholderTextColor={t.colors.sub}
             autoCapitalize="none"
@@ -223,6 +252,7 @@ const makeStyles = (t: Tokens) =>
     dotOk: { backgroundColor: t.colors.done, ...t.boxGlow(t.colors.done, 9) },
     dotBad: { backgroundColor: t.colors.blocked, ...t.boxGlow(t.colors.blocked, 9) },
     addRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, paddingHorizontal: 4 },
+    pasteRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6, paddingHorizontal: 4 },
     addText: { ...t.font('ui', '600'), color: t.colors.accent, fontSize: t.sz('ui', 14) },
     form: { gap: 8, marginTop: 4 },
     formRow: { flexDirection: 'row', gap: 8, justifyContent: 'flex-end' },
