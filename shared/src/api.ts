@@ -1,34 +1,117 @@
-/** Configurable API client. Web uses relative URLs + cookies; RN passes baseUrl + token. */
+/** Configurable API client. Web uses relative URLs + cookies; RN passes baseUrl + token.
+ *
+ *  Multi-host (PLAN-MULTIHOST.md): the client talks to N independent servers.
+ *  `configureServers()` installs the registry; the first entry is the PRIMARY
+ *  and its ids stay bare. Every other server's roster ids carry an `@<id>`
+ *  suffix (`w19:p1@blackstar`), and `agentPath()` / `apiUrl(path, host)`
+ *  route by that suffix. Call sites that already go through `agentPath` need
+ *  nothing else. */
 
-let baseUrl = '';
-let token: string | null = null;
-
-export function configureApi(opts: { baseUrl?: string; token?: string | null }): void {
-  if (opts.baseUrl !== undefined) baseUrl = opts.baseUrl.replace(/\/$/, '');
-  if (opts.token !== undefined) token = opts.token;
+export interface ServerConf {
+  /** short slug, the id in `@<id>` suffixes and on chips; '' = primary on web */
+  id: string;
+  /** label on chips (defaults to id) */
+  name: string;
+  /** '' on web = relative to the page origin */
+  baseUrl: string;
+  token: string | null;
 }
+
+const normBase = (u: string) => u.trim().replace(/\/$/, '');
+
+let servers: ServerConf[] = [{ id: '', name: '', baseUrl: '', token: null }];
+
+/** Single-server setup (web, tests): becomes the primary. */
+export function configureApi(opts: { baseUrl?: string; token?: string | null }): void {
+  const cur = servers[0] ?? { id: '', name: '', baseUrl: '', token: null };
+  servers = [
+    {
+      ...cur,
+      baseUrl: opts.baseUrl !== undefined ? normBase(opts.baseUrl) : cur.baseUrl,
+      token: opts.token !== undefined ? opts.token : cur.token,
+    },
+    ...servers.slice(1),
+  ];
+}
+
+/** Install the whole registry; first = primary. An empty list means "nowhere to talk to". */
+export function configureServers(list: ServerConf[]): void {
+  servers = list.map((s) => ({ ...s, baseUrl: normBase(s.baseUrl), name: s.name || s.id }));
+}
+
+export function getServers(): ServerConf[] {
+  return servers;
+}
+
+export const primaryServer = (): ServerConf | undefined => servers[0];
 
 export function getApiConfig(): { baseUrl: string; token: string | null } {
-  return { baseUrl, token };
+  const p = servers[0];
+  return { baseUrl: p?.baseUrl ?? '', token: p?.token ?? null };
 }
 
-/** Build a full request URL. Appends ?token= when a token is configured. */
-export function apiUrl(path: string): string {
+/* ---------------- host-qualified ids ---------------- */
+
+export const HOST_SEP = '@';
+
+/** `w19:p1@blackstar` → `{local: 'w19:p1', host: 'blackstar'}`; bare → host null (primary). */
+export function splitHost(id: string): { local: string; host: string | null } {
+  const i = id.lastIndexOf(HOST_SEP);
+  if (i === -1) return { local: id, host: null };
+  return { local: id.slice(0, i), host: id.slice(i + 1) || null };
+}
+
+export const joinHost = (local: string, host: string | null | undefined): string =>
+  host ? `${local}${HOST_SEP}${host}` : local;
+
+/** The server id a roster id belongs to (null = primary). */
+export const hostOf = (id: string | null | undefined): string | null => (id ? splitHost(id).host : null);
+
+/** Registry entry for a host id; null/'' or an unknown id → the primary. */
+export function serverFor(host: string | null | undefined): ServerConf | undefined {
+  if (!host) return servers[0];
+  return servers.find((s) => s.id === host) ?? servers[0];
+}
+
+/** Chip label for a host id ('' for the primary when it's the only server). */
+export function hostName(host: string | null | undefined): string {
+  const s = serverFor(host);
+  return s?.name || s?.id || '';
+}
+
+/** Which registry entry an absolute URL points at (longest baseUrl prefix). */
+function serverOfUrl(url: string): ServerConf | undefined {
+  let best: ServerConf | undefined;
+  for (const s of servers) {
+    if (!s.baseUrl) continue;
+    if ((url === s.baseUrl || url.startsWith(`${s.baseUrl}/`)) && (!best || s.baseUrl.length > best.baseUrl.length)) best = s;
+  }
+  return best;
+}
+
+/** Build a full request URL for a server (primary by default). Appends ?token= when that server has one. */
+export function apiUrl(path: string, host?: string | null): string {
   let url: string;
+  let server: ServerConf | undefined;
   if (path.startsWith('http://') || path.startsWith('https://')) {
     url = path;
+    server = serverOfUrl(url) ?? (host ? serverFor(host) : undefined);
+    if (!server || !server.baseUrl) return url; // foreign URL: never leak a token onto it
   } else {
+    server = serverFor(host);
     const p = path.startsWith('/') ? path : `/${path}`;
-    url = baseUrl ? `${baseUrl}${p}` : p;
+    url = server?.baseUrl ? `${server.baseUrl}${p}` : p;
   }
-  if (!token) return url;
+  const token = server?.token;
+  if (!token || /[?&]token=/.test(url)) return url;
   const sep = url.includes('?') ? '&' : '?';
   return `${url}${sep}token=${encodeURIComponent(token)}`;
 }
 
-/** POST JSON; returns the response so callers can branch on status (409 etc.). */
-export async function post(path: string, body: unknown): Promise<Response> {
-  return fetch(apiUrl(path), {
+/** POST JSON; returns the response so callers can branch on status (409 etc.).
+ *  `host` picks the server for a bare path (absolute paths route themselves). */
+export async function post(path: string, body: unknown, host?: string | null): Promise<Response> {
+  return fetch(apiUrl(path, host), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -36,8 +119,8 @@ export async function post(path: string, body: unknown): Promise<Response> {
 }
 
 /** GET helper that goes through apiUrl (token-aware). */
-export async function get(path: string): Promise<Response> {
-  return fetch(apiUrl(path));
+export async function get(path: string, host?: string | null): Promise<Response> {
+  return fetch(apiUrl(path, host));
 }
 
 export async function errorOf(r: Response): Promise<string> {
@@ -48,24 +131,40 @@ export async function errorOf(r: Response): Promise<string> {
   }
 }
 
-export const agentPath = (paneId: string, action: string) =>
-  `/api/agent/${encodeURIComponent(paneId)}/${action}`;
+/** `/api/agent/<pane>/<action>` on the pane's own server: relative for the
+ *  primary, absolute (token added by apiUrl on the way out) for `@host` ids. */
+export function agentPath(paneId: string, action: string): string {
+  const { local, host } = splitHost(paneId);
+  const p = `/api/agent/${encodeURIComponent(local)}/${action}`;
+  const s = host ? serverFor(host) : undefined;
+  return s?.baseUrl && host ? `${s.baseUrl}${p}` : p;
+}
+
+/** Same for a server-level route (`/api/projects`, `/api/chats`…): absolute for a non-primary host. */
+export function hostPath(path: string, host: string | null | undefined): string {
+  const s = host ? serverFor(host) : undefined;
+  return s?.baseUrl && host ? `${s.baseUrl}${path}` : path;
+}
 
 /* ---------------- management verbs (rename / close) ---------------- */
 
 export const renameAgent = (paneId: string, name: string) =>
   post(agentPath(paneId, 'rename'), { name });
 export const closeAgent = (paneId: string) => post(agentPath(paneId, 'close'), {});
+const workspacePath = (workspaceId: string, action: string) => {
+  const { local, host } = splitHost(workspaceId);
+  return hostPath(`/api/workspace/${encodeURIComponent(local)}/${action}`, host);
+};
 export const renameWorkspace = (workspaceId: string, name: string) =>
-  post(`/api/workspace/${encodeURIComponent(workspaceId)}/rename`, { name });
-export const closeWorkspace = (workspaceId: string) =>
-  post(`/api/workspace/${encodeURIComponent(workspaceId)}/close`, {});
+  post(workspacePath(workspaceId, 'rename'), { name });
+export const closeWorkspace = (workspaceId: string) => post(workspacePath(workspaceId, 'close'), {});
 
 
 /** The host the client is configured against, for messages — '' on web (relative URLs). */
-export function apiHost(): string {
+export function apiHost(host?: string | null): string {
   try {
-    return baseUrl ? new URL(baseUrl).host : '';
+    const base = serverFor(host)?.baseUrl;
+    return base ? new URL(base).host : '';
   } catch {
     return '';
   }
@@ -90,7 +189,7 @@ function unwrap(msg: string): string {
  * else keeps its message minus the wrappers RN/Expo put around native errors,
  * e.g. `fetch failed: UnexpectedException: … (at ExpoModulesCore/Promise.swift:56)`.
  */
-export function describeError(e: unknown): string {
+export function describeError(e: unknown, host?: string | null): string {
   if (e == null) return 'something went wrong';
   const raw =
     e instanceof Error ? e.message : typeof e === 'string' ? e : ((e as { message?: unknown }).message ?? e);
@@ -99,8 +198,8 @@ export function describeError(e: unknown): string {
   const inner = unwrap(msg);
   // undici/RN throw a bare "fetch failed" / "Network request failed" with no detail: that's a network error too
   if (!inner || /^fetch failed$/i.test(msg) || NETWORK_RE.test(inner)) {
-    const host = apiHost();
-    return host ? `can't reach ${host}` : "can't reach the server";
+    const h = apiHost(host);
+    return h ? `can't reach ${h}` : "can't reach the server";
   }
   return inner;
 }

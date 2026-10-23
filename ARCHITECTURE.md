@@ -75,6 +75,18 @@ Corollaries that keep biting people who forget them:
   Shift+tab itself is raw CSI Z — `['Escape','[','Z']` in ONE send_keys call
   (herdr's `Shift+Tab` key name is accepted but claude never sees a backtab).
 
+## Multi-host
+
+One client, many servers (`PLAN-MULTIHOST.md`). Each machine runs its own
+`server.js` against its own herdr and disk; the *client* holds a server
+registry and merges the rosters. Ids from non-primary servers carry an
+`@<host>` suffix (`w19:p1@blackstar`) and `agentPath()` / `apiUrl(path, host)`
+in `shared/src/api.ts` route by it — so a pane id is a complete address and
+call sites don't care which box it's on. The server's only part: `/api/whoami`
+(identity), `/api/link` (its own `capra://` enrolment link), `roster.host`,
+and CORS on `/api` for the day the web client talks to a second origin.
+Enrol a phone with `npm run link` on the box (QR → "Open in Capra").
+
 ## Server (`server.js` + `lib/`)
 
 **Zero runtime dependencies, forever.** `node:` builtins only — the daemon
@@ -87,6 +99,7 @@ Push (VAPID + aes128gcm) is hand-rolled on `node:crypto` rather than pulling
 |---|---|
 | `server.js` | HTTP routes (`/api/*`, README has the table), SSE fan-out, static serving, token/cookie auth, keystroke choreography (answer/rewind/mode/spawn) |
 | `lib/herdr.js` | herdr unix-socket client |
+| `lib/host.js` | who/where this server is: tailscale identity, `--host auto`, the `capra://` enrolment link |
 | `lib/adapters.js` | per-agent session-file discovery + translation to normalized events; pane→session correlation; `classifyBlocked` |
 | `lib/screen.js` | pure screen-text parsers: claude ❯ menus, grok radio menus, rewind panel, mode footer, composer text, salvage trimming — fixture-tested |
 | `lib/notify.js` | blocked-notification lifecycle: debounce, coalesce into one slot, retract on resolve |

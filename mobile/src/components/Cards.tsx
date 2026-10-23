@@ -4,7 +4,7 @@
    instead of hazard-taped: these are yours, not the agent's. */
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
-import { describeError, get, post, type RewindState, type SessionEntry } from '@herdr/shared';
+import { describeError, get, hostOf, joinHost, post, type RewindState, type SessionEntry } from '@herdr/shared';
 import { Brackets } from '../cyber';
 import { alpha, mix, useStyles, useTheme, type Tokens } from '../theme';
 
@@ -115,7 +115,7 @@ export function ResumeCard({
 
   useEffect(() => {
     let dead = false;
-    get(`/api/sessions?cwd=${encodeURIComponent(cwd)}&kind=${encodeURIComponent(kind)}`)
+    get(`/api/sessions?cwd=${encodeURIComponent(cwd)}&kind=${encodeURIComponent(kind)}`, hostOf(selfPaneId))
       .then((r) => (r.ok ? r.json() : r.json().then((j: { error?: string }) => Promise.reject(new Error(j.error)))))
       .then((j: { sessions: SessionEntry[] }) => {
         if (!dead) setSessions(j.sessions);
@@ -126,21 +126,22 @@ export function ResumeCard({
     return () => {
       dead = true;
     };
-  }, [cwd, kind]);
+  }, [cwd, kind, selfPaneId]);
 
   const resume = async (s: SessionEntry) => {
     setBusy(s.sessionId);
     try {
+      const host = hostOf(selfPaneId);
       const r = await post('/api/chats', {
         kind,
         cwd,
         resume: s.sessionId,
         name: s.title ?? undefined,
         label: s.title ?? undefined,
-      });
+      }, host);
       const j = (await r.json().catch(() => ({}))) as { error?: string; paneId?: string };
       if (!r.ok) throw new Error(j.error ?? r.statusText);
-      onGo(j.paneId as string);
+      onGo(joinHost(j.paneId as string, host));
     } catch (e) {
       setError(describeError(e));
       setBusy(null);

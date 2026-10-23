@@ -6,8 +6,13 @@
 //   node scripts/capra-qr.mjs --port 8443      # canary behind `tailscale serve --https=8443`
 //   node scripts/capra-qr.mjs --server https://host:8443
 //   node scripts/capra-qr.mjs --no-token       # server-only link (re-point an enrolled phone)
+//   node scripts/capra-qr.mjs --name blackstar # chip label in the app (default: MagicDNS label)
 //
-// Token comes from HERDR_WEB_TOKEN, else the systemd drop-in prod uses.
+// The link is ADDITIVE in Capra: a server it already knows gets its token /
+// name updated, a new one is appended to the server list (multi-host).
+//
+// Token comes from HERDR_WEB_TOKEN, else the systemd drop-in (linux) or the
+// launchd plist (mac) the service runs under.
 // The link (token included) is printed to the terminal — treat it like the
 // token itself.
 import { execFileSync } from 'node:child_process';
@@ -22,22 +27,32 @@ const argOf = (name) => {
   return i !== -1 ? args[i + 1] : null;
 };
 
+const TAILSCALE = ['tailscale', '/Applications/Tailscale.app/Contents/MacOS/Tailscale'];
 function tailscaleDns() {
-  try {
-    const s = JSON.parse(execFileSync('tailscale', ['status', '--json'], { encoding: 'utf8' }));
-    const dns = s.Self?.DNSName?.replace(/\.$/, '');
-    if (dns) return dns;
-  } catch { /* tailscale absent or not up */ }
+  for (const bin of TAILSCALE) {
+    try {
+      const s = JSON.parse(execFileSync(bin, ['status', '--json'], { encoding: 'utf8' }));
+      const dns = s.Self?.DNSName?.replace(/\.$/, '');
+      if (dns) return dns;
+    } catch { /* tailscale absent or not up */ }
+  }
   return os.hostname();
 }
 
 function findToken() {
   if (process.env.HERDR_WEB_TOKEN) return process.env.HERDR_WEB_TOKEN;
-  const conf = path.join(os.homedir(), '.config', 'systemd', 'user', 'herdr-web.service.d', 'token.conf');
-  try {
-    const m = /HERDR_WEB_TOKEN=(\S+)/.exec(fs.readFileSync(conf, 'utf8'));
-    if (m) return m[1];
-  } catch { /* no drop-in */ }
+  const confs = [
+    path.join(os.homedir(), '.config', 'systemd', 'user', 'herdr-web.service.d', 'token.conf'),
+    path.join(os.homedir(), 'Library', 'LaunchAgents', 'dev.redswoop.herdr-web.plist'),
+  ];
+  for (const conf of confs) {
+    try {
+      const text = fs.readFileSync(conf, 'utf8');
+      const m = /HERDR_WEB_TOKEN=(\S+)/.exec(text)
+        ?? /<key>HERDR_WEB_TOKEN<\/key>\s*<string>([^<]+)<\/string>/.exec(text);
+      if (m) return m[1];
+    } catch { /* not this platform */ }
+  }
   return null;
 }
 
@@ -48,6 +63,7 @@ if (!server) {
 }
 
 const params = new URLSearchParams({ server });
+params.set('name', argOf('--name') ?? new URL(server).hostname.split('.')[0]);
 if (!args.includes('--no-token')) {
   const token = argOf('--token') ?? findToken();
   if (!token) {
@@ -62,4 +78,4 @@ console.log(`\n  server: ${server}`);
 console.log(`  link:   ${link}\n`);
 qrcode.generate(link, { small: true });
 console.log('\nPoint the iPhone camera at this. It offers "Open in Capra";');
-console.log('the app adopts the server/token and reconnects on the spot.');
+console.log('the app adds this host (or refreshes its token) and reconnects on the spot.');

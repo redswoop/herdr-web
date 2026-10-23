@@ -129,7 +129,8 @@ All under `/api`, JSON in/out. `:pane` is a herdr pane id like `w1:p2`.
 
 | route | what |
 |---|---|
-| `GET /api/roster` | agent cards; `stream` variant is SSE |
+| `GET /api/roster` | agent cards; `stream` variant is SSE; `host` = this server's short name |
+| `GET /api/whoami` · `GET /api/link` | server identity for multi-host clients; the `capra://` enrolment link for this host (see PLAN-MULTIHOST.md) |
 | `GET /api/agent/:pane/transcript` | full translated transcript |
 | `GET /api/agent/:pane/stream` | SSE tail: new events, status changes, session-rebind resets |
 | `GET /api/agent/:pane/screen` | current visible pane text |
@@ -196,5 +197,5 @@ the terminal, this replaces it.
 Working daily-driver: roster, transcripts, prompt/answer flow, push, PWA —
 live-tested end-to-end against real claude and grok sessions. On the list:
 triage buckets (Needs you / Ready·unseen / Working / Recent), a "Sent ✓" trust
-loop, snooze, destructive-input confirmation, multi-host aggregation
+loop, snooze, destructive-input confirmation
 (Mac + Linux box on one roster).

@@ -1,20 +1,27 @@
-import type { Agent, AgentStatus, Tab, Workspace } from './types';
+import type { Agent, AgentStatus, HostState, Tab, Workspace } from './types';
 
 /** Where a quick-spawned session should land (mirrors spawn.SpawnTarget). */
 export interface SpawnTarget {
   workspaceId?: string;
   cwd?: string;
+  /** server id; absent = wherever the workspaceId points, else the primary */
+  host?: string;
 }
 
-export type GroupBy = 'recent' | 'workspace' | 'status' | 'project' | 'agent';
+export type GroupBy = 'recent' | 'workspace' | 'status' | 'project' | 'agent' | 'host';
 
 export const GROUP_MODES: { key: GroupBy; label: string }[] = [
   { key: 'recent', label: 'recent' },
   { key: 'workspace', label: 'space' },
   { key: 'project', label: 'project' },
+  { key: 'host', label: 'host' },
   { key: 'agent', label: 'agent' },
   { key: 'status', label: 'status' },
 ];
+
+/** The group modes worth offering: `host` only once there's more than one. */
+export const groupModesFor = (hostCount: number) =>
+  hostCount > 1 ? GROUP_MODES : GROUP_MODES.filter((m) => m.key !== 'host');
 
 export const STATUS_ORDER: Record<string, number> = {
   blocked: 0,
@@ -162,6 +169,7 @@ export function buildGroups(
   tabs: Tab[],
   mode: GroupBy,
   now: number = Date.now(),
+  hosts: HostState[] = [],
 ): Group[] {
   if (mode === 'recent') {
     const sorted = [...agents].sort(byAttention);
@@ -182,7 +190,9 @@ export function buildGroups(
           ? a.status
           : mode === 'agent'
             ? (a.displayAgent ?? a.agent ?? 'unknown')
-            : (a.repoRoot ?? a.cwd ?? 'no project');
+            : mode === 'host'
+              ? (a.host ?? '')
+              : (a.repoRoot ?? a.cwd ?? 'no project');
     (bucket.get(k) ?? bucket.set(k, []).get(k)!).push(a);
   }
   for (const list of bucket.values()) list.sort(byAttention);
@@ -217,6 +227,22 @@ export function buildGroups(
           ? { ...rest, badge: [rest.badge, `#${number}`].filter(Boolean).join(' ') }
           : rest,
       );
+  }
+  if (mode === 'host') {
+    const order = new Map(hosts.map((h, i) => [h.id, i]));
+    for (const h of hosts) if (!bucket.has(h.id)) bucket.set(h.id, []); // a silent box still gets its row
+    return [...bucket.entries()]
+      .map(([key, list]) => {
+        const h = hosts.find((x) => x.id === key);
+        return {
+          key: `host:${key}`,
+          title: h?.name || key || 'local',
+          badge: h && !h.connected ? 'unreachable' : h?.herdrDown ? 'herdr down' : undefined,
+          agents: list,
+          spawn: { host: key },
+        };
+      })
+      .sort((a, b) => (order.get(a.key.slice(5)) ?? 99) - (order.get(b.key.slice(5)) ?? 99));
   }
   if (mode === 'status') {
     return [...bucket.entries()]

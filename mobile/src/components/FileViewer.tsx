@@ -37,6 +37,7 @@ const join = (dir: string, name: string) => `${dir === '/' ? '' : dir}/${name}`;
 export function FileViewer({
   path,
   cwd,
+  host = null,
   history,
   onBack,
   onClose,
@@ -46,6 +47,8 @@ export function FileViewer({
 }: {
   path: string;
   cwd: string | null;
+  /** the pane's server id (api.hostOf); null = primary */
+  host?: string | null;
   history: string[];
   /** one step back along the way you came (the previous file card) */
   onBack: () => void;
@@ -85,7 +88,7 @@ export function FileViewer({
       setRaw(false);
     }
     setEdit(cur);
-    fetch(fileInfoUrl(cur, cwd))
+    fetch(fileInfoUrl(cur, cwd, host))
       .then(async (r) => {
         const j = (await r.json()) as FileInfo & { error?: string };
         if (gone) return;
@@ -102,14 +105,14 @@ export function FileViewer({
     return () => {
       gone = true;
     };
-  }, [cur, cwd, onLoaded]);
+  }, [cur, cwd, host, onLoaded]);
 
   // an image: list the folder once, keep the images, page through them
   const galleryDir = info?.kind === 'image' ? parent(info.path) : null;
   useEffect(() => {
     if (!galleryDir) return;
     let gone = false;
-    fetch(fileInfoUrl(galleryDir, null))
+    fetch(fileInfoUrl(galleryDir, null, host))
       .then(async (r) => {
         const j = (await r.json()) as FileInfo;
         if (gone || !r.ok) return;
@@ -122,7 +125,7 @@ export function FileViewer({
     return () => {
       gone = true;
     };
-  }, [galleryDir]);
+  }, [galleryDir, host]);
   const galleryIdx = gallery ? gallery.items.indexOf(info?.path ?? cur) : -1;
   const galleryActive = !!gallery && galleryIdx >= 0;
 
@@ -143,7 +146,7 @@ export function FileViewer({
       if (!dir.exists) dir.create({ intermediates: true, idempotent: true });
       const name = info.path.split('/').pop() || 'file';
       const dest = new File(dir, name);
-      const file = await File.downloadFileAsync(fileRawUrl(info.path, null), dest, {
+      const file = await File.downloadFileAsync(fileRawUrl(info.path, null, host), dest, {
         idempotent: true,
       });
       if (await Sharing.isAvailableAsync()) {
@@ -268,7 +271,7 @@ export function FileViewer({
           renderItem={({ item }) =>
             galleryH > 0 ? (
               <ZoomImage
-                uri={fileRawUrl(item)}
+                uri={fileRawUrl(item, null, host)}
                 width={winW}
                 height={galleryH}
                 onZoom={setZoomed}
@@ -305,7 +308,7 @@ export function FileViewer({
 
         {info?.kind === 'image' && !galleryActive && (
           <ZoomImage
-            uri={fileRawUrl(info.path)}
+            uri={fileRawUrl(info.path, null, host)}
             width={winW - 28}
             height={360}
             onZoom={setZoomed}
@@ -315,9 +318,9 @@ export function FileViewer({
         {info?.kind === 'binary' && (
           <Text style={styles.empty}>binary file · {fmtSize(info.size)}</Text>
         )}
-        {info?.kind === 'video' && <VideoPlayer uri={fileRawUrl(info.path)} />}
+        {info?.kind === 'video' && <VideoPlayer uri={fileRawUrl(info.path, null, host)} />}
         {info?.kind === 'audio' && (
-          <AudioPlayer uri={fileRawUrl(info.path)} name={info.path.split('/').pop() || info.path} />
+          <AudioPlayer uri={fileRawUrl(info.path, null, host)} name={info.path.split('/').pop() || info.path} />
         )}
         {(info?.kind === 'video' || info?.kind === 'audio') && (
           <View style={styles.mediaBox}>

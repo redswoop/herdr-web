@@ -17,6 +17,9 @@ import {
   buildGroups,
   chipName,
   getPlatform,
+  groupModesFor,
+  hostName,
+  hostOf,
   type Agent,
   type Group,
   type GroupBy,
@@ -56,7 +59,9 @@ function loadHomeView(): 'list' | 'cards' {
 export default function RosterScreen() {
   const t = useTheme();
   const styles = useStyles(makeStyles);
-  const { roster, connected, authNeeded, refresh, refreshing } = useRoster();
+  const { roster, connected, authNeeded, refresh, refreshing, hosts } = useRoster();
+  const multiHost = hosts.length > 1;
+  const downHosts = hosts.filter((h) => h.updatedAt > 0 && !h.connected);
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [groupBy, setGroupBy] = useState<GroupBy>(loadGroupBy);
@@ -65,8 +70,8 @@ export default function RosterScreen() {
 
   const groups = useMemo(
     () =>
-      buildGroups(roster.agents, roster.workspaces ?? [], roster.tabs ?? [], groupBy),
-    [roster, groupBy],
+      buildGroups(roster.agents, roster.workspaces ?? [], roster.tabs ?? [], groupBy, Date.now(), hosts),
+    [roster, groupBy, hosts],
   );
 
   type Row =
@@ -134,6 +139,7 @@ export default function RosterScreen() {
       params: {
         ...(target?.workspaceId ? { workspaceId: target.workspaceId } : {}),
         ...(target?.cwd ? { cwd: target.cwd } : {}),
+        ...(target?.host ? { host: target.host } : {}),
       },
     });
   };
@@ -152,7 +158,9 @@ export default function RosterScreen() {
         <Text style={styles.gateSub}>
           {authNeeded
             ? 'paste the access token in settings'
-            : 'set the server URL (and token) in settings'}
+            : hosts.length
+              ? `waiting for ${hosts.map((h) => h.name).join(', ')}…`
+              : 'scan a host’s QR, or add its URL and token in settings'}
         </Text>
         <Link href="/settings" asChild>
           <Pressable style={styles.primaryBtn}>
@@ -171,6 +179,13 @@ export default function RosterScreen() {
       {!connected && roster.updatedAt > 0 && (
         <View style={styles.banner}>
           <Text style={styles.bannerText}>connection lost — reconnecting…</Text>
+        </View>
+      )}
+      {connected && downHosts.length > 0 && (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>
+            {downHosts.map((h) => h.name).join(', ')} unreachable — showing the rest
+          </Text>
         </View>
       )}
       <View style={styles.toolbar}>
@@ -216,7 +231,7 @@ export default function RosterScreen() {
           <Text style={[styles.modeText, homeView === 'cards' && styles.modeTextOn]}>cards</Text>
         </Pressable>
         {homeView === 'list' &&
-          GROUP_MODES.map((m) => (
+          groupModesFor(hosts.length).map((m) => (
             <Pressable
               key={m.key}
               style={[styles.modeChip, groupBy === m.key && styles.modeOn]}
@@ -319,6 +334,7 @@ export default function RosterScreen() {
             const a = item.agent;
             const labels = Object.entries(a.stateLabels ?? {});
             const showAgent = groupBy !== 'agent';
+            const showHost = multiHost && groupBy !== 'host';
             const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
             return (
               <FlickerIn delay={index * 45}>
@@ -338,6 +354,7 @@ export default function RosterScreen() {
                   </View>
                   <Text style={styles.rowSub} numberOfLines={1}>
                     {[
+                      showHost ? hostName(hostOf(a.paneId) ?? a.host) : null,
                       showAgent ? a.displayAgent ?? a.agent ?? '?' : null,
                       a.cwd ? basename(a.cwd) : null,
                     ]

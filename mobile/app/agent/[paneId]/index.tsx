@@ -9,6 +9,8 @@ import {
   errorOf,
   get,
   getPlatform,
+  hostOf,
+  hostUp,
   isTuiChrome,
   post,
   useAgentMode,
@@ -43,8 +45,11 @@ export default function AgentScreen() {
   const styles = useStyles(makeStyles);
   const { paneId: raw } = useLocalSearchParams<{ paneId: string }>();
   const paneId = decodeURIComponent(raw ?? '');
-  const { roster, connected } = useRoster();
+  const { roster, hosts } = useRoster();
   const agent = roster.agents.find((a) => a.paneId === paneId);
+  // this pane's own server, not the merged picture: stormer being up says
+  // nothing about blackstar
+  const connected = hostUp(hosts, hostOf(paneId));
   const status = agent?.status;
   const navigation = useNavigation();
   const router = useRouter();

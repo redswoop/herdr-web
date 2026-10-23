@@ -10,6 +10,9 @@ type UpdatesMod = typeof import('expo-updates');
 let mod: UpdatesMod | null | undefined;
 function updates(): UpdatesMod | null {
   if (mod === undefined) {
+    // a dev client never applies an update, and one built before expo-updates
+    // redboxes on the require (the module logs before it throws) — skip it
+    if (__DEV__) return (mod = null);
     try {
       mod = require('expo-updates') as UpdatesMod;
     } catch {

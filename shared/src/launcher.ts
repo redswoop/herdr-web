@@ -93,11 +93,11 @@ export interface Place {
 }
 
 export const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
-/** /home/<user>/… → ~/… for display */
-export const shortPath = (p: string) => p.replace(/^\/home\/[^/]+/, '~');
+/** /home/<user>/… (linux) or /Users/<user>/… (mac) → ~/… for display */
+export const shortPath = (p: string) => p.replace(/^\/(?:home|Users)\/[^/]+/, '~');
 
 const placeKeyOf = (a: Agent) => a.repoRoot ?? a.cwd;
-const placeName = (path: string) => (/^\/home\/[^/]+\/?$/.test(path) ? '~' : basename(path) || path);
+const placeName = (path: string) => (/^\/(?:home|Users)\/[^/]+\/?$/.test(path) ? '~' : basename(path) || path);
 
 export function buildPlaces(roster: Roster, projects: Project[] | null): Place[] {
   const places = new Map<string, Place>();

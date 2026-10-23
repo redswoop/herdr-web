@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import { apiUrl, configureApi, describeError, getApiConfig } from '../src/api';
+import { agentPath, apiUrl, configureApi, configureServers, describeError, getApiConfig, hostName, hostOf, hostPath, joinHost, splitHost } from '../src/api';
 
 describe('apiUrl', () => {
   beforeEach(() => {
@@ -56,5 +56,56 @@ describe('describeError', () => {
     expect(describeError(new Error('pane not found'))).toBe('pane not found');
     expect(describeError('plain string')).toBe('plain string');
     expect(describeError(undefined)).toBe('something went wrong');
+  });
+});
+
+describe('multi-host routing', () => {
+  beforeEach(() => {
+    configureServers([
+      { id: 'stormer', name: 'stormer', baseUrl: 'https://stormer.ts.net', token: 'tok-s' },
+      { id: 'blackstar', name: 'blackstar', baseUrl: 'https://blackstar.ts.net', token: 'tok-b' },
+    ]);
+  });
+
+  it('splits and joins host suffixes', () => {
+    expect(splitHost('w19:p1@blackstar')).toEqual({ local: 'w19:p1', host: 'blackstar' });
+    expect(splitHost('w19:p1')).toEqual({ local: 'w19:p1', host: null });
+    expect(joinHost('w19:p1', 'blackstar')).toBe('w19:p1@blackstar');
+    expect(joinHost('w19:p1', null)).toBe('w19:p1');
+    expect(hostOf('w1:p1@blackstar')).toBe('blackstar');
+    expect(hostOf('w1:p1')).toBeNull();
+  });
+
+  it('routes a bare pane id to the primary, relative', () => {
+    expect(agentPath('w2Y:p3', 'prompt')).toBe('/api/agent/w2Y%3Ap3/prompt');
+    expect(apiUrl(agentPath('w2Y:p3', 'prompt'))).toBe('https://stormer.ts.net/api/agent/w2Y%3Ap3/prompt?token=tok-s');
+  });
+
+  it('routes an @host pane id to that server with its own token', () => {
+    const p = agentPath('w19:p1@blackstar', 'stream');
+    expect(p).toBe('https://blackstar.ts.net/api/agent/w19%3Ap1/stream');
+    expect(apiUrl(`${p}?offset=3`)).toBe('https://blackstar.ts.net/api/agent/w19%3Ap1/stream?offset=3&token=tok-b');
+  });
+
+  it('never appends a token twice', () => {
+    const once = apiUrl('/api/roster', 'blackstar');
+    expect(apiUrl(once)).toBe(once);
+  });
+
+  it('picks the server for a bare path by host', () => {
+    expect(apiUrl('/api/projects', 'blackstar')).toBe('https://blackstar.ts.net/api/projects?token=tok-b');
+    expect(apiUrl('/api/projects')).toBe('https://stormer.ts.net/api/projects?token=tok-s');
+    expect(hostPath('/api/chats', 'blackstar')).toBe('https://blackstar.ts.net/api/chats');
+    expect(hostPath('/api/chats', null)).toBe('/api/chats');
+  });
+
+  it('leaves a foreign absolute URL alone', () => {
+    expect(apiUrl('https://example.com/x')).toBe('https://example.com/x');
+  });
+
+  it('names the host in errors', () => {
+    expect(describeError(new TypeError('Network request failed'), 'blackstar')).toBe("can't reach blackstar.ts.net");
+    expect(hostName('blackstar')).toBe('blackstar');
+    expect(hostName(null)).toBe('stormer');
   });
 });

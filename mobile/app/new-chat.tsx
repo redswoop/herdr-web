@@ -10,13 +10,14 @@ export default function NewChatScreen() {
   const styles = useStyles(makeStyles);
   const router = useRouter();
   const { roster } = useRoster();
-  const params = useLocalSearchParams<{ workspaceId?: string; cwd?: string }>();
+  const params = useLocalSearchParams<{ workspaceId?: string; cwd?: string; host?: string }>();
 
   const target: SpawnTarget | undefined =
-    params.workspaceId || params.cwd
+    params.workspaceId || params.cwd || params.host
       ? {
           workspaceId: params.workspaceId || undefined,
           cwd: params.cwd || undefined,
+          host: params.host || undefined,
         }
       : undefined;
 

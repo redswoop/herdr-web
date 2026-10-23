@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { getPlatform } from '@herdr/shared';
+import { getPlatform, hostOf } from '@herdr/shared';
 import { useRoster } from '../../../src/roster';
 import { FileViewer } from '../../../src/components/FileViewer';
 import { fileScreenFor } from '../../../src/file-routes';
@@ -67,6 +67,7 @@ export default function FileScreen() {
       <FileViewer
         path={path}
         cwd={cwd}
+        host={hostOf(paneId)}
         history={history}
         onBack={() => router.back()}
         onClose={() => router.dismiss(depth)}

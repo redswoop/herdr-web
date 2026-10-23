@@ -3,7 +3,7 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { useURL } from 'expo-linking';
 import { hydrateKv, initNativePlatform } from './platform.native';
 import { loadAsync as loadFonts } from 'expo-font';
-import { adoptDeepLink, adoptUrlSettings, loadSettings } from './settings-store';
+import { adoptDeepLink, adoptUrlSettings, loadServers } from './settings-store';
 import { currentTokens, initPrefs, pullPrefs, subscribePrefs } from './prefs';
 import { initUpdates } from './updates';
 import { RosterProvider } from './roster';
@@ -29,8 +29,7 @@ export function BootProvider({ children }: { children: ReactNode }) {
     (async () => {
       await hydrateKv();
       await adoptUrlSettings(); // ?server=&token= wins over stored settings
-      const s = await loadSettings();
-      initNativePlatform({ baseUrl: s.baseUrl, token: s.token || null });
+      initNativePlatform({ servers: await loadServers() });
       initPrefs(); // cached skin first; the server's answer lands when it lands
       initUpdates(); // OTA: quiet check now and on every foreground
       // bundled faces, a few hundred KB: wait rather than flash system type
@@ -40,13 +39,13 @@ export function BootProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const remount = useCallback(async () => {
-    const s = await loadSettings();
-    initNativePlatform({ baseUrl: s.baseUrl, token: s.token || null });
+    initNativePlatform({ servers: await loadServers() });
     void pullPrefs(); // a different daemon may dress differently
     setGen((g) => g + 1);
   }, []);
 
-  // capra://settings?server=…&token=… — QR onboarding / prod↔canary switch.
+  // capra://settings?server=…&token=…&name=… — QR onboarding; additive, so a
+  // second host's link joins the registry instead of replacing the first.
   // useURL covers both the cold-start URL and links tapped while running;
   // gated on ready so adoption always lands on hydrated storage. adoptDeepLink
   // returns false for unchanged values, so re-fires of the same URL are no-ops.

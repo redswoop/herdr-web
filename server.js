@@ -16,6 +16,7 @@ import {
 } from './lib/screen.js';
 import { PushStore, Coordinator } from './lib/notify.js';
 import { loadPrefs, savePrefs } from './lib/prefs.js';
+import { shortHost, resolveBindHost, publicUrl, capraLink } from './lib/host.js';
 
 // A stray rejection (e.g. a background refresh path that missed a catch) must
 // not kill a daemon whose whole job is staying up — log loudly and carry on.
@@ -31,8 +32,13 @@ const argOf = (name, dflt) => {
   return i !== -1 ? args[i + 1] : dflt;
 };
 const PORT = Number(argOf('--port', process.env.PORT ?? 7683));
-const HOST = argOf('--host', '0.0.0.0');
+// `auto` = the tailscale IP: tailnet-only, never the LAN (loopback if it's down)
+const HOST = await resolveBindHost(argOf('--host', '0.0.0.0'));
 const TOKEN = process.env.HERDR_WEB_TOKEN ?? null;
+// Identity for multi-host clients: the chip label, and where a phone reaches
+// us (tailscale serve HTTPS by default; --public-url for anything else).
+const HOSTNAME = await shortHost();
+const PUBLIC_URL = await publicUrl({ override: argOf('--public-url', null), host: HOST, port: PORT });
 
 // Build stamp: hash of the code THIS process loaded (public/ is read from disk
 // per-request, so only server-side files count). Shown in the UI header.
@@ -65,7 +71,7 @@ const coordinator = new Coordinator(
 
 // ---------- roster ----------
 
-let roster = { agents: [], workspaces: [], tabs: [], herdrDown: false, updatedAt: 0 };
+let roster = { agents: [], workspaces: [], tabs: [], herdrDown: false, updatedAt: 0, host: HOSTNAME };
 const rosterClients = new Set(); // SSE responses
 
 // paneId -> {status, at}: when this server last saw the pane's status flip.
@@ -202,9 +208,9 @@ async function doRefreshRoster() {
       // of a dozen heads/tails is cheap, so just drop the lot when it bloats
       if (describeCache.size > 4 * (agents.length + 8)) describeCache.clear();
     }
-    roster = { agents, workspaces, tabs, herdrDown: false, updatedAt: Date.now(), build: BUILD, bootedAt: BOOTED_AT };
+    roster = { agents, workspaces, tabs, herdrDown: false, updatedAt: Date.now(), build: BUILD, bootedAt: BOOTED_AT, host: HOSTNAME };
   } catch (e) {
-    roster = { agents: [], workspaces: [], tabs: [], herdrDown: true, error: String(e.message ?? e), updatedAt: Date.now(), build: BUILD, bootedAt: BOOTED_AT };
+    roster = { agents: [], workspaces: [], tabs: [], herdrDown: true, error: String(e.message ?? e), updatedAt: Date.now(), build: BUILD, bootedAt: BOOTED_AT, host: HOSTNAME };
   }
   const payload = `event: roster\ndata: ${JSON.stringify(roster)}\n\n`;
   for (const res of rosterClients) {
@@ -1463,7 +1469,35 @@ const server = http.createServer(async (req, res) => {
       checkAuth(req, res, url, { enforce: false }); // ?token= links still enroll the cookie
       return await serveStatic(url.pathname, res);
     }
+    // A multi-host web client runs from ONE server's origin and talks to the
+    // others cross-origin. Open CORS is safe here: the cookie is
+    // SameSite=Strict so it never rides along, and every cross-origin call
+    // has to carry ?token= — the same gate as any other caller.
+    if (req.headers.origin) {
+      res.setHeader('access-control-allow-origin', '*');
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204, {
+          'access-control-allow-methods': 'GET, POST, PUT, OPTIONS',
+          'access-control-allow-headers': 'content-type',
+          'access-control-max-age': '86400',
+        });
+        return res.end();
+      }
+    }
     if (!checkAuth(req, res, url)) return;
+
+    // Identity: what a multi-host client labels this server, and the one-tap
+    // capra:// enrolment link (the caller already holds the token it embeds).
+    if (req.method === 'GET' && seg[1] === 'whoami' && !seg[2]) {
+      return sendJson(res, 200, { host: HOSTNAME, publicUrl: PUBLIC_URL, build: BUILD, bootedAt: BOOTED_AT });
+    }
+    if (req.method === 'GET' && seg[1] === 'link' && !seg[2]) {
+      return sendJson(res, 200, {
+        host: HOSTNAME,
+        server: PUBLIC_URL,
+        link: capraLink({ server: PUBLIC_URL, token: TOKEN, name: HOSTNAME }),
+      });
+    }
 
     if (req.method === 'POST' && seg[1] === 'workspace' && seg[2] && seg[3]) {
       const workspaceId = decodeURIComponent(seg[2]);
@@ -1835,6 +1869,7 @@ async function serveStatic(pathname, res) {
 
 server.listen(PORT, HOST, () => {
   console.log(`herdr-web listening on http://${HOST}:${PORT}${TOKEN ? ' (token auth on)' : ''}`);
+  console.log(`  host ${HOSTNAME}, public ${PUBLIC_URL}; enrol a phone: npm run link (or GET /api/link)`);
   if (!TOKEN) {
     console.warn(
       'WARNING: HERDR_WEB_TOKEN unset — anyone who can reach this port can drive your agents and start new ones (including with --dangerously-skip-permissions).',

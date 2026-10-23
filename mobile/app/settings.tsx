@@ -13,14 +13,13 @@ import {
 } from 'react-native';
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
-import { useBoot } from '../src/boot';
 import { Screen } from '../src/cyber';
 import { palettesFor, type Theme } from '@herdr/shared/palettes';
 import { describeError, FONT_AREAS, FONT_MAX, FONT_MIN, FONT_STEP } from '@herdr/shared';
 import { paletteOf, setFont, setPalette, setTheme } from '../src/prefs';
 import { setAutocorrect, useAutocorrect } from '../src/device-prefs';
 import { checkForUpdate, restartForUpdate, updateInfo, updateReady } from '../src/updates';
-import { loadSettings, saveSettings } from '../src/settings-store';
+import { ServerList } from '../src/components/ServerList';
 import { alpha, useStyles, useTheme, type Tokens } from '../src/theme';
 
 const APP_VERSION = Constants.expoConfig?.version ?? '?';
@@ -28,101 +27,13 @@ const APP_VERSION = Constants.expoConfig?.version ?? '?';
 const BUILD_NUMBER = Constants.nativeBuildVersion ?? '';
 
 export default function SettingsScreen() {
-  const t = useTheme();
   const styles = useStyles(makeStyles);
   const router = useRouter();
-  const { remount } = useBoot();
-  const [baseUrl, setBaseUrl] = useState('');
-  const [token, setToken] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [ok, setOk] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    loadSettings().then((s) => {
-      setBaseUrl(s.baseUrl);
-      setToken(s.token);
-    });
-  }, []);
-
-  const probe = async () => {
-    const url = baseUrl.trim().replace(/\/$/, '');
-    const tok = token.trim();
-    // On web an empty URL is a real setting: relative /api against whatever
-    // origin served the page (the dev-origin proxy fronts both). Native has no
-    // origin to be relative to, so it still needs an absolute URL.
-    if (!url && Platform.OS !== 'web') {
-      setError('server URL is required');
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    setOk(null);
-    try {
-      const q = tok ? `?token=${encodeURIComponent(tok)}` : '';
-      const r = await fetch(`${url}/api/roster${q}`);
-      if (r.status === 401) {
-        setError("that token didn't match");
-        setBusy(false);
-        return;
-      }
-      if (!r.ok) throw new Error(r.statusText || `HTTP ${r.status}`);
-      await saveSettings({ baseUrl: url, token: tok });
-      await remount();
-      setOk('connected — roster looks good');
-      setTimeout(() => router.replace('/'), 300);
-    } catch (e) {
-      setError(describeError(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // web may legitimately run same-origin with an empty URL
-  const blocked = busy || (!baseUrl.trim() && Platform.OS !== 'web');
 
   return (
     <Screen>
     <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <Text style={styles.hint} allowFontScaling={false}>
-        Use your tailscale-serve HTTPS URL so ATS stays happy in release builds.
-      </Text>
-      <Text style={styles.label}>server URL</Text>
-      <TextInput
-        style={styles.input}
-        value={baseUrl}
-        onChangeText={setBaseUrl}
-        placeholder="https://stormer.….ts.net"
-        placeholderTextColor={t.colors.sub}
-        autoCapitalize="none"
-        autoCorrect={false}
-        autoComplete="off"
-        keyboardType="url"
-      />
-      <Text style={styles.label}>access token</Text>
-      <TextInput
-        style={styles.input}
-        value={token}
-        onChangeText={setToken}
-        placeholder="HERDR_WEB_TOKEN"
-        placeholderTextColor={t.colors.sub}
-        autoCapitalize="none"
-        autoCorrect={false}
-        secureTextEntry
-      />
-      {!!error && <Text style={styles.error}>{error}</Text>}
-      {!!ok && <Text style={styles.ok}>{ok}</Text>}
-      <Pressable
-        style={[styles.btn, blocked && styles.btnDisabled]}
-        disabled={blocked}
-        onPress={probe}
-      >
-        {busy ? (
-          <ActivityIndicator color={t.colors.accentInk} />
-        ) : (
-          <Text style={styles.btnText}>save & probe</Text>
-        )}
-      </Pressable>
+      <ServerList />
       <Appearance />
       <TextSize />
       <ComposerPrefs />

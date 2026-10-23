@@ -8,6 +8,7 @@ export * from './launcher';
 export * from './transcript';
 export {
   GROUP_MODES,
+  groupModesFor,
   STATUS_ORDER,
   STATUS_WORD,
   splitByTab,
@@ -28,7 +29,7 @@ export * from './session-reducer';
 export { parseMd, parseInlines, pathish, shed } from './md/parse';
 export type { Block, Inline, Align } from './md/parse';
 export { md, mdToHtml, esc } from './md/render-html';
-export { useRoster } from './hooks/useRoster';
+export { useRoster, hostUp } from './hooks/useRoster';
 export { useAgentSession, clearPaneMemory } from './hooks/useAgentSession';
 export { useBlockedContext } from './hooks/useBlockedContext';
 export { useAgentMode } from './hooks/useAgentMode';

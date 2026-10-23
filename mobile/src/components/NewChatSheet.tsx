@@ -28,7 +28,10 @@ import {
   destKey,
   errorOf,
   get,
+  getServers,
+  hostOf,
   initialDest,
+  joinHost,
   lastKind,
   lastMode,
   placeDest,
@@ -36,6 +39,7 @@ import {
   rememberKind,
   rememberMode,
   shortPath,
+  splitHost,
   type AgentKind,
   type Dest,
   type Place,
@@ -55,7 +59,7 @@ import { Icon } from './Icon';
 type Session = SessionEntry & { dir: string; kind: string };
 
 export function NewChatSheet({
-  roster,
+  roster: fullRoster,
   target,
   onClose,
   onCreated,
@@ -68,6 +72,26 @@ export function NewChatSheet({
 }) {
   const t = useTheme();
   const styles = useStyles(makeStyles);
+  // which box: pre-aimed by the target (a space's ＋ carries its host in the
+  // id, a host group's ＋ names it), else the primary. Everything below —
+  // places, kinds, sessions, the POST — is that server's.
+  const servers = getServers();
+  const [host, setHost] = useState<string>(
+    () => target?.host ?? hostOf(target?.workspaceId) ?? servers[0]?.id ?? '',
+  );
+  const hostRoster = useMemo<Roster>(
+    () =>
+      servers.length > 1
+        ? {
+            ...fullRoster,
+            agents: fullRoster.agents.filter((a) => (a.host ?? '') === host),
+            workspaces: (fullRoster.workspaces ?? []).filter((w) => (w.host ?? '') === host),
+            tabs: (fullRoster.tabs ?? []).filter((x) => (x.host ?? '') === host),
+          }
+        : fullRoster,
+    [fullRoster, host, servers.length],
+  );
+  const roster = hostRoster;
   const [kinds, setKinds] = useState<AgentKind[] | null>(null);
   const [kind, setKind] = useState('');
   const [projects, setProjects] = useState<Project[] | null>(null);
@@ -92,7 +116,11 @@ export function NewChatSheet({
 
   useEffect(() => {
     let alive = true;
-    get('/api/kinds')
+    setKinds(null);
+    setProjects(null);
+    setWorktrees({});
+    setSessions({});
+    get('/api/kinds', host)
       .then((r) => r.json())
       .then((j: { kinds: AgentKind[] }) => {
         if (!alive) return;
@@ -109,14 +137,14 @@ export function NewChatSheet({
         );
       })
       .catch(() => alive && setError("couldn't load agent kinds"));
-    get('/api/projects')
+    get('/api/projects', host)
       .then((r) => r.json())
       .then((j: { projects: Project[] }) => alive && setProjects(j.projects))
       .catch(() => alive && setProjects([]));
     return () => {
       alive = false;
     };
-  }, []);
+  }, [host]);
 
   // each kind remembers its own last permission mode
   useEffect(() => {
@@ -130,7 +158,7 @@ export function NewChatSheet({
     if (!next) return;
     if (p.repo && worktrees[p.path] === undefined) {
       setWorktrees((w) => ({ ...w, [p.path]: null }));
-      get(`/api/worktrees?cwd=${encodeURIComponent(p.path)}`)
+      get(`/api/worktrees?cwd=${encodeURIComponent(p.path)}`, host)
         .then((r) => (r.ok ? r.json() : Promise.reject()))
         .then((j: { worktrees: WorktreeEntry[] }) => setWorktrees((w) => ({ ...w, [p.path]: j.worktrees })))
         .catch(() => setWorktrees((w) => ({ ...w, [p.path]: [] })));
@@ -140,7 +168,7 @@ export function NewChatSheet({
       Promise.all(
         p.dirs.flatMap((d) =>
           RESUME_KINDS.map((k) =>
-            get(`/api/sessions?cwd=${encodeURIComponent(d)}&kind=${k}`)
+            get(`/api/sessions?cwd=${encodeURIComponent(d)}&kind=${k}`, host)
               .then((r) => (r.ok ? r.json() : Promise.reject()))
               .then((j: { sessions: SessionEntry[] }) => j.sessions.map((s) => ({ ...s, dir: d, kind: k })))
               .catch(() => [] as Session[]),
@@ -179,14 +207,16 @@ export function NewChatSheet({
     setBusy(true);
     setError(null);
     try {
-      const r = await post('/api/chats', body);
+      // the server knows its own ids bare — the @host suffix is ours
+      if (body.workspaceId) body.workspaceId = splitHost(body.workspaceId).local;
+      const r = await post('/api/chats', body, host);
       if (!r.ok) throw new Error(await errorOf(r));
       rememberKind(effKind);
       if (MODE_KINDS.includes(effKind)) rememberMode(effKind, spawnMode);
       const { paneId } = (await r.json()) as { paneId: string };
-      onCreated(paneId);
+      onCreated(joinHost(paneId, host));
     } catch (e) {
-      setError(describeError(e));
+      setError(describeError(e, host));
       setBusy(false);
     }
   };
@@ -227,7 +257,7 @@ export function NewChatSheet({
         {list.map((s) => {
           const label = s.title ?? s.firstPrompt ?? s.sessionId.slice(0, 8);
           return s.livePaneId ? (
-            <Pressable key={s.sessionId} style={styles.dest} onPress={() => onCreated(s.livePaneId!)}>
+            <Pressable key={s.sessionId} style={styles.dest} onPress={() => onCreated(joinHost(s.livePaneId!, host))}>
               <Icon name="history" size={13} color={t.colors.sub} />
               <Text style={styles.destLabel} numberOfLines={1}>
                 {label}
@@ -320,6 +350,27 @@ export function NewChatSheet({
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        {/* which box, first — the places below belong to it */}
+        {servers.length > 1 && (
+          <View style={styles.kindRow}>
+            {servers.map((s) => (
+              <Pressable
+                key={s.id}
+                style={[styles.seg, host === s.id && styles.segOn]}
+                onPress={() => {
+                  if (host === s.id) return;
+                  setHost(s.id);
+                  setDest({ type: 'path' });
+                  setPicking(true);
+                  setOpenPlace(null);
+                }}
+                accessibilityState={{ selected: host === s.id }}
+              >
+                <Text style={[styles.segText, host === s.id && styles.segTextOn]}>{s.name || s.id}</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
         {/* where: the pick, as one row; tap to change */}
         <Pressable style={[styles.where, picking && styles.whereOpen]} onPress={() => setPicking((v) => !v)}>
           <Brackets color={picking ? t.colors.accent : alpha(t.colors.accent, 0.5)} />

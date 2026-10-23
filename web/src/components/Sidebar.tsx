@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   GROUP_MODES,
+  groupModesFor,
   buildGroups,
   chipName,
   dominant,
@@ -233,7 +234,7 @@ export function Sidebar({
           <>
             <div className="pop-backdrop" onClick={() => setModesOpen(false)} />
             <div className="mode-pop" role="menu">
-              {GROUP_MODES.map((m) => (
+              {groupModesFor(roster.hosts?.length ?? 1).map((m) => (
                 <button
                   key={m.key}
                   role="menuitemradio"
@@ -315,6 +316,7 @@ const MODE_DESC: Record<GroupBy, string> = {
   project: 'git repo / folder',
   agent: 'claude, grok, pi, codex…',
   status: 'needs you · working · idle',
+  host: 'which machine (multi-host only)',
 };
 
 function SessionChip({

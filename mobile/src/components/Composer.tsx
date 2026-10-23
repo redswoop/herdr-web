@@ -20,6 +20,7 @@ import {
   errorOf,
   getPlatform,
   post,
+  hostOf,
   type RestoredDraft,
 } from '@herdr/shared';
 import { fileRawUrl } from '../api-urls';
@@ -99,11 +100,12 @@ function persistAtts(paneId: string, atts: Attachment[]) {
   else getPlatform().kv.remove(attKey(paneId));
 }
 
-async function uploadBytes(uri: string, mime: string): Promise<string> {
+// the bytes land on the server the pane runs on — that's the disk its agent reads
+async function uploadBytes(uri: string, mime: string, host: string | null): Promise<string> {
   const src = await fetch(uri);
   if (!src.ok) throw new Error('could not read file');
   const body = await src.arrayBuffer();
-  const r = await fetch(apiUrl('/api/upload'), {
+  const r = await fetch(apiUrl('/api/upload', host), {
     method: 'POST',
     headers: { 'content-type': mime || 'application/octet-stream' },
     body,
@@ -220,7 +222,7 @@ export function Composer({
     const pane = paneId;
     const id = nextAttId++;
     setAtts((cur) => [...cur, { id, path: null, uri, kind, name }]);
-    uploadBytes(uri, mime).then(
+    uploadBytes(uri, mime, hostOf(paneId)).then(
       (path) =>
         mutateAtts(pane, (cur) =>
           cur.some((a) => a.id === id)

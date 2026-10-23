@@ -1,9 +1,12 @@
 export type AgentStatus = 'blocked' | 'working' | 'idle' | 'done' | 'unknown';
 
 export interface Agent {
+  /** herdr pane id; `w19:p1@blackstar` when it lives on a non-primary server (see api.splitHost) */
   paneId: string;
   workspaceId: string;
   tabId: string;
+  /** registry id of the server this came from ('' = web's own origin); set by useRoster */
+  host?: string;
   agent: string;
   /** herdr's pretty name for the agent binary (e.g. "Claude Code") */
   displayAgent: string | null;
@@ -33,6 +36,7 @@ export interface Agent {
 
 export interface Workspace {
   workspaceId: string;
+  host?: string;
   number: number;
   label: string;
   focused: boolean;
@@ -49,6 +53,7 @@ export interface Workspace {
 export interface Tab {
   tabId: string;
   workspaceId: string;
+  host?: string;
   number: number;
   /** herdr's display label — the tab's position number unless renamed */
   label: string;
@@ -123,6 +128,37 @@ export interface Roster {
   updatedAt: number;
   build?: string;
   bootedAt?: string;
+  /** the server's own short name (its MagicDNS label) */
+  host?: string;
+  /** merged rosters only: one entry per registered server (useRoster) */
+  hosts?: HostState[];
+}
+
+/** One registered server's link, as the merged roster reports it. */
+export interface HostState {
+  id: string;
+  name: string;
+  primary: boolean;
+  /** its roster stream is up */
+  connected: boolean;
+  /** it answered 401 — token missing or rotated */
+  authNeeded: boolean;
+  /** the server is up but its herdr isn't */
+  herdrDown: boolean;
+  error?: string;
+  /** its last roster's server-side stamp (0 = never heard from it) */
+  updatedAt: number;
+  /** client clock when we last applied a roster from it */
+  syncedAt: number;
+  build?: string;
+}
+
+/** GET /api/whoami */
+export interface WhoAmI {
+  host: string;
+  publicUrl: string;
+  build: string;
+  bootedAt: string;
 }
 
 export type EventKind =

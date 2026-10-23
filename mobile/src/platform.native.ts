@@ -4,7 +4,7 @@ import { AppState, type AppStateStatus, Alert } from 'react-native';
 import EventSource from 'react-native-sse';
 import type { Platform, SseClient } from '@herdr/shared/platform';
 import { setPlatform } from '@herdr/shared/platform';
-import { configureApi } from '@herdr/shared/api';
+import { configureServers, type ServerConf } from '@herdr/shared/api';
 
 /** In-memory kv hydrated from AsyncStorage before root UI mounts. */
 const mem = new Map<string, string>();
@@ -93,8 +93,8 @@ NetInfo.addEventListener((state) => {
   for (const cb of linkSubs) cb(up);
 });
 
-export function initNativePlatform(opts: { baseUrl: string; token: string | null }): void {
-  configureApi({ baseUrl: opts.baseUrl, token: opts.token });
+export function initNativePlatform(opts: { servers: ServerConf[] }): void {
+  configureServers(opts.servers);
 
   const platform: Platform = {
     openSse,

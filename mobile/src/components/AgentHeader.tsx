@@ -10,6 +10,8 @@ import {
   MODE_LABEL,
   MODE_ORDER,
   chipName,
+  getServers,
+  hostName,
   type Agent,
   type AgentStatus,
   type ModeState,
@@ -20,7 +22,7 @@ import { FlickerIn, Glitch, RailPacket, Scramble, StatusDot } from '../cyber-fx'
 import { alpha, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 
-const shortPath = (p: string) => p.replace(/^\/home\/[^/]+/, '~');
+const shortPath = (p: string) => p.replace(/^\/(?:home|Users)\/[^/]+/, '~');
 
 export function AgentHeader({
   paneId,
@@ -77,7 +79,11 @@ export function AgentHeader({
           </Glitch>
           {!!agent && (
             <Text style={styles.sub} numberOfLines={1}>
-              {[agent.displayAgent ?? agent.agent, agent.cwd ? shortPath(agent.cwd) : null]
+              {[
+                getServers().length > 1 ? hostName(agent.host) : null,
+                agent.displayAgent ?? agent.agent,
+                agent.cwd ? shortPath(agent.cwd) : null,
+              ]
                 .filter(Boolean)
                 .join(' · ')}
             </Text>
