@@ -18,6 +18,7 @@ import {
   chipName,
   getPlatform,
   groupModesFor,
+  hostColor,
   hostName,
   hostOf,
   type Agent,
@@ -295,6 +296,9 @@ export default function RosterScreen() {
                     size={16}
                     color={t.colors.sub}
                   />
+                  {groupBy === 'host' && (
+                    <View style={[styles.hostSwatch, { backgroundColor: hostColor(g.spawn?.host) }]} />
+                  )}
                   <Text style={styles.sectionTitle} numberOfLines={1}>
                     {t.cyber && <Text style={styles.slash}>{'// '}</Text>}
                     <Scramble>{g.title}</Scramble>
@@ -335,6 +339,8 @@ export default function RosterScreen() {
             const labels = Object.entries(a.stateLabels ?? {});
             const showAgent = groupBy !== 'agent';
             const showHost = multiHost && groupBy !== 'host';
+            const host = hostOf(a.paneId) ?? a.host;
+            const hColor = hostColor(host);
             const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
             return (
               <FlickerIn delay={index * 45}>
@@ -344,6 +350,8 @@ export default function RosterScreen() {
                 onLongPress={() => agentMenu(a, { onOpen: () => router.push(`/agent/${encodeURIComponent(a.paneId)}`) })}
                 delayLongPress={350}
               >
+                {/* the host's colour down the left edge: which box, at a glance */}
+                {multiHost && <View style={[styles.hostStripe, { backgroundColor: hColor }]} />}
                 <StatusDot status={a.status} size={10} />
                 <View style={styles.rowBody}>
                   <View style={styles.rowTitleRow}>
@@ -353,11 +361,11 @@ export default function RosterScreen() {
                     {a.focused ? <Icon name="focus" size={13} color={t.colors.accent} /> : null}
                   </View>
                   <Text style={styles.rowSub} numberOfLines={1}>
-                    {[
-                      showHost ? hostName(hostOf(a.paneId) ?? a.host) : null,
-                      showAgent ? a.displayAgent ?? a.agent ?? '?' : null,
-                      a.cwd ? basename(a.cwd) : null,
-                    ]
+                    {showHost && (
+                      <Text style={[styles.hostChip, { color: hColor }]}>{hostName(host)}</Text>
+                    )}
+                    {showHost && ' · '}
+                    {[showAgent ? a.displayAgent ?? a.agent ?? '?' : null, a.cwd ? basename(a.cwd) : null]
                       .filter(Boolean)
                       .join(' · ')}
                   </Text>
@@ -565,6 +573,9 @@ const makeStyles = (t: Tokens) =>
     overflow: 'hidden',
   },
   rowBlocked: { backgroundColor: alpha(t.colors.blocked, 0.1), borderLeftColor: t.colors.blocked },
+  hostStripe: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, opacity: 0.9 },
+  hostChip: { ...t.font(t.cyber ? 'mono' : 'ui', '700') },
+  hostSwatch: { width: 10, height: 10, borderRadius: t.r(5), marginRight: 2 },
   rowBody: { flex: 1, minWidth: 0 },
   rowTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   rowTitle: { color: t.colors.text, fontSize: t.sz('ui', 15), ...t.font('ui', '600'), flexShrink: 1, ...t.phosphor },

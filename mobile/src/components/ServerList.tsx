@@ -6,10 +6,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
-import { describeError, type ServerConf, type WhoAmI } from '@herdr/shared';
+import { HOST_PALETTE, describeError, hostColor, type ServerConf, type WhoAmI } from '@herdr/shared';
 import { useBoot } from '../boot';
 import { useRoster } from '../roster';
-import { loadServers, makePrimary, removeServer, renameServer, upsertServer } from '../settings-store';
+import { loadServers, makePrimary, removeServer, renameServer, setServerColor, upsertServer } from '../settings-store';
 import { looksLikeCapraLink, parseCapraLink } from '../capra-link';
 import { alpha, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
@@ -133,6 +133,17 @@ export function ServerList() {
           void Share.share({ message: `capra://settings?${p.toString()}` });
         },
       },
+      {
+        text: 'colour',
+        onPress: () =>
+          Alert.alert(`${s.name} colour`, 'on its rows, chips and cards', [
+            ...HOST_PALETTE.map((c) => ({
+              text: `${c.hex === (s.color ?? hostColor(s.id)) ? '● ' : ''}${c.key}`,
+              onPress: () => void apply(() => setServerColor(s.id, c.hex)),
+            })),
+            { text: 'cancel', style: 'cancel' as const },
+          ]),
+      },
       ...(primary ? [] : [{ text: 'make primary', onPress: () => void apply(() => makePrimary(s.id)) }]),
       {
         text: 'remove',
@@ -156,9 +167,11 @@ export function ServerList() {
         const ok = !!h?.connected && !h.herdrDown;
         return (
           <Pressable key={s.id} style={styles.row} onPress={() => menu(s)} onLongPress={() => menu(s)}>
-            <View style={[styles.dot, ok ? styles.dotOk : h?.authNeeded ? styles.dotBad : null]} />
+            <View style={[styles.swatch, { backgroundColor: s.color ?? hostColor(s.id) }]}>
+              <View style={[styles.dot, ok ? styles.dotOk : h?.authNeeded ? styles.dotBad : null]} />
+            </View>
             <View style={styles.rowBody}>
-              <Text style={styles.rowName} numberOfLines={1}>
+              <Text style={[styles.rowName, { color: s.color ?? hostColor(s.id) }]} numberOfLines={1}>
                 {s.name}
                 {i === 0 && list.length > 1 ? <Text style={styles.primary}>  primary</Text> : null}
               </Text>
@@ -248,7 +261,9 @@ const makeStyles = (t: Tokens) =>
     rowName: { ...t.font('ui', '600'), color: t.colors.text, fontSize: t.sz('ui', 15) },
     primary: { ...t.font('ui'), ...t.hud, color: t.colors.accent, fontSize: t.sz('ui', 11) },
     rowSub: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: t.sz('ui', 12), marginTop: 2 },
-    dot: { ...t.dot(8), backgroundColor: t.colors.sub },
+    // the host's colour as a tile, the link state as the dot inside it
+    swatch: { width: 22, height: 22, borderRadius: t.r(6), alignItems: 'center', justifyContent: 'center', opacity: 0.95 },
+    dot: { ...t.dot(8), backgroundColor: t.colors.sub, borderWidth: 1, borderColor: 'rgba(0,0,0,0.35)' },
     dotOk: { backgroundColor: t.colors.done, ...t.boxGlow(t.colors.done, 9) },
     dotBad: { backgroundColor: t.colors.blocked, ...t.boxGlow(t.colors.blocked, 9) },
     addRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, paddingHorizontal: 4 },

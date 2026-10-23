@@ -29,6 +29,7 @@ import {
   errorOf,
   get,
   getServers,
+  hostColor,
   hostOf,
   initialDest,
   joinHost,
@@ -356,7 +357,11 @@ export function NewChatSheet({
             {servers.map((s) => (
               <Pressable
                 key={s.id}
-                style={[styles.seg, host === s.id && styles.segOn]}
+                style={[
+                  styles.seg,
+                  host === s.id && styles.segOn,
+                  host === s.id && { borderColor: hostColor(s.id), backgroundColor: alpha(hostColor(s.id), 0.16) },
+                ]}
                 onPress={() => {
                   if (host === s.id) return;
                   setHost(s.id);
@@ -366,7 +371,8 @@ export function NewChatSheet({
                 }}
                 accessibilityState={{ selected: host === s.id }}
               >
-                <Text style={[styles.segText, host === s.id && styles.segTextOn]}>{s.name || s.id}</Text>
+                <View style={[styles.hostDot, { backgroundColor: hostColor(s.id) }]} />
+                <Text style={[styles.segText, host === s.id && styles.segTextOn, host === s.id && { color: hostColor(s.id) }]}>{s.name || s.id}</Text>
               </Pressable>
             ))}
           </View>
@@ -675,6 +681,7 @@ const makeStyles = (t: Tokens) =>
     segOn: t.cyber
       ? { borderColor: t.colors.accent, backgroundColor: alpha(t.colors.accent, 0.16), ...t.boxGlow(t.colors.accent, 14) }
       : { borderColor: t.colors.accent, backgroundColor: t.colors.surface2 },
+    hostDot: { width: 8, height: 8, borderRadius: t.r(4), marginRight: 6 },
     segText: { color: t.colors.text, ...t.font('ui', '600'), ...t.hud, fontSize: t.cyber ? 12 : 14 },
     segTextOn: { color: t.colors.accent, ...t.glow(t.colors.accent, 8) },
 

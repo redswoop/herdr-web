@@ -109,3 +109,17 @@ describe('multi-host routing', () => {
     expect(hostName(null)).toBe('stormer');
   });
 });
+
+describe('host colours', () => {
+  it('uses the stored pick, else the palette by position', async () => {
+    const { HOST_PALETTE, hostColor } = await import('../src/api');
+    configureServers([
+      { id: 'stormer', name: 'stormer', baseUrl: 'https://stormer.ts.net', token: null },
+      { id: 'blackstar', name: 'blackstar', baseUrl: 'https://blackstar.ts.net', token: null, color: '#123456' },
+    ]);
+    expect(hostColor(null)).toBe(HOST_PALETTE[0]!.hex);
+    expect(hostColor('stormer')).toBe(HOST_PALETTE[0]!.hex);
+    expect(hostColor('blackstar')).toBe('#123456');
+    expect(hostColor('nope')).toBe(HOST_PALETTE[0]!.hex); // unknown → primary
+  });
+});

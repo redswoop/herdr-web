@@ -11,6 +11,10 @@ import {
 import {
   STATUS_WORD,
   chipName,
+  getServers,
+  hostColor,
+  hostName,
+  hostOf,
   type Agent,
   type Roster,
   type SpawnTarget,
@@ -29,13 +33,15 @@ const STATUS_ORDER: Record<string, number> = {
 };
 
 const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
-const shortPath = (p: string) => p.replace(/^\/home\/[^/]+/, '~');
+const shortPath = (p: string) => p.replace(/^\/(?:home|Users)\/[^/]+/, '~');
 
 interface Card {
   key: string;
   title: string;
   path: string | null;
   repo: boolean;
+  /** server id (null = primary); the same path on two boxes is two cards */
+  host: string | null;
   agents: Agent[];
   spawn?: SpawnTarget;
 }
@@ -43,12 +49,15 @@ interface Card {
 function buildCards(roster: Roster): Card[] {
   const cards = new Map<string, Card>();
   for (const a of roster.agents) {
-    const key = a.repoRoot ?? a.cwd ?? 'nowhere';
+    const place = a.repoRoot ?? a.cwd ?? 'nowhere';
+    const host = hostOf(a.paneId) ?? a.host ?? null;
+    const key = host ? `${place}@${host}` : place;
     const c = cards.get(key) ?? {
       key,
-      title: key === 'nowhere' ? 'no project' : basename(key),
-      path: key === 'nowhere' ? null : key,
-      repo: a.repoRoot === key,
+      title: place === 'nowhere' ? 'no project' : basename(place),
+      path: place === 'nowhere' ? null : place,
+      repo: a.repoRoot === place,
+      host,
       agents: [],
     };
     c.agents.push(a);
@@ -62,7 +71,7 @@ function buildCards(roster: Roster): Card[] {
       const counts = new Map<string, number>();
       for (const a of c.agents) counts.set(a.workspaceId, (counts.get(a.workspaceId) ?? 0) + 1);
       const top = [...counts.entries()].sort((x, y) => y[1] - x[1])[0]?.[0];
-      c.spawn = { cwd: c.path, workspaceId: top };
+      c.spawn = { cwd: c.path, workspaceId: top, ...(c.host ? { host: c.host } : {}) };
     }
   }
   return [...cards.values()].sort(
@@ -90,6 +99,7 @@ export function Overview({
   const styles = useStyles(makeStyles);
 
   const cards = useMemo(() => buildCards(roster), [roster]);
+  const multiHost = getServers().length > 1;
 
   const blocked = roster.agents.filter((a) => a.status === 'blocked').length;
   const working = roster.agents.filter((a) => a.status === 'working').length;
@@ -121,6 +131,7 @@ export function Overview({
       {cards.map((c) => (
         <View key={c.key} style={styles.card}>
           <Brackets />
+          {multiHost && <View style={[styles.hostStripe, { backgroundColor: hostColor(c.host) }]} />}
           <View style={styles.cardHead}>
             <View style={styles.cardTitleRow}>
               {c.repo ? (
@@ -129,6 +140,11 @@ export function Overview({
               <Scramble style={styles.cardTitle} numberOfLines={1}>
                 {c.title}
               </Scramble>
+              {multiHost && (
+                <Text style={[styles.hostChip, { color: hostColor(c.host) }]} numberOfLines={1}>
+                  {hostName(c.host)}
+                </Text>
+              )}
             </View>
             {!!c.path && (
               <Text style={styles.cardPath} numberOfLines={1}>
@@ -194,6 +210,8 @@ const makeStyles = (t: Tokens) =>
     ...(t.cyber ? { boxShadow: `inset 0 1px 30px -12px ${alpha(t.colors.red, 0.35)}` } : {}),
   },
   cardHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  hostStripe: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, opacity: 0.9, borderTopLeftRadius: t.radius.md, borderBottomLeftRadius: t.radius.md },
+  hostChip: { ...t.font(t.cyber ? 'mono' : 'ui', '700'), ...t.hud, fontSize: t.sz('ui', 11), flexShrink: 0 },
   cardTitleRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
   cardTitle: t.cyber
     ? { color: t.colors.red, ...t.font('display', '700'), fontSize: t.sz('ui', 12), letterSpacing: 1.5, textTransform: 'uppercase', flexShrink: 1 }

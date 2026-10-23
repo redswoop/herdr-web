@@ -11,6 +11,7 @@ import {
   MODE_ORDER,
   chipName,
   getServers,
+  hostColor,
   hostName,
   type Agent,
   type AgentStatus,
@@ -79,11 +80,11 @@ export function AgentHeader({
           </Glitch>
           {!!agent && (
             <Text style={styles.sub} numberOfLines={1}>
-              {[
-                getServers().length > 1 ? hostName(agent.host) : null,
-                agent.displayAgent ?? agent.agent,
-                agent.cwd ? shortPath(agent.cwd) : null,
-              ]
+              {getServers().length > 1 && (
+                <Text style={{ color: hostColor(agent.host), fontWeight: '700' }}>{hostName(agent.host)}</Text>
+              )}
+              {getServers().length > 1 && ' · '}
+              {[agent.displayAgent ?? agent.agent, agent.cwd ? shortPath(agent.cwd) : null]
                 .filter(Boolean)
                 .join(' · ')}
             </Text>

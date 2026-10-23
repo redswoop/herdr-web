@@ -15,7 +15,24 @@ export interface ServerConf {
   /** '' on web = relative to the page origin */
   baseUrl: string;
   token: string | null;
+  /** the host's colour on chips/stripes; absent = palette by position */
+  color?: string | null;
 }
+
+/**
+ * Host colours: deliberately off the status colours (blocked/working/done)
+ * so a stripe never reads as a state. Picked to carry on both skins.
+ */
+export const HOST_PALETTE: { key: string; hex: string }[] = [
+  { key: 'violet', hex: '#bb9af7' },
+  { key: 'orange', hex: '#ff9e64' },
+  { key: 'teal', hex: '#2ac3de' },
+  { key: 'magenta', hex: '#ff79c6' },
+  { key: 'lime', hex: '#b9f27c' },
+  { key: 'sky', hex: '#7dcfff' },
+  { key: 'coral', hex: '#ff7a59' },
+  { key: 'mint', hex: '#73daca' },
+];
 
 const normBase = (u: string) => u.trim().replace(/\/$/, '');
 
@@ -77,6 +94,14 @@ export function serverFor(host: string | null | undefined): ServerConf | undefin
 export function hostName(host: string | null | undefined): string {
   const s = serverFor(host);
   return s?.name || s?.id || '';
+}
+
+/** The colour for a host id: its stored pick, else the palette by position. */
+export function hostColor(host: string | null | undefined): string {
+  const s = serverFor(host);
+  if (s?.color) return s.color;
+  const i = Math.max(0, servers.indexOf(s as ServerConf));
+  return HOST_PALETTE[i % HOST_PALETTE.length]!.hex;
 }
 
 /** Which registry entry an absolute URL points at (longest baseUrl prefix). */

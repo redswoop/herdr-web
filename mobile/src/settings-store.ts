@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 import * as ExpoLinking from 'expo-linking';
 import * as SecureStore from 'expo-secure-store';
-import type { ServerConf } from '@herdr/shared';
+import { HOST_PALETTE, type ServerConf } from '@herdr/shared';
 
 /** The server registry (PLAN-MULTIHOST.md): one JSON blob, tokens inside,
  *  so it lives in the keychain like the single token used to. */
@@ -47,6 +47,12 @@ export function slugFor(name: string | null | undefined, baseUrl: string): strin
   return s || 'host';
 }
 
+/** First palette colour nobody in the list has yet (wraps when all are taken). */
+export function freeColor(taken: ServerConf[]): string {
+  const used = new Set(taken.map((s) => s.color));
+  return (HOST_PALETTE.find((c) => !used.has(c.hex)) ?? HOST_PALETTE[taken.length % HOST_PALETTE.length]!).hex;
+}
+
 const uniqueId = (want: string, taken: ServerConf[], except?: ServerConf): string => {
   let id = want;
   for (let n = 2; taken.some((s) => s !== except && s.id === id); n++) id = `${want}-${n}`;
@@ -59,9 +65,16 @@ export async function loadServers(): Promise<ServerConf[]> {
     try {
       const j = JSON.parse(raw) as unknown;
       if (Array.isArray(j)) {
-        return j
+        const list: ServerConf[] = j
           .filter((s): s is ServerConf => !!s && typeof s === 'object' && typeof (s as ServerConf).baseUrl === 'string')
-          .map((s) => ({ id: String(s.id || slugFor(s.name, s.baseUrl)), name: String(s.name || s.id || ''), baseUrl: normUrl(s.baseUrl), token: s.token || null }));
+          .map((s) => ({ id: String(s.id || slugFor(s.name, s.baseUrl)), name: String(s.name || s.id || ''), baseUrl: normUrl(s.baseUrl), token: s.token || null, color: s.color || null }));
+        // entries from before host colours: pick one each and keep it, so a
+        // later "make primary" doesn't reshuffle what the eye has learned
+        if (list.some((s) => !s.color)) {
+          for (const s of list) if (!s.color) s.color = freeColor(list);
+          await saveServers(list);
+        }
+        return list;
       }
     } catch {
       /* fall through to legacy */
@@ -70,7 +83,7 @@ export async function loadServers(): Promise<ServerConf[]> {
   // first run after the multi-host update: the single server becomes the primary
   const [url, token] = await Promise.all([store.get(LEGACY_URL_KEY), store.get(LEGACY_TOKEN_KEY)]);
   if (url) {
-    const one: ServerConf = { id: slugFor(null, url), name: slugFor(null, url), baseUrl: normUrl(url), token: token || null };
+    const one: ServerConf = { id: slugFor(null, url), name: slugFor(null, url), baseUrl: normUrl(url), token: token || null, color: freeColor([]) };
     await saveServers([one]);
     await Promise.all([store.del(LEGACY_URL_KEY), store.del(LEGACY_TOKEN_KEY)]);
     return [one];
@@ -112,7 +125,7 @@ export async function upsertServer(input: {
     return { server: next, changed };
   }
   const name = input.name?.trim() || slugFor(null, baseUrl);
-  const server: ServerConf = { id: uniqueId(slugFor(name, baseUrl), list), name, baseUrl, token: input.token || null };
+  const server: ServerConf = { id: uniqueId(slugFor(name, baseUrl), list), name, baseUrl, token: input.token || null, color: freeColor(list) };
   await saveServers([...list, server]);
   return { server, changed: true };
 }
@@ -128,6 +141,11 @@ export async function makePrimary(id: string): Promise<void> {
   const s = list.find((x) => x.id === id);
   if (!s) return;
   await saveServers([s, ...list.filter((x) => x !== s)]);
+}
+
+export async function setServerColor(id: string, color: string): Promise<void> {
+  const list = await loadServers();
+  await saveServers(list.map((s) => (s.id === id ? { ...s, color } : s)));
 }
 
 export async function renameServer(id: string, name: string): Promise<void> {
