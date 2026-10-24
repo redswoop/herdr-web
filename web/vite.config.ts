@@ -1,3 +1,4 @@
+import os from 'node:os';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
@@ -11,7 +12,7 @@ export default defineConfig({
   server: {
     port: 5174,
     // dev is reached by LAN/tailnet hostname, not localhost
-    allowedHosts: ['stormer', '.ts.net'],
+    allowedHosts: [os.hostname().split('.')[0], '.ts.net'],
     fs: { allow: ['..'] },
     // HERDR_API_PROXY overrides the live daemon for Playwright / mock e2e.
     proxy: { '/api': process.env.HERDR_API_PROXY || 'http://localhost:7683' },

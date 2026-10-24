@@ -20,13 +20,13 @@ chamfers (Skia clip, not started), alternate app icon / splash on cyber,
 ticker and scramble text, and an on-device perf read of the rain behind a
 scrolling transcript. Below is the original plan as drafted on 10-19.
 
-**2026-10-20 (daytime, from Armen's first real use of build 19):** six more
+**2026-10-20 (daytime, from the first real use of build 19):** six more
 builds. `0897a1a` composer growth (Yoga-sized, no pinned height — Fabric
 stalls it). `0ac7b16` transcript window: `GET /transcript?tail=N&end=I`
 turn-aligned, tool results clipped server-side to the 20k the UIs show (a
 14 MB pane became 234 KB; web gets the lighter payload too), Capra opens
 with 120 events and pages back on scroll (`34887c1`). `66df1f8` the
-Dynamic Type clip: Armen's phone is at text size Extra Large; a lineHeight
+Dynamic Type clip: the test phone is at text size Extra Large; a lineHeight
 Text under RN scaling clipped its last line — `t.px()` + allowFontScaling
 off (rule in theme.ts). `34887c1`/`32cc1da` motion diet: perpetual
 Reanimated loops cost ~20% of a core idle (packets, not the rain); packets
@@ -106,10 +106,10 @@ notify.test.mjs ordering flake.
 
 ## Plan
 
-Effort is in "sessions": one focused Claude loop with Armen testing on the phone between rounds, roughly a half-day. Dev loop stays Linux: `npm run dev:mobile` over the tailnet into the existing SDK-57 dev client.
+Effort is in "sessions": one focused Claude loop with a human testing on the phone between rounds, roughly a half-day. Dev loop stays Linux: `npm run dev:mobile` over the tailnet into the existing SDK-57 dev client.
 
 ### Phase 0 — the black box and the build pipeline (1–2 sessions, blocks everything)
-Armen opened Capra on 2026-10-19 and this session rendered as a big empty box. **Found and fixed the same day** (commit after 75cd525):
+Opening Capra on 2026-10-19, this session rendered as a big empty box. **Found and fixed the same day** (commit after 75cd525):
 - **Root cause:** a `ScrollView` nested inside a FlatList cell under Fabric (RN 0.86). MdView rendered code blocks and tables in `ScrollView horizontal`; once the list re-lays out (every SSE batch), the Yoga height of every ancestor View of that ScrollView grows without bound (the 648-char reply measured 106k → 144k → 380k pt while its three blocks stayed at 372 pt), so the bubble draws as a giant blank box and neighbours overlap it. Nothing to do with Text size: the layer-cap and selectable-renderer theories were both wrong, and the inline-span suspects (code-span background, `monospace`, lineHeight, span count) all drew fine.
 - **Fix:** no ScrollView in MdView at all. Code lines wrap (Menlo on iOS via `Platform.select`, since `monospace` is not an iOS family), tables are a flex grid. Ruled out as fixes in the replay: `inverted` off, `maintainVisibleContentPosition` off, `gap`→margin, `nestedScrollEnabled` off, fixed-height ScrollView, vertical ScrollView. A plain View with Yoga `overflow: scroll` is fine, so it is the native ScrollView component, not Yoga. Horizontal scrolling for wide tables is gone until there is an upstream fix; re-test with the replay before bringing it back. Nothing else in the transcript nests a ScrollView; LiveTail/ScreenMirror/FileViewer/NewChatSheet use one but not inside list cells.
 - **Diagnosis tooling, kept:** `mobile/app/lab.tsx` (static MdView variants, `capra://lab?inv=1&v=…`) and `mobile/app/replay.tsx` (`capra://replay?pane=w3K:p1&turns=2&end=290`): feeds a real pane's transcript through the real `<Transcript>` with turn-end flips and logs every cell's measured height to Metro as `[cell]` lines. The static lab never reproduced it; the replay reproduces it in 20 seconds. The iOS Simulator on the Mac reproduces it; the Android emulator does not.
@@ -145,7 +145,7 @@ Armen opened Capra on 2026-10-19 and this session rendered as a big empty box. *
 
 ### Phase 5 — push (2–3 sessions, needs an APNs key from the Apple developer account)
 - Client: `expo-notifications`, categories with up to two answer actions, deep link to `agent/[paneId]` on tap, token registered via a new `/api/push/apns` route.
-- Server: a second transport in `lib/notify.js`. Recommend **direct APNs over HTTP/2 with token auth** (`node:http2` + ES256 JWT from `node:crypto`, zero-dep like `webpush.js`), not Expo's push relay: the payload carries the agent's actual question and Armen keeps that traffic local. `apns-collapse-id` gives the coalesce/retract semantics the web path already has.
+- Server: a second transport in `lib/notify.js`. Recommend **direct APNs over HTTP/2 with token auth** (`node:http2` + ES256 JWT from `node:crypto`, zero-dep like `webpush.js`), not Expo's push relay: the payload carries the agent's actual question and that traffic stays local. `apns-collapse-id` gives the coalesce/retract semantics the web path already has.
 - Dev client must be rebuilt once (push entitlement). EAS cloud build from Linux is fine.
 
 ### Phase 6 — cyber skin, tiers B and C (optional, 3–5 sessions; costed below)
@@ -161,7 +161,7 @@ Armen opened Capra on 2026-10-19 and this session rendered as a big empty box. *
 Mobile currently has no theming at all: one static `colors` object and `StyleSheet.create` everywhere. Three tiers, each usable on its own.
 
 **Tier A — tokens, palettes, prefs sync (≈ 2 sessions, and it is phase 4 anyway).**
-Theme provider, the 9 presets, custom overrides, synced with web through `/api/prefs`, fonts via `@expo-google-fonts/orbitron`, `chakra-petch`, `share-tech-mono` bundled (no runtime fetch). Square radii, diamond status dots (rotate 45°), warm eggshell text. This alone makes Capra switch skins in lockstep with the browser and gets maybe 60% of the look for 30% of the cost. Composer stays in Chakra Petch 400 (proportional), per Armen's verdict on the web version.
+Theme provider, the 9 presets, custom overrides, synced with web through `/api/prefs`, fonts via `@expo-google-fonts/orbitron`, `chakra-petch`, `share-tech-mono` bundled (no runtime fetch). Square radii, diamond status dots (rotate 45°), warm eggshell text. This alone makes Capra switch skins in lockstep with the browser and gets maybe 60% of the look for 30% of the cost. Composer stays in Chakra Petch 400 (proportional), matching the web version.
 
 **Tier B — shape and light, static (≈ 1.5 sessions).**
 - Chamfered cards/buttons (`clip-path: polygon`): no clip-path in RN. A `Chamfer` wrapper drawing an `react-native-svg` polygon background + stroke. Used on sessions, overview cards, assistant bubbles, send button.

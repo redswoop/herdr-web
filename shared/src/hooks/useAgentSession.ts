@@ -14,7 +14,7 @@ import type { AgentStatus, Item, Mine, MineState, RestoredDraft, TEvent } from '
 /* Per-pane memory of the last visit: items, the stream offset to resume
    from, the paged window and the key/clock counters. Coming back to a pane
    renders this at once and opens the stream where it left off — no fetch,
-   no blank screen (the thing Armen read as "an aggressive refresh",
+   no blank screen (which read as "an aggressive refresh" in use,
    2026-10-20). The server replays everything since the offset and sends a
    reset if the file changed underneath, so this stays correct. */
 type PaneMemory = {

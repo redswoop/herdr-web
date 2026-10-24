@@ -779,8 +779,8 @@ async function gitRootOf(dir) {
   return root;
 }
 
-// ~/.claude/projects encodes /home/armen/src/herdr-web as
-// -home-armen-src-herdr-web: every / AND every literal - become '-'. Decode by
+// ~/.claude/projects encodes /home/me/src/herdr-web as
+// -home-me-src-herdr-web: every / AND every literal - become '-'. Decode by
 // DFS over "next dash is a separator or part of the name", pruning on
 // directory existence. Shorter components are tried first, so nesting wins
 // over dashed names when both exist.

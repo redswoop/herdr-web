@@ -2,7 +2,7 @@
 
 ## Context
 
-Armen wants a native iOS app doing everything the webui does. Decision (after comparing SwiftUI / RN / Capacitor): **React Native + Expo, managed workflow** — it reuses the hard-won TypeScript logic layer nearly verbatim and keeps the dev loop on Linux (Expo Go on iPhone over the tailnet; Mac/EAS only for release builds and Phase-3 push). Phased: P1 core (roster, transcript, composer, blocked answering, live tail, interrupt, token auth), P2 (file viewer, launcher/worktrees, image attach, screen mirror, group-by/overview), P3 (APNs push via expo-notifications + server work in `lib/notify.js`, polish).
+Goal: a native iOS app doing everything the webui does. Decision (after comparing SwiftUI / RN / Capacitor): **React Native + Expo, managed workflow** — it reuses the hard-won TypeScript logic layer nearly verbatim and keeps the dev loop on Linux (Expo Go on iPhone over the tailnet; Mac/EAS only for release builds and Phase-3 push). Phased: P1 core (roster, transcript, composer, blocked answering, live tail, interrupt, token auth), P2 (file viewer, launcher/worktrees, image attach, screen mirror, group-by/overview), P3 (APNs push via expo-notifications + server work in `lib/notify.js`, polish).
 
 **Why reuse is high**: the three server-state hooks (`web/src/hooks/useRoster.ts`, `useAgentSession.ts`, `useBlockedContext.ts`, ~500 lines) encode every hard-won invariant — own-loop SSE reconnect that never resumes a stale `?offset=` (the duplicate-transcript bug), 20s/30s zombie watchdogs, foreground/online rebuild, optimistic-send reconciliation, interrupt salvage/divider/C-c-after-700ms, blocked `{keys, expect}` + 409 fallback. Verified by grep: their ONLY browser touchpoints are `EventSource`, `document.visibilityState`/`visibilitychange`, `window 'online'`, and `alert()`. Everything else is React + fetch + timers. Auth: `?token=` on any request (incl. SSE) authenticates (`server.js:886-899`) — RN ignores cookies entirely.
 
@@ -61,13 +61,13 @@ Keep the custom engine (RN markdown libs can't do the load-bearing bits: bare-fi
 
 ## Phase 1 tasks (build order)
 
-0. **Fresh clone** — this work happens in a separate checkout so the main repo stays free for unrelated herdr-web fixes: `git clone /home/armen/src/herdr-web /home/armen/src/herdr-mobile`, work on a `mobile` branch there (origin = the local main repo; merge back when it's stable). Copy this plan into the clone as `PLAN-MOBILE.md` so it lives with the code.
+0. **Fresh clone** — this work happens in a separate checkout so the main repo stays free for unrelated herdr-web fixes: `git clone ~/src/herdr-web ~/src/herdr-mobile`, work on a `mobile` branch there (origin = the local main repo; merge back when it's stable). Copy this plan into the clone as `PLAN-MOBILE.md` so it lives with the code.
 1. **Workspace scaffold** — root package.json, empty shared/. Verify: `node server.js` + `npm run build` in web unchanged.
 2. **Extract pure modules** — types/transcript/chrome/roster-groups/md(unsplit)/spawn to shared; re-export shims in web/src. Verify: `npm run check` + identical web behavior.
 3. **api seam** — configureApi/apiUrl; web on defaults. Verify web auth + endpoints via vite proxy.
 4. **Platform adapter + hook move** (critical) — port the 3 hooks, extract session-reducer.ts, register platform.web.ts. Verify on web: daemon kill → banner → reconnect; background 30s → revive; live interrupt flow.
 5. **Shared tests** — vitest: reducer reconciliation, buildNodes, stripChrome rounded-vs-sharp, chromeVisible, pathish/shed.
-6. **Expo bootstrap + tailnet dev loop** — create-expo-app in workspace; metro monorepo config (auto since SDK 52, else watchFolders). `REACT_NATIVE_PACKAGER_HOSTNAME=<stormer tailnet name> npx expo start --lan` → Expo Go on iPhone; `--tunnel` fallback. Verify hot reload on phone.
+6. **Expo bootstrap + tailnet dev loop** — create-expo-app in workspace; metro monorepo config (auto since SDK 52, else watchFolders). `REACT_NATIVE_PACKAGER_HOSTNAME=<this box's tailnet name> npx expo start --lan` → Expo Go on iPhone; `--tunnel` fallback. Verify hot reload on phone.
 7. **RN platform adapter + settings** — react-native-sse wrapper, hydrated kv, AppState+NetInfo, Alert; settings screen with probe-on-save (ports TokenGate.tsx), SecureStore.
 8. **Roster screen** — useRoster + SectionList via shared buildGroups('workspace'); status dots/words, connection banner, blocked badge.
 9. **Agent screen skeleton** — useAgentSession wired, raw event list. Verify: background/airplane-mode toggle → clean rebuild with fresh offset, NO duplicate events (the key invariant).
@@ -78,7 +78,7 @@ Keep the custom engine (RN markdown libs can't do the load-bearing bits: bare-fi
 14. **BlockedCard** — ask/menu/permission cards, {keys, expect}, 409 → forced key strip, 600ms refresh after answer.
 15. **LiveTail** — 1.2s poll, shared stripChrome, kv open state. **P1 done: daily-drivable.**
 
-**Web strategy (decided)**: the DOM web app stays the desktop daily driver, untouched. Enable Expo's web output (`react-native-web`, a config flag since mobile views are RN primitives anyway) as a zero-cost audition — a phone-shaped browser build of the same trees, so Armen can judge RNW firsthand. No commitment to ever migrating desktop web; the shared logic layer keeps that door open either way.
+**Web strategy (decided)**: the DOM web app stays the desktop daily driver, untouched. Enable Expo's web output (`react-native-web`, a config flag since mobile views are RN primitives anyway) as a zero-cost audition — a phone-shaped browser build of the same trees, to judge RNW firsthand. No commitment to ever migrating desktop web; the shared logic layer keeps that door open either way.
 
 ## Phase 2/3 sketch
 

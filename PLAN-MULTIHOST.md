@@ -2,12 +2,12 @@
 
 Decided 2026-10-23. The client connects to N servers directly; servers stay
 independent and dumb. No hub, no proxy, no cross-host id namespacing on the
-server. If stormer is off, blackstar's agents are still reachable from the
+server. If the desk box is off, the laptop's agents are still reachable from the
 phone — that's the property a hub can't give.
 
 ```
-Capra / web ──HTTPS──► stormer:  server.js ── herdr.sock, ~/.claude …
-            ├─HTTPS──► blackstar: server.js ── herdr.sock, ~/.claude …
+Capra / web ──HTTPS──► desk:    server.js ── herdr.sock, ~/.claude …
+            ├─HTTPS──► laptop:  server.js ── herdr.sock, ~/.claude …
             └─HTTPS──► hotbox …
 ```
 
@@ -17,7 +17,7 @@ Capra / web ──HTTPS──► stormer:  server.js ── herdr.sock, ~/.claud
   short slug (the host's name from `/api/whoami`, deduped). The first entry is
   the **primary**.
 - Roster entries from a non-primary server get `@<id>` appended to `paneId`,
-  `workspaceId`, `tabId` (`w19:p1@blackstar`). Primary ids stay bare, so a
+  `workspaceId`, `tabId` (`w19:p1@laptop`). Primary ids stay bare, so a
   one-server install (and every existing deep link, draft key, push tag) is
   untouched. Every agent/workspace/tab also carries `host: <id>`.
 - `agentPath()` and the workspace verbs split the suffix and build an
@@ -61,9 +61,9 @@ token/name update in place; new `server` → appended. Sources of the link:
 
 ## Phases
 
-1. **blackstar node**: repo on main at `~/dev/herdr-web`, `npm ci`, web
+1. **second node (a Mac)**: repo on main at `~/dev/herdr-web`, `npm ci`, web
    build, `tailscale serve --https=443 → 127.0.0.1:7683`, launchd user agent
-   (`dev.redswoop.herdr-web`), retire `com.armen.ttyd-herdr`. Verify mac pane
+   (`dev.redswoop.herdr-web`), retire the old ttyd agent. Verify mac pane
    binding against live panes.
 2. **server**: whoami, link, `--host auto`, CORS, roster.host.
 3. **shared + Capra**: registry in settings-store, api addressing, roster

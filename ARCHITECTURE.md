@@ -80,7 +80,7 @@ Corollaries that keep biting people who forget them:
 One client, many servers (`PLAN-MULTIHOST.md`). Each machine runs its own
 `server.js` against its own herdr and disk; the *client* holds a server
 registry and merges the rosters. Ids from non-primary servers carry an
-`@<host>` suffix (`w19:p1@blackstar`) and `agentPath()` / `apiUrl(path, host)`
+`@<host>` suffix (`w19:p1@laptop`) and `agentPath()` / `apiUrl(path, host)`
 in `shared/src/api.ts` route by it — so a pane id is a complete address and
 call sites don't care which box it's on. The server's only part: `/api/whoami`
 (identity), `/api/link` (its own `capra://` enrolment link), `roster.host`,

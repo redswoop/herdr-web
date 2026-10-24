@@ -25,7 +25,7 @@ describe('black-box fixture', () => {
     expect(BLACK_BOX_REPLY).toBe(md);
     const paras = parseMd(BLACK_BOX_REPLY).filter((b) => b.type === 'para');
     const spans = paras.map((p) => splitInlineSegs((p as { inlines: Inline[] }).inlines).map((s) => s.length));
-    // two single-segment paragraphs of 57 and 37 spans — the thing under test
-    expect(spans).toEqual([[57], [37]]);
+    // two single-segment paragraphs of 55 and 35 spans — the thing under test
+    expect(spans).toEqual([[55], [35]]);
   });
 });

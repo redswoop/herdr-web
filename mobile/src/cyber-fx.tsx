@@ -287,7 +287,7 @@ const SLIDE_EASE = Easing.inOut(Easing.quad);
 const SWEEP_EASE = Easing.inOut(Easing.cubic);
 
 /** The blocked banner's sweep: one pass every 3.6s with a real rest between
- *  (a blocked pane can sit for an hour waiting on Armen). */
+ *  (a blocked pane can sit for an hour waiting on you). */
 export function AlarmSweep({ color }: { color?: string }) {
   const t = useTheme();
   const [w, setW] = useState(0);

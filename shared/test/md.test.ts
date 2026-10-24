@@ -49,9 +49,9 @@ describe('parseMd + md()', () => {
   });
 
   it('backticked URLs become links inside the code chip', () => {
-    const html = md('Tailnet URL is `http://stormer.tail93d23c.ts.net:8188/`.');
+    const html = md('Tailnet URL is `http://desk.tailnet.ts.net:8188/`.');
     expect(html).toContain(
-      '<code><a href="http://stormer.tail93d23c.ts.net:8188/" target="_blank" rel="noopener noreferrer">http://stormer.tail93d23c.ts.net:8188/</a></code>',
+      '<code><a href="http://desk.tailnet.ts.net:8188/" target="_blank" rel="noopener noreferrer">http://desk.tailnet.ts.net:8188/</a></code>',
     );
     // a path in backticks is still a file link, and a quote in a backticked URL is escaped
     expect(md('`src/app.ts`')).toContain('data-file="src/app.ts"');

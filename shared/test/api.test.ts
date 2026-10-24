@@ -33,14 +33,14 @@ describe('describeError', () => {
   });
 
   it('collapses an iOS offline error to the host', () => {
-    configureApi({ baseUrl: 'https://stormer.tail93d23c.ts.net' });
+    configureApi({ baseUrl: 'https://desk.tailnet.ts.net' });
     expect(
       describeError(
         new TypeError(
           'fetch failed: UnexpectedException: The Internet connection appears to be offline. (at ExpoModulesCore/Promise.swift:56)',
         ),
       ),
-    ).toBe("can't reach stormer.tail93d23c.ts.net");
+    ).toBe("can't reach desk.tailnet.ts.net");
   });
 
   it('names no host on web', () => {

@@ -141,7 +141,7 @@ const SYSTEM_MONO = Platform.select({ ios: 'Menlo', android: 'monospace', defaul
 const CYBER_FACES: Record<FontKind, Partial<Record<Weight, string>>> = {
   display: { '400': 'Orbitron_700Bold', '500': 'Orbitron_700Bold', '600': 'Orbitron_700Bold', '700': 'Orbitron_700Bold', '900': 'Orbitron_900Black' },
   ui: { '400': 'ChakraPetch_400Regular', '500': 'ChakraPetch_500Medium', '600': 'ChakraPetch_600SemiBold', '700': 'ChakraPetch_700Bold', '900': 'ChakraPetch_700Bold' },
-  // the composer stays proportional (Armen's call on the web skin)
+  // the composer stays proportional (matches the web skin)
   input: { '400': 'ChakraPetch_400Regular', '500': 'ChakraPetch_500Medium', '600': 'ChakraPetch_600SemiBold', '700': 'ChakraPetch_700Bold', '900': 'ChakraPetch_700Bold' },
   mono: { '400': 'ShareTechMono_400Regular', '500': 'ShareTechMono_400Regular', '600': 'ShareTechMono_400Regular', '700': 'ShareTechMono_400Regular', '900': 'ShareTechMono_400Regular' },
 };

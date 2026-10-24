@@ -47,8 +47,8 @@ export default function AgentScreen() {
   const paneId = decodeURIComponent(raw ?? '');
   const { roster, hosts } = useRoster();
   const agent = roster.agents.find((a) => a.paneId === paneId);
-  // this pane's own server, not the merged picture: stormer being up says
-  // nothing about blackstar
+  // this pane's own server, not the merged picture: one host being up says
+  // nothing about another
   const connected = hostUp(hosts, hostOf(paneId));
   const status = agent?.status;
   const navigation = useNavigation();
