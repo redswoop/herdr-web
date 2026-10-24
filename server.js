@@ -1,5 +1,5 @@
 // herdr-web daemon: phone-first web UI over herdr agent sessions.
-// Zero deps, node >= 22.  Usage: node server.js [--port 7683] [--host 0.0.0.0]
+// Zero deps, node >= 22.  Usage: node server.js [--port 7683] [--host 127.0.0.1|auto|0.0.0.0] [--insecure]
 import http from 'node:http';
 import fsp from 'node:fs/promises';
 import fs, { constants as fsConstants } from 'node:fs';
@@ -32,9 +32,23 @@ const argOf = (name, dflt) => {
   return i !== -1 ? args[i + 1] : dflt;
 };
 const PORT = Number(argOf('--port', process.env.PORT ?? 7683));
-// `auto` = the tailscale IP: tailnet-only, never the LAN (loopback if it's down)
-const HOST = await resolveBindHost(argOf('--host', '0.0.0.0'));
+// Loopback by default: the expected front is `tailscale serve` (or any HTTPS
+// proxy) on this machine. `auto` = the tailscale IP: tailnet-only, never the
+// LAN (loopback if it's down). `0.0.0.0` opens the LAN.
+const HOST = await resolveBindHost(argOf('--host', '127.0.0.1'));
 const TOKEN = process.env.HERDR_WEB_TOKEN ?? null;
+// Anyone who reaches this port can read any file this user can and drive (or
+// start, including with --dangerously-skip-permissions) agents. Off loopback,
+// that needs a token — `--insecure` is the explicit opt-out for trusted nets.
+const LOOPBACK = /^(127\.|::1$|localhost$)/.test(HOST);
+if (!TOKEN && !LOOPBACK && !args.includes('--insecure')) {
+  console.error(
+    `herdr-web: refusing to listen on ${HOST} without auth.\n` +
+    '  Set HERDR_WEB_TOKEN=<long random string> (cookie auth), bind loopback (--host 127.0.0.1,\n' +
+    '  the default) behind an HTTPS proxy, or pass --insecure if you really want an open port.',
+  );
+  process.exit(2);
+}
 // Identity for multi-host clients: the chip label, and where a phone reaches
 // us (tailscale serve HTTPS by default; --public-url for anything else).
 const HOSTNAME = await shortHost();
@@ -1912,7 +1926,7 @@ server.listen(PORT, HOST, () => {
   console.log(`  host ${HOSTNAME}, public ${PUBLIC_URL}; enrol a phone: npm run link (or GET /api/link)`);
   if (!TOKEN) {
     console.warn(
-      'WARNING: HERDR_WEB_TOKEN unset — anyone who can reach this port can drive your agents and start new ones (including with --dangerously-skip-permissions).',
+      `WARNING: HERDR_WEB_TOKEN unset — anyone who can reach this port${LOOPBACK ? ' (loopback only, so: this machine\'s users and whatever proxies to it)' : ''} can read your files and drive your agents, including starting new ones with --dangerously-skip-permissions.`,
     );
   }
 });

@@ -33,7 +33,7 @@ const store =
 
 const normUrl = (u: string) => u.trim().replace(/\/$/, '');
 
-/** `blackstar.tail93d23c.ts.net` → `blackstar`; anything odd → a safe slug. */
+/** `myhost.tailnet-name.ts.net` → `myhost`; anything odd → a safe slug. */
 export function slugFor(name: string | null | undefined, baseUrl: string): string {
   let s = (name ?? '').trim().toLowerCase();
   if (!s) {

@@ -2,7 +2,7 @@
 # rsync the tree to the Mac lab worktree, relaunch Capra on one Simulator by UDID, open a URL, screenshot.
 #   tools/sim-pm.sh <label> <udid> [capra://url] ; env: MAC, OUT, WAIT
 set -e
-MAC=${MAC:-armen@blackstar.tail93d23c.ts.net}
+MAC=${MAC:?set MAC=user@mac-host (ssh target with Xcode + the lab worktree)}
 OUT=${OUT:-/tmp}
 L=${1:-shot}; U=${2:?udid}; URL=${3:-}
 cd "$(dirname "$0")/.."

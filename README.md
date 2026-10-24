@@ -78,18 +78,25 @@ nothing to configure.
 
 - node ≥ 22 (the daemon uses `node:` imports and top-level await; npm only
   needed to build the UI)
-- herdr ≥ 0.7.5 running with its socket at `~/.config/herdr/herdr.sock`
+- herdr ≥ 0.8 running with its socket at `~/.config/herdr/herdr.sock`
+  (developed against 0.9.x; `herdr integration install codex|pi` for those agents)
 - for push: any HTTPS front (service workers require a secure context) —
   `tailscale serve` is the two-second option
 
 ## Run it
 
 ```sh
-cd web && npm ci && npm run build && cd ..   # build the UI into public/ (once)
-node server.js                      # http://0.0.0.0:7683
-node server.js --port 7683 --host 127.0.0.1
-HERDR_WEB_TOKEN=long-random-string node server.js   # cookie auth
+npm ci && npm run build:web         # build the UI into public/ (once)
+node server.js                      # http://127.0.0.1:7683
+HERDR_WEB_TOKEN=long-random-string node server.js --host auto   # tailnet IP + cookie auth
+HERDR_WEB_TOKEN=long-random-string node server.js --host 0.0.0.0 --port 7683
 ```
+
+The daemon binds loopback by default and expects an HTTPS proxy in front
+(`tailscale serve`, below). Binding anything else **requires**
+`HERDR_WEB_TOKEN` — the process refuses to start otherwise (`--insecure`
+overrides, if you really do trust the network). `--host auto` binds the
+tailscale IP only, falling back to loopback when tailscale is down.
 
 With a token set, enroll each device once — either open a
 `https://host/?token=…` link, or just load the app and paste the token into
@@ -149,10 +156,13 @@ All under `/api`, JSON in/out. `:pane` is a herdr pane id like `w1:p2`.
 ## Security model
 
 Designed for a personal machine on a tailnet/VPN, not the open internet.
-`tailscale serve` binds the HTTPS front to the tailnet only; the daemon itself
-listens on `0.0.0.0` by default (use `--host 127.0.0.1` if you only reach it
-through the proxy). `HERDR_WEB_TOKEN` adds a cookie gate. Anyone who can reach
-the port can drive your agents — treat it accordingly.
+Whoever reaches the port has your shell's reach: the file viewer reads any
+path you can (no jail — an agent you prompt could read it for you anyway),
+and `POST /api/chats` starts agents, including with permissions skipped.
+Hence the defaults: loopback bind, and a refusal to listen anywhere else
+without `HERDR_WEB_TOKEN`. `tailscale serve` keeps the HTTPS front
+tailnet-only; the token (HttpOnly cookie, constant-time compare) gates
+`/api`. The app shell itself is public — it holds no data.
 
 ## Development
 

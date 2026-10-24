@@ -10,7 +10,8 @@ Wants=herdr.service
 ExecStart=/usr/bin/node %h/src/herdr-web/server.js --port 7683
 Restart=on-failure
 RestartSec=3
-# Optional cookie auth: uncomment and set a long random token.
+# Loopback by default; tailscale serve (or any HTTPS proxy) fronts it.
+# Binding off loopback (--host auto / 0.0.0.0) requires a token:
 # Environment=HERDR_WEB_TOKEN=change-me
 
 [Install]

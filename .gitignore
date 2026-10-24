@@ -1,4 +1,5 @@
 node_modules/
+.claude/
 nohup.out
 *.log
 PLAN.md

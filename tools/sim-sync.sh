@@ -3,7 +3,7 @@
 # Metro must already be running in watch mode on the Mac (see memory: ios-simulator-loop).
 #   tools/sim-sync.sh <label> [capra://url] ; env: MAC, OUT, WAIT
 set -e
-MAC=${MAC:-armen@blackstar.tail93d23c.ts.net}
+MAC=${MAC:?set MAC=user@mac-host (ssh target with Xcode + the lab worktree)}
 OUT=${OUT:-/tmp}
 L=${1:-shot}; URL=${2:-}
 cd "$(dirname "$0")/.."
