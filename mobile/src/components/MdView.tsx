@@ -1,7 +1,7 @@
 import { createContext, memo, useContext, useMemo } from 'react';
 import { Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
-import { parseMd, type Block, type Inline } from '@herdr/shared';
+import { fenceRuns, parseMd, type Block, type Inline } from '@herdr/shared';
 import { tick, toast } from '../toast';
 import { alpha, mix, useStyles, useTheme, type Tokens } from '../theme';
 import { chunkFrags, splitInlineSegs, splitPlain } from './segment';
@@ -169,9 +169,20 @@ function BlockView({
     return (
       <Pressable style={({ pressed }) => [styles.codeBlock, pressed && styles.pressed]} onPress={() => copy(block.text)}>
         {splitPlain(block.text).map((s, i) => (
-          <Text key={i} style={styles.codeBlockText} allowFontScaling={false}>{s}</Text>
+          <Text key={i} style={styles.codeBlockText} allowFontScaling={false}>
+            {/* a URL in a fence opens on tap; the rest of the block still copies */}
+            {fenceRuns(s).map((r, j) =>
+              r.href ? (
+                <Text key={j} style={styles.codeLink} onPress={() => Linking.openURL(r.href!).catch(() => {})}>
+                  {r.text}
+                </Text>
+              ) : (
+                <Text key={j}>{r.text}</Text>
+              ),
+            )}
+          </Text>
         ))}
-        <Text style={styles.copyHint}>tap to copy</Text>
+        <Text style={styles.copyHint}>tap to copy · links open</Text>
       </Pressable>
     );
   }
@@ -275,6 +286,7 @@ const makeStyles = (t: Tokens) =>
     fontSize: t.px('code', 12),
     lineHeight: t.px('code', 18),
   },
+  codeLink: { color: t.colors.accent, textDecorationLine: 'underline', ...t.glow(t.colors.accent, 6) },
   pressed: { opacity: 0.6 },
   copyHint: { ...t.font(t.cyber ? 'mono' : 'ui'), ...t.hud, color: t.colors.sub, fontSize: t.sz('ui', 9), marginTop: 6, opacity: 0.7 },
   tableWrap: { marginVertical: 4 },

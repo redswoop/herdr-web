@@ -26,7 +26,8 @@ export {
   type Group,
 } from './roster-groups';
 export * from './session-reducer';
-export { parseMd, parseInlines, pathish, shed } from './md/parse';
+export { parseMd, parseInlines, pathish, shed, fenceRuns } from './md/parse';
+export type { FenceRun } from './md/parse';
 export type { Block, Inline, Align } from './md/parse';
 export { md, mdToHtml, esc } from './md/render-html';
 export { useRoster, hostUp } from './hooks/useRoster';

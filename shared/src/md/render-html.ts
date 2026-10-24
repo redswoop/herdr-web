@@ -1,5 +1,5 @@
 import type { Align, Block, Inline } from './parse';
-import { parseMd, shed } from './parse';
+import { fenceRuns, parseMd } from './parse';
 
 export function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -36,20 +36,12 @@ function renderInlines(inlines: Inline[]): string {
 }
 
 // Fenced blocks are verbatim text, but a URL dropped in one (a list of
-// endpoints, a curl line) should still open on tap. Escape the gaps, anchor
-// the URLs; shed() keeps a trailing `)` or `.` out of the href.
-const FENCE_URL = /https?:\/\/[^\s<>"'`]+/g;
-function linkifyFence(text: string): string {
-  let out = '';
-  let last = 0;
-  let m: RegExpExecArray | null;
-  while ((m = FENCE_URL.exec(text))) {
-    const url = shed(m[0]);
-    out += esc(text.slice(last, m.index)) + anchor(url, url) + esc(m[0].slice(url.length));
-    last = m.index + m[0].length;
-  }
-  return out + esc(text.slice(last));
-}
+// endpoints, a curl line) should still open on tap: anchor the URLs, escape
+// the gaps. Capra's MdView renders the same runs as tappable Text.
+const linkifyFence = (text: string): string =>
+  fenceRuns(text)
+    .map((r) => (r.href ? anchor(r.href, r.text) : esc(r.text)))
+    .join('');
 
 function cellTag(tag: 'th' | 'td', content: string, align: Align): string {
   const a = align ? ` style="text-align:${align}"` : '';

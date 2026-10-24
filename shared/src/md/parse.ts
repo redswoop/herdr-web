@@ -19,6 +19,25 @@ export type Block =
 
 const TRAIL = /(?:[.,:;!?'"*_~\]])+$/;
 
+/** A fenced block's text as runs: URLs (trailing punctuation shed) and the
+ *  plain text between them, so each renderer can make the URLs tappable. */
+export type FenceRun = { text: string; href: string | null };
+const FENCE_URL = /https?:\/\/[^\s<>"'`]+/g;
+export function fenceRuns(text: string): FenceRun[] {
+  const out: FenceRun[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  FENCE_URL.lastIndex = 0;
+  while ((m = FENCE_URL.exec(text))) {
+    const url = shed(m[0]);
+    if (m.index > last) out.push({ text: text.slice(last, m.index), href: null });
+    out.push({ text: url, href: url });
+    last = m.index + url.length; // the shed trail joins the next plain run
+  }
+  if (last < text.length || !out.length) out.push({ text: text.slice(last), href: null });
+  return out;
+}
+
 /** shed trailing punctuation plus unbalanced closing parens */
 export function shed(s: string): string {
   for (;;) {

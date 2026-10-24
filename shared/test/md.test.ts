@@ -71,6 +71,19 @@ describe('parseMd + md()', () => {
     expect(html).toContain('</a>&quot;');
   });
 
+  it('splits fenced text into tappable runs', async () => {
+    const { fenceRuns } = await import('../src/md/parse');
+    expect(fenceRuns('open https://stormer.ts.net:7683/link?token=x.\nthen https://b.io)')).toEqual([
+      { text: 'open ', href: null },
+      { text: 'https://stormer.ts.net:7683/link?token=x', href: 'https://stormer.ts.net:7683/link?token=x' },
+      { text: '.\nthen ', href: null },
+      { text: 'https://b.io', href: 'https://b.io' },
+      { text: ')', href: null },
+    ]);
+    expect(fenceRuns('no links here')).toEqual([{ text: 'no links here', href: null }]);
+    expect(fenceRuns('')).toEqual([{ text: '', href: null }]);
+  });
+
   it('renders GFM tables', () => {
     const src = '| a | b |\n| --- | --- |\n| 1 | 2 |';
     const html = md(src);
