@@ -1137,6 +1137,20 @@ async function verifyPromptLanded(paneId, text, attempt = 1) {
       return kind === 'grok' ? boxed(l) : true; // grok's bare ❯ is a sent echo
     });
     if (stranded) {
+      // Stranded, or still arriving? A pane whose claude has parked its
+      // conversation into a background worker relays keystrokes to it and
+      // lags: 800ms in, the composer showed "Hell" of a "Hello" and the nudge
+      // submitted the fragment. Re-read once; nudge only a composer that has
+      // stopped changing, otherwise come back for another look.
+      const composer = (s) => s.split('\n').filter((l) => l.includes('❯') && textOf(l).startsWith(head)).map(textOf).join('\n');
+      const before = composer(screen);
+      await new Promise((r) => setTimeout(r, 500));
+      const again = composer(await readScreen(paneId));
+      if (again !== before) {
+        if (attempt < 4) await verifyPromptLanded(paneId, text, attempt + 1);
+        return;
+      }
+      if (!again) return; // cleared between reads — it landed
       console.warn(`prompt stranded on input line of ${paneId} — nudging with Enter`);
       await agentRpc('agent.send_keys', { target: paneId, keys: ['Enter'] });
       return;

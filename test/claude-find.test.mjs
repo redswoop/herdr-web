@@ -148,3 +148,61 @@ test('exclude never overrides an exact tier (pin, title)', async () => {
   const titled = await find(CWD, { title: 'fix the flux pipeline', exclude: new Set([sid(2)]) });
   assert.equal(titled?.sessionId, sid(2));
 });
+
+// ---------- continued-in: parked conversations (claude ≥ 2.1.310) ----------
+// Parking forks the history into a new jsonl and leaves
+// {"type":"continued-in","continuedInSessionId"} at the old file's tail.
+// Correlation must land on the file the replies are actually going to.
+
+const continued = (from, to) => line({ type: 'continued-in', timestamp: '2026-10-24T14:28:34.330Z', sessionId: from, continuedInSessionId: to });
+
+before(async () => {
+  const old = Date.now() - 600_000; // older than every mtime-tier fixture
+  await mkSession(sid(4), { mtime: old });
+  await fsp.appendFile(path.join(projDir, `${sid(4)}.jsonl`), continued(sid(4), sid(5)));
+  await mkSession(sid(5), { mtime: old });
+  await fsp.appendFile(path.join(projDir, `${sid(5)}.jsonl`), continued(sid(5), sid(6)));
+  await mkSession(sid(6), { title: 'Whisparr automatic download setup', mtime: old });
+  // continued, then live again: a user turn after the pointer voids it
+  await mkSession(sid(7), { mtime: old });
+  await fsp.appendFile(path.join(projDir, `${sid(7)}.jsonl`),
+    continued(sid(7), sid(6)) + line({ type: 'user', message: { role: 'user', content: 'back here' }, timestamp: '2026-10-24T15:00:00Z' }));
+  // pointer to a worker that hasn't written its file yet
+  await mkSession(sid(8), { mtime: old });
+  await fsp.appendFile(path.join(projDir, `${sid(8)}.jsonl`), continued(sid(8), sid(9)));
+  for (const n of [4, 5, 6, 7, 8]) await fsp.utimes(path.join(projDir, `${sid(n)}.jsonl`), new Date(old), new Date(old));
+});
+
+test('continued-in: the pid-registered session follows its pointer to the worker file', async () => {
+  await mkRegistry({ sessionId: sid(5) });
+  const hit = await find(CWD, { pid: process.pid });
+  assert.equal(hit?.sessionId, sid(6));
+  assert.ok(hit.file.endsWith(`${sid(6)}.jsonl`));
+  assert.equal(hit.continuedFrom, sid(5), 'the id the pane is registered under rides along');
+  await fsp.rm(path.join(regDir, `${process.pid}.json`), { force: true });
+});
+
+test('continued-in: chains hop more than once', async () => {
+  const hit = await find(CWD, { sessionId: sid(4) });
+  assert.equal(hit?.sessionId, sid(6));
+  assert.equal(hit.continuedFrom, sid(4));
+});
+
+test('continued-in: a user/assistant record after the pointer means the file is live again', async () => {
+  const hit = await find(CWD, { sessionId: sid(7) });
+  assert.equal(hit?.sessionId, sid(7));
+  assert.equal(hit.continuedFrom, undefined);
+});
+
+test('continued-in: a pointer to a file that does not exist yet keeps the current file', async () => {
+  const hit = await find(CWD, { sessionId: sid(8) });
+  assert.equal(hit?.sessionId, sid(8));
+});
+
+test('continued-in: an appended record re-evaluates the memoised tail', async () => {
+  const p = path.join(projDir, `${sid(8)}.jsonl`);
+  await mkSession(sid(9), { mtime: Date.now() - 600_000 });
+  await fsp.appendFile(p, line({ type: 'file-history-snapshot', snapshot: {} }));
+  const hit = await find(CWD, { sessionId: sid(8) });
+  assert.equal(hit?.sessionId, sid(9), 'once the worker file appears the pointer resolves');
+});
