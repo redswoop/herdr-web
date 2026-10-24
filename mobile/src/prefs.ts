@@ -13,7 +13,7 @@ import {
   type FontKey,
   type Fonts,
 } from '@herdr/shared';
-import { findPalette, palettesFor, type Theme } from '@herdr/shared/palettes';
+import { THEMES, findPalette, migrateRoleKeys, palettesFor, type Theme } from '@herdr/shared/cyber';
 import { buildTokens, DEFAULT_TOKENS, type Tokens } from './theme';
 
 export type Colors = Partial<Record<Theme, Record<string, string>>>;
@@ -21,7 +21,6 @@ export type Picks = Partial<Record<Theme, string>>;
 
 const CACHE_KEY = 'herdr.prefs';
 const FONTS_KEY = 'herdr.fonts';
-const THEMES: Theme[] = ['default', 'cyber'];
 
 let theme: Theme = 'default';
 let colors: Colors = {};
@@ -122,10 +121,19 @@ function push() {
 
 type Wire = { theme?: Theme; colors?: Colors; palette?: Picks; base?: Picks };
 
+/** cyber colours saved before the roles were named (red/accent/hot/…) read
+ *  as the roles they became; the stock skin's keys are its own and stay */
+function migrate(c: Colors): Colors {
+  if (!c.cyber) return c;
+  const m = migrateRoleKeys(c.cyber);
+  const { cyber: _, ...rest } = c;
+  return Object.keys(m).length ? { ...rest, cyber: m } : rest;
+}
+
 function adopt(p: Wire): boolean {
   const next = {
     theme: THEMES.includes(p.theme as Theme) ? (p.theme as Theme) : theme,
-    colors: p.colors ?? {},
+    colors: migrate(p.colors ?? {}),
     palette: p.palette ?? palette,
     base: p.base ?? base,
   };

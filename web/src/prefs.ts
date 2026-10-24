@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { apiUrl, get } from './api';
 import { applyTheme, currentTheme, saveTheme, type Theme } from './theme';
-import { setRainColors } from '@redswoop/cyberdos/fx';
-import { findPalette, palettesFor } from './palettes';
+import { applyPalette, clearPalette, rainColors, setRainColors, stylesheetRole, ROLE_INFO, isRole, type Role } from '@redswoop/cyberdos/web';
+import { findPalette, migrateRoleKeys, palettesFor } from '@herdr/shared/cyber';
 
 /* Appearance prefs. Theme + per-theme colors follow you across devices
    (stored server-side, cached locally so boot doesn't flash). Text sizes are
@@ -26,7 +26,9 @@ export { FONT_AREAS, FONT_MIN, FONT_MAX } from '@herdr/shared';
 /** under 16px iOS zooms the page on focus, so touch keeps the composer ≥ 100% */
 export const inputFloor = () => (matchMedia('(pointer: coarse)').matches ? 1 : FONT_MIN);
 
-/** the knobs each theme exposes, keyed by CSS custom property (sans --) */
+/** the knobs each theme exposes, keyed by CSS custom property (sans --).
+ *  The stock skin's are herdr's own tokens; the cyber skin's are the design
+ *  language's roles (@redswoop/cyberdos ROLE_INFO). */
 export const COLOR_ROLES: Record<Theme, { key: string; label: string }[]> = {
   default: [
     { key: 'accent', label: 'Primary' },
@@ -38,17 +40,7 @@ export const COLOR_ROLES: Record<Theme, { key: string; label: string }[]> = {
     { key: 'sub', label: 'Muted text' },
     { key: 'bg', label: 'Background' },
   ],
-  cyber: [
-    { key: 'red', label: 'Primary' },
-    { key: 'accent', label: 'Secondary' },
-    { key: 'hot', label: 'Action buttons' },
-    { key: 'blocked', label: 'Needs you' },
-    { key: 'working', label: 'Working' },
-    { key: 'done', label: 'Done' },
-    { key: 'text', label: 'Text' },
-    { key: 'sub', label: 'Muted text' },
-    { key: 'bg', label: 'Background' },
-  ],
+  cyber: ROLE_INFO.map((r) => ({ key: r.key, label: r.label })),
 };
 
 const FONTS_COOKIE = 'herdr.fonts';
@@ -86,6 +78,14 @@ export function setFont(k: FontKey, v: number) {
 
 /* ---------------- colors (server, cached) ---------------- */
 
+/** cyber colours saved before the roles were named (red/accent/hot/…) read
+ *  as the roles they became; the stock skin's keys are its own and stay */
+function migrate(c: Colors): Colors {
+  if (!c.cyber) return c;
+  const m = migrateRoleKeys(c.cyber);
+  return Object.keys(m).length ? { ...c, cyber: m } : (({ cyber: _, ...rest }) => rest)(c);
+}
+
 /** what this theme is showing: a preset id, or 'custom'. A theme with no
  *  presets is always custom; colors saved before presets existed read as a
  *  custom set on the stock palette, so nothing shifts under anyone. */
@@ -115,34 +115,42 @@ function applyColors(t: Theme = currentTheme()) {
   const root = document.documentElement;
   for (const k of applied) root.style.removeProperty(k);
   applied.clear();
-  const set = (k: string, v: string) => {
-    root.style.setProperty(k, v);
-    applied.add(k);
-  };
+  clearPalette();
   const c = effective(t);
-  for (const [k, v] of Object.entries(c)) set(`--${k}`, v);
-  // the surface ramp and button ink are derived, so one knob stays coherent
-  if (c.bg) {
-    set('--surface', `color-mix(in srgb, ${c.bg}, var(--text) 4%)`);
-    set('--surface-2', `color-mix(in srgb, ${c.bg}, var(--text) 7%)`);
-    set('--surface-3', `color-mix(in srgb, ${c.bg}, var(--text) 11%)`);
+  if (t === 'cyber') {
+    // the skin applies its own roles and derives the surface ramp
+    applyPalette(Object.fromEntries(Object.entries(c).filter(([k]) => isRole(k))));
+    setRainColors(rainColors({ chrome: roleValue('chrome'), signal: roleValue('signal') }));
+  } else {
+    const set = (k: string, v: string) => {
+      root.style.setProperty(k, v);
+      applied.add(k);
+    };
+    for (const [k, v] of Object.entries(c)) set(`--${k}`, v);
+    // the surface ramp and button ink are derived, so one knob stays coherent
+    if (c.bg) {
+      set('--surface', `color-mix(in srgb, ${c.bg}, var(--text) 4%)`);
+      set('--surface-2', `color-mix(in srgb, ${c.bg}, var(--text) 7%)`);
+      set('--surface-3', `color-mix(in srgb, ${c.bg}, var(--text) 11%)`);
+    }
+    if (c.accent) set('--accent-ink', luma(c.accent) > 0.5 ? '#0b0b10' : '#ffffff');
   }
-  if (c.accent && t === 'default') set('--accent-ink', luma(c.accent) > 0.5 ? '#0b0b10' : '#ffffff');
   document
     .querySelector('meta[name="theme-color"]')
     ?.setAttribute('content', c.bg ?? (t === 'cyber' ? '#0b0607' : '#0e0e13'));
-  if (t === 'cyber') {
-    const red = cssVar('--red') || '#ff6a5c';
-    const hot = mix(red, cssVar('--hot') || '#ffd27a', 0.5);
-    setRainColors({ stream: red, head: mix(red, '#ffffff', 0.75), hot, hotHead: mix(hot, '#ffffff', 0.7) });
-  }
+}
+
+/** a cyber role as it currently paints (inline override or stylesheet) */
+function roleValue(r: Role): string {
+  return cssVar(`--${r}`) || stylesheetRole(r);
 }
 
 /** a knob's color with no override: the base preset's, else the stylesheet's
  *  (read live so it never drifts from the CSS) */
 export function defaultColor(t: Theme, key: string): string {
   const b = baseOf(t);
-  if (b && !b.stock && b.colors[key]) return b.colors[key];
+  if (b && !b.stock && (b.colors as Record<string, string>)[key]) return (b.colors as Record<string, string>)[key];
+  if (t === 'cyber' && isRole(key)) return stylesheetRole(key);
   const root = document.documentElement;
   const prop = `--${key}`;
   const mine = root.style.getPropertyValue(prop);
@@ -233,7 +241,7 @@ async function pull() {
     };
     if (!prefs) return push(); // first device to ask seeds the server
     // a server that predates palettes omits the fields: keep our picks, don't zero them
-    const theirs = { colors: prefs.colors, palette: prefs.palette ?? palette, base: prefs.base ?? base };
+    const theirs = { colors: migrate(prefs.colors ?? {}), palette: prefs.palette ?? palette, base: prefs.base ?? base };
     if (JSON.stringify(theirs) !== JSON.stringify({ colors, palette, base })) {
       ({ colors, palette, base } = theirs);
       cacheColors();
@@ -252,7 +260,7 @@ async function pull() {
 export function initPrefs() {
   fonts = loadFonts();
   try {
-    colors = JSON.parse(localStorage.getItem(COLORS_CACHE) ?? '{}') ?? {};
+    colors = migrate(JSON.parse(localStorage.getItem(COLORS_CACHE) ?? '{}') ?? {});
     ({ palette = {}, base = {} } = JSON.parse(localStorage.getItem(PICKS_CACHE) ?? '{}') ?? {});
   } catch {}
   applyFonts();
@@ -290,18 +298,7 @@ function cssVar(prop: string) {
   return getComputedStyle(document.documentElement).getPropertyValue(prop).trim();
 }
 
-function rgb(hex: string): [number, number, number] {
-  const n = parseInt(hex.replace('#', '').slice(0, 6), 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}
-
-function mix(a: string, b: string, t: number): string {
-  const A = rgb(a);
-  const B = rgb(b);
-  return `#${A.map((v, i) => Math.round(v + (B[i] - v) * t).toString(16).padStart(2, '0')).join('')}`;
-}
-
 function luma(hex: string) {
-  const [r, g, b] = rgb(hex);
-  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  const n = parseInt(hex.replace('#', '').slice(0, 6), 16);
+  return (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
 }

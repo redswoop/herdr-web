@@ -81,11 +81,11 @@ export function PrefsDialog({ onClose }: { onClose: () => void }) {
                     name: 'Custom',
                     tag: `from ${base?.name ?? 'stock'}`,
                     colors: Object.fromEntries(
-                      ['red', 'accent', 'hot', 'working', 'text', 'sub', 'bg'].map((k) => [
+                      ['chrome', 'live', 'signal', 'active', 'text', 'sub', 'bg'].map((k) => [
                         k,
                         colorOf(theme, k) ?? defaultColor(theme, k),
                       ]),
-                    ),
+                    ) as Palette['colors'],
                   }}
                   on
                   onPick={() => {}}
@@ -195,7 +195,7 @@ function PaletteTile({ p, on, onPick }: { p: Palette; on: boolean; onPick: () =>
   const c = p.colors;
   const style = {
     '--p-bg': c.bg,
-    '--p-red': c.red,
+    '--p-red': c.chrome,
     '--p-text': c.text,
     '--p-sub': c.sub,
   } as CSSProperties;
@@ -211,7 +211,7 @@ function PaletteTile({ p, on, onPick }: { p: Palette; on: boolean; onPick: () =>
       <span className="palette-name">{p.name}</span>
       <span className="palette-tag">{p.tag}</span>
       <span className="palette-swatches">
-        {[c.red, c.accent, c.hot, c.working].map((v, i) => (
+        {[c.chrome, c.live, c.signal, c.active].map((v, i) => (
           <i key={i} style={{ background: v, color: v }} />
         ))}
       </span>

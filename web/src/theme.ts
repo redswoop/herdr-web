@@ -1,15 +1,18 @@
 import { useEffect, useState } from 'react';
-import { startCyberFx, stopCyberFx, bootLog } from '@redswoop/cyberdos/fx';
+import { GOOGLE_FONTS_URL, bootLog, setSkin, startCyberFx, stopCyberFx } from '@redswoop/cyberdos/web';
+import { herdrBootLines, type Theme } from '@herdr/shared/cyber';
 
 /** Optional skins layered over style.css tokens via <html data-theme>.
- *  'default' is the plain stylesheet; everything else lives in theme-*.css. */
-export type Theme = 'default' | 'cyber';
+ *  'default' is the plain stylesheet; 'cyber' is @redswoop/cyberdos plus
+ *  herdr's adapter (theme-cyber.css). */
+export type { Theme };
 
 const KEY = 'herdr.theme';
 const EVENT = 'herdr-theme';
 const THEME_COLOR: Record<Theme, string> = { default: '#0e0e13', cyber: '#0b0607' };
-const FONTS =
-  'https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Orbitron:wght@700;900&family=Share+Tech+Mono&display=swap';
+
+/** the herdr headings that decrypt on mount under the skin */
+const SCRAMBLE = '.bar h1, .agent-name, .session .title, .ov-card-title, .modal-head h2, .group-title, .nc-where-name';
 
 const asTheme = (v: string | null | undefined): Theme | null =>
   v === 'cyber' || v === 'default' ? v : null;
@@ -39,21 +42,19 @@ export function currentTheme(): Theme {
 /** `flip` = a user toggle (plays the jack-in/out transition); at load the
  *  boot log plays once per tab instead */
 export function applyTheme(t: Theme, { flip = false } = {}) {
-  const root = document.documentElement;
-  if (t === 'default') delete root.dataset.theme;
-  else root.dataset.theme = t;
+  setSkin(t === 'cyber');
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_COLOR[t]);
   if (t === 'cyber') {
     if (!document.getElementById('cyber-fonts')) {
       const l = document.createElement('link');
       l.id = 'cyber-fonts';
       l.rel = 'stylesheet';
-      l.href = FONTS;
+      l.href = GOOGLE_FONTS_URL;
       document.head.appendChild(l);
     }
-    startCyberFx();
+    startCyberFx({ scramble: SCRAMBLE });
     if (flip) bootLog({ short: true });
-    else if (!sessionFlag('herdr.booted')) bootLog();
+    else if (!sessionFlag('herdr.booted')) bootLog({ lines: herdrBootLines(location.hostname) });
   } else {
     stopCyberFx();
     if (flip) crtOff();

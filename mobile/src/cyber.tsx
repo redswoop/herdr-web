@@ -1,39 +1,17 @@
-/* The light and chrome of the cyber skin that CSS gives the web for free:
-   grid + haze behind every screen, scanlines + vignette over them, HUD
-   corner brackets, hazard tape and neon rails. All tiles are white masks
-   from scripts/cyber-assets.py, tinted with the live palette. Decoration
-   only: nothing here takes a touch. */
+/* The skin's chrome, from @redswoop/cyberdos/native. Only `Screen` is
+   herdr's: it knows expo-router focus, so a stack of screens costs one rain. */
 import { useCallback, useState, type ReactNode } from 'react';
-import { Image, StyleSheet, View, type ViewStyle } from 'react-native';
+import type { ViewStyle } from 'react-native';
 import { useFocusEffect } from 'expo-router';
-import { Bloom, DigitalRain, Vignette } from './cyber-skia';
-import { alpha, useTheme } from './theme';
+import { CyberScreen } from '@redswoop/cyberdos/native';
 
-const TILE = {
-  scan: require('../assets/cyber/scanlines.png'),
-  grid: require('../assets/cyber/grid.png'),
-  stripes: require('../assets/cyber/stripes.png'),
-};
-
-/** behind a screen: the void, a faint grid, digital rain, the red bloom */
-export function CyberBackdrop({ rain = true }: { rain?: boolean }) {
-  const t = useTheme();
-  return (
-    <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: t.colors.bg }]}>
-      <Image source={TILE.grid} resizeMode="repeat" style={[StyleSheet.absoluteFill, { tintColor: t.colors.red, opacity: 0.045 }]} />
-      {rain && <DigitalRain />}
-      <Bloom />
-    </View>
-  );
-}
+export { Brackets, CyberBackdrop, CyberOverlay, HazardTape, NeonRail, StripeFill } from '@redswoop/cyberdos/native';
 
 /** A screen's root: opaque in the theme's bg (whatever the navigator puts
  *  the card over — a cold deep link once showed a white sheet behind a
  *  transparent card, and eggshell text on it), with the cyber backdrop
- *  inside. The rain runs only while the screen is focused, so a stack of
- *  screens costs one canvas. */
+ *  inside. The rain runs only while the screen is focused. */
 export function Screen({ children, style }: { children: ReactNode; style?: ViewStyle }) {
-  const t = useTheme();
   const [focused, setFocused] = useState(false);
   useFocusEffect(
     useCallback(() => {
@@ -42,77 +20,8 @@ export function Screen({ children, style }: { children: ReactNode; style?: ViewS
     }, []),
   );
   return (
-    <View style={[{ flex: 1, backgroundColor: t.colors.bg }, style]}>
-      {t.cyber && <CyberBackdrop rain={focused} />}
+    <CyberScreen focused={focused} style={style}>
       {children}
-    </View>
-  );
-}
-
-/** over everything: CRT scanlines and a vignette; never eats a tap */
-export function CyberOverlay() {
-  return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      <Image source={TILE.scan} resizeMode="repeat" style={[StyleSheet.absoluteFill, { opacity: 0.13 }]} />
-      <Vignette />
-    </View>
-  );
-}
-
-const L = 16;
-const W = 2;
-/** HUD corner brackets on a framed surface (parent needs position relative, which RN views are) */
-export function Brackets({ color, inset = 0 }: { color?: string; inset?: number }) {
-  const t = useTheme();
-  if (!t.cyber) return null;
-  const c = color ?? t.colors.red;
-  const glow = t.boxGlow(c, 6, 0.8);
-  const base: ViewStyle = { position: 'absolute', backgroundColor: c, ...glow };
-  return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      <View style={[base, { top: inset, left: inset, width: L, height: W }]} />
-      <View style={[base, { top: inset, left: inset, width: W, height: L }]} />
-      <View style={[base, { bottom: inset, right: inset, width: L, height: W }]} />
-      <View style={[base, { bottom: inset, right: inset, width: W, height: L }]} />
-    </View>
-  );
-}
-
-/** diagonal hazard stripes; `height` sets the band, colour defaults to needs-you yellow */
-export function HazardTape({ height = 7, color, opacity = 1, style }: { height?: number; color?: string; opacity?: number; style?: ViewStyle }) {
-  const t = useTheme();
-  if (!t.cyber) return null;
-  return (
-    <View pointerEvents="none" style={[{ height, overflow: 'hidden', backgroundColor: '#000' }, style]}>
-      <Image source={TILE.stripes} resizeMode="repeat" style={[StyleSheet.absoluteFill, { tintColor: color ?? t.colors.blocked, opacity }]} />
-    </View>
-  );
-}
-
-/** the glowing hairline under the header / above the composer */
-export function NeonRail({ color, style }: { color?: string; style?: ViewStyle }) {
-  const t = useTheme();
-  if (!t.cyber) return null;
-  const c = color ?? t.colors.red;
-  return (
-    <View
-      pointerEvents="none"
-      style={[{ height: 2, backgroundColor: alpha(c, 0.7), ...t.boxGlow(c, 12, 0.6) }, style]}
-    />
-  );
-}
-
-/** a translucent stripe overlay for hazard-tinted banners */
-export function StripeFill({ color, opacity = 0.14 }: { color?: string; opacity?: number }) {
-  const t = useTheme();
-  if (!t.cyber) return null;
-  return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      <Image
-        source={TILE.stripes}
-        resizeMode="repeat"
-        style={[StyleSheet.absoluteFill, { tintColor: color ?? t.colors.blocked, opacity }]}
-      />
-    </View>
+    </CyberScreen>
   );
 }

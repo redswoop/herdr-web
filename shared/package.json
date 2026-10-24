@@ -10,6 +10,7 @@
     "./platform": "./src/platform.ts",
     "./api": "./src/api.ts",
     "./types": "./src/types.ts",
+    "./cyber": "./src/cyber.ts",
     "./hooks/*": "./src/hooks/*.ts",
     "./md/*": "./src/md/*.ts",
     "./*": "./src/*"
@@ -32,6 +33,6 @@
     "vitest": "^3.2.0"
   },
   "dependencies": {
-    "@redswoop/cyberdos": "github:redswoop/cyberdos#main"
+    "@redswoop/cyberdos": "github:redswoop/cyberdos#39ee75feb60067b4cef67df334a062b73defd446"
   }
 }

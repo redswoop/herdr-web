@@ -1,11 +1,16 @@
-/* Theme tokens for Capra: the same roles web/src/style.css + theme-cyber.css
-   expose, resolved once per (theme, palette, overrides) into a Tokens object.
-   Components never import colors: they call useTheme() for inline values and
-   useStyles(make) for StyleSheets, which are built once per Tokens identity. */
+/* Theme tokens for Capra: the same roles web/src/style.css exposes, resolved
+   once per (theme, palette, overrides) into a Tokens object. The cyber skin's
+   values come from @redswoop/cyberdos (theme-map.ts maps its roles onto
+   herdr's names) and its CyberTokens ride along as `t.cd` for the skin's own
+   components. Components never import colors: they call useTheme() for
+   inline values and useStyles(make) for StyleSheets, built once per Tokens. */
 import { createContext, createElement, useContext, useEffect, useState, type ReactNode } from 'react';
 import { PixelRatio, Platform, StyleSheet, type TextStyle, type ViewStyle } from 'react-native';
 
 import { DEFAULT_FONTS, type FontKey, type Fonts } from '@herdr/shared';
+import { NATIVE_FACES, NATIVE_FONT_FILES, alpha, luma, mix } from '@redswoop/cyberdos';
+import { CyberProvider, buildCyberTokens, type CyberTokens } from '@redswoop/cyberdos/native';
+import { STOCK_DEFAULT, cyberPalette, onlyRoles, type Palette } from './theme-map';
 
 /**
  * Text sizes. Two knobs multiply every size: the user's per-area pref
@@ -23,29 +28,9 @@ import { DEFAULT_FONTS, type FontKey, type Fonts } from '@herdr/shared';
  */
 export const fontScale = PixelRatio.getFontScale();
 export type { FontKey, Fonts };
-import type { Theme } from '@herdr/shared/palettes';
+import type { Theme } from '@herdr/shared/cyber';
 
-export type { Theme };
-
-export interface Palette {
-  bg: string;
-  surface: string;
-  surface2: string;
-  surface3: string;
-  hairline: string;
-  text: string;
-  sub: string;
-  accent: string;
-  accentInk: string;
-  blocked: string;
-  working: string;
-  done: string;
-  idle: string;
-  /** cyber's chrome colour (titles, rails, your voice); = accent on the stock skin */
-  red: string;
-  /** the one primary action; = accent on the stock skin */
-  hot: string;
-}
+export type { Theme, Palette };
 
 export type Weight = '400' | '500' | '600' | '700' | '900';
 export type FontKind = 'ui' | 'display' | 'mono' | 'input';
@@ -53,6 +38,8 @@ export type FontKind = 'ui' | 'display' | 'mono' | 'input';
 export interface Tokens {
   theme: Theme;
   cyber: boolean;
+  /** the design language's own tokens, for @redswoop/cyberdos/native pieces */
+  cd: CyberTokens;
   colors: Palette;
   radius: { sm: number; md: number; lg: number };
   /** a one-off radius (pills, bubbles): as given on stock, square on cyber */
@@ -84,48 +71,18 @@ export interface Tokens {
   dot: (size: number) => ViewStyle;
 }
 
-/* ---------------- stock values (mirror the stylesheets) ---------------- */
+/* ---------------- stock values ---------------- */
 
 export const STOCK: Record<Theme, Palette> = {
-  default: {
-    bg: '#0e0e13',
-    surface: '#17171e',
-    surface2: '#1f1f29',
-    surface3: '#2a2a37',
-    hairline: 'rgba(255, 255, 255, 0.07)',
-    text: '#e9e9f0',
-    sub: '#9a9aab',
-    accent: '#7aa2f7',
-    accentInk: '#0b0b10',
-    blocked: '#f7768e',
-    working: '#e0af68',
-    done: '#9ece6a',
-    idle: '#565f89',
-    red: '#7aa2f7',
-    hot: '#7aa2f7',
-  },
-  cyber: {
-    bg: '#0b0607',
-    surface: '#140b0c',
-    surface2: '#1f1112',
-    surface3: '#2b1719',
-    hairline: 'rgba(255, 106, 92, 0.16)',
-    text: '#f1e3d2',
-    sub: '#9b867b',
-    accent: '#5fe3d4',
-    accentInk: '#050405',
-    blocked: '#fcee0a',
-    working: '#5ef6ff',
-    done: '#4b9e96',
-    idle: '#54413f',
-    red: '#ff6a5c',
-    hot: '#fcee0a',
-  },
+  default: STOCK_DEFAULT,
+  cyber: cyberPalette().colors,
 };
 
 /* ---------------- fonts ---------------- */
 
-/** loaded by name in boot.tsx; the names are what fontFamily must say */
+/** loaded by name in boot.tsx; the names are what fontFamily must say.
+ *  Metro needs literal require() paths, so the manifest is spelled out here
+ *  and checked against the package's list at test time. */
 export const FONT_FILES: Record<string, number> = {
   Orbitron_700Bold: require('@expo-google-fonts/orbitron/700Bold/Orbitron_700Bold.ttf'),
   Orbitron_900Black: require('@expo-google-fonts/orbitron/900Black/Orbitron_900Black.ttf'),
@@ -135,22 +92,15 @@ export const FONT_FILES: Record<string, number> = {
   ChakraPetch_700Bold: require('@expo-google-fonts/chakra-petch/700Bold/ChakraPetch_700Bold.ttf'),
   ShareTechMono_400Regular: require('@expo-google-fonts/share-tech-mono/400Regular/ShareTechMono_400Regular.ttf'),
 };
+export { NATIVE_FONT_FILES };
 
 const SYSTEM_MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' });
-
-const CYBER_FACES: Record<FontKind, Partial<Record<Weight, string>>> = {
-  display: { '400': 'Orbitron_700Bold', '500': 'Orbitron_700Bold', '600': 'Orbitron_700Bold', '700': 'Orbitron_700Bold', '900': 'Orbitron_900Black' },
-  ui: { '400': 'ChakraPetch_400Regular', '500': 'ChakraPetch_500Medium', '600': 'ChakraPetch_600SemiBold', '700': 'ChakraPetch_700Bold', '900': 'ChakraPetch_700Bold' },
-  // the composer stays proportional (matches the web skin)
-  input: { '400': 'ChakraPetch_400Regular', '500': 'ChakraPetch_500Medium', '600': 'ChakraPetch_600SemiBold', '700': 'ChakraPetch_700Bold', '900': 'ChakraPetch_700Bold' },
-  mono: { '400': 'ShareTechMono_400Regular', '500': 'ShareTechMono_400Regular', '600': 'ShareTechMono_400Regular', '700': 'ShareTechMono_400Regular', '900': 'ShareTechMono_400Regular' },
-};
 
 function fontFor(theme: Theme): Tokens['font'] {
   if (theme === 'cyber') {
     // custom faces carry their weight in the name; a fontWeight on top makes
     // Android fall back to a synthesized system face
-    return (kind, weight = '400') => ({ fontFamily: CYBER_FACES[kind][weight] });
+    return (kind, weight = '400') => ({ fontFamily: NATIVE_FACES[kind][weight] });
   }
   return (kind, weight = '400') =>
     kind === 'mono' ? { fontFamily: SYSTEM_MONO, fontWeight: weight } : { fontWeight: weight };
@@ -158,23 +108,32 @@ function fontFor(theme: Theme): Tokens['font'] {
 
 /* ---------------- derivation ---------------- */
 
-/** stock values + whatever a palette or custom set overrides; the surface
- *  ramp and hairline follow (same rule as web/src/prefs.ts applyColors) */
+/** stock values + whatever a palette or custom set overrides. On the cyber
+ *  skin the overrides are design-language roles and the surface ramp is the
+ *  skin's rule; on the stock skin they are herdr's own keys (same rule as
+ *  web/src/prefs.ts applyColors). */
 export function buildTokens(theme: Theme, overrides: Record<string, string> = {}, fonts: Fonts = DEFAULT_FONTS): Tokens {
-  const c: Palette = { ...STOCK[theme] };
-  for (const [k, v] of Object.entries(overrides)) if (k in c) (c as unknown as Record<string, string>)[k] = v;
-  if (overrides.bg) {
-    c.surface = mix(c.bg, c.text, 0.04);
-    c.surface2 = mix(c.bg, c.text, 0.07);
-    c.surface3 = mix(c.bg, c.text, 0.11);
-  }
-  if (theme === 'cyber') c.hairline = alpha(c.red, 0.16);
-  else if (overrides.accent) c.accentInk = luma(c.accent) > 0.5 ? '#0b0b10' : '#ffffff';
-  if (theme === 'default') {
+  const cyber = theme === 'cyber';
+  let c: Palette;
+  let cd: CyberTokens;
+  if (cyber) {
+    const roles = onlyRoles(overrides);
+    const p = cyberPalette(roles);
+    c = p.colors;
+    cd = buildCyberTokens(p.roles, true, p.tuned);
+  } else {
+    c = { ...STOCK.default };
+    for (const [k, v] of Object.entries(overrides)) if (k in c) (c as unknown as Record<string, string>)[k] = v;
+    if (overrides.bg) {
+      c.surface = mix(c.bg, c.text, 0.04);
+      c.surface2 = mix(c.bg, c.text, 0.07);
+      c.surface3 = mix(c.bg, c.text, 0.11);
+    }
+    if (overrides.accent) c.accentInk = luma(c.accent) > 0.5 ? '#0b0b10' : '#ffffff';
     c.red = c.accent;
     c.hot = c.accent;
+    cd = buildCyberTokens({}, false);
   }
-  const cyber = theme === 'cyber';
   const status = (s: string | undefined) =>
     s === 'blocked' ? c.blocked : s === 'working' ? c.working : s === 'done' ? c.done : s === 'idle' ? c.idle : c.sub;
   const font = fontFor(theme);
@@ -185,6 +144,7 @@ export function buildTokens(theme: Theme, overrides: Record<string, string> = {}
   return {
     theme,
     cyber,
+    cd,
     colors: c,
     radius: cyber ? { sm: 0, md: 0, lg: 0 } : { sm: 10, md: 14, lg: 18 },
     r: (n) => (cyber ? 0 : n),
@@ -225,7 +185,7 @@ export function ThemeProvider({
   tokens: Tokens;
   children: ReactNode;
 }) {
-  return createElement(ThemeContext.Provider, { value: tokens }, children);
+  return createElement(ThemeContext.Provider, { value: tokens }, createElement(CyberProvider, { tokens: tokens.cd, children }));
 }
 
 export function useTheme(): Tokens {
@@ -253,25 +213,6 @@ export function useTokensFrom(current: () => Tokens, subscribe: (cb: () => void)
   return t;
 }
 
-/* ---------------- color math ---------------- */
+/* ---------------- color math (the design language's) ---------------- */
 
-function rgb(hex: string): [number, number, number] {
-  const n = parseInt(hex.replace('#', '').slice(0, 6), 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}
-
-export function mix(a: string, b: string, t: number): string {
-  const A = rgb(a);
-  const B = rgb(b);
-  return `#${A.map((v, i) => Math.round(v + (B[i] - v) * t).toString(16).padStart(2, '0')).join('')}`;
-}
-
-export function alpha(hex: string, a: number): string {
-  const [r, g, b] = rgb(hex);
-  return `rgba(${r}, ${g}, ${b}, ${a})`;
-}
-
-function luma(hex: string) {
-  const [r, g, b] = rgb(hex);
-  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-}
+export { alpha, mix };

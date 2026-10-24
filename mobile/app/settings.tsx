@@ -14,7 +14,7 @@ import {
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { Screen } from '../src/cyber';
-import { palettesFor, type Theme } from '@herdr/shared/palettes';
+import { palettesFor, type Theme } from '@herdr/shared/cyber';
 import { describeError, FONT_AREAS, FONT_MAX, FONT_MIN, FONT_STEP } from '@herdr/shared';
 import { paletteOf, setFont, setPalette, setTheme } from '../src/prefs';
 import { setAutocorrect, useAutocorrect } from '../src/device-prefs';
@@ -194,8 +194,7 @@ function Appearance() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.swatches}>
           {presets.map((p) => {
             const on = p.id === current;
-            // the stock preset's colours are the stylesheet's own, not in p.colors
-            const c = p.stock ? t.theme === 'cyber' ? { red: '#ff6a5c', accent: '#5fe3d4', hot: '#fcee0a' } : {} : p.colors;
+            const c = p.colors;
             return (
               <Pressable
                 key={p.id}
@@ -206,7 +205,7 @@ function Appearance() {
                 accessibilityLabel={`${p.name}: ${p.tag}`}
               >
                 <View style={styles.chips}>
-                  {[c.red, c.accent, c.hot].map((hex, i) => (
+                  {[c.chrome, c.live, c.signal].map((hex, i) => (
                     <View key={i} style={[styles.chip, { backgroundColor: hex ?? t.colors.sub }]} />
                   ))}
                 </View>

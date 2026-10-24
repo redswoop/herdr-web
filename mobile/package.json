@@ -24,6 +24,7 @@
     "@herdr/shared": "*",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/netinfo": "12.0.1",
+    "@redswoop/cyberdos": "github:redswoop/cyberdos#39ee75feb60067b4cef67df334a062b73defd446",
     "@shopify/react-native-skia": "2.14.0",
     "expo": "~57.0.9",
     "expo-audio": "57.0.3",
