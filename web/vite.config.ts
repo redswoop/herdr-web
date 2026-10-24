@@ -8,7 +8,8 @@ export default defineConfig({
   plugins: [react()],
   publicDir: 'static',
   build: { outDir: '../public', emptyOutDir: true },
-  optimizeDeps: { exclude: ['@herdr/shared'] },
+  // source-only packages: serve them raw so edits hot-reload (no prebundle dance)
+  optimizeDeps: { exclude: ['@herdr/shared', '@redswoop/cyberdos'] },
   server: {
     port: 5174,
     // dev is reached by LAN/tailnet hostname, not localhost

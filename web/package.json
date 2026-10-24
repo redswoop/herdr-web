@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@herdr/shared": "*",
+    "@redswoop/cyberdos": "github:redswoop/cyberdos#main",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-resizable-panels": "^4.12.2"

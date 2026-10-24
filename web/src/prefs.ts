@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { apiUrl, get } from './api';
 import { applyTheme, currentTheme, saveTheme, type Theme } from './theme';
-import { setRainColors } from './cyber-fx';
+import { setRainColors } from '@redswoop/cyberdos/fx';
 import { findPalette, palettesFor } from './palettes';
 
 /* Appearance prefs. Theme + per-theme colors follow you across devices

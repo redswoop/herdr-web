@@ -4,7 +4,7 @@ import { initWebPlatform } from './platform.web';
 import { applyTheme, loadTheme } from './theme';
 import { initPrefs } from './prefs';
 import './style.css';
-import './theme-cyber.css';
+import '@redswoop/cyberdos/cyber.css';
 
 applyTheme(loadTheme());
 initWebPlatform();

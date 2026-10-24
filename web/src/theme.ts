@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { startCyberFx, stopCyberFx, bootLog } from './cyber-fx';
+import { startCyberFx, stopCyberFx, bootLog } from '@redswoop/cyberdos/fx';
 
 /** Optional skins layered over style.css tokens via <html data-theme>.
  *  'default' is the plain stylesheet; everything else lives in theme-*.css. */
