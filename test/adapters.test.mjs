@@ -218,6 +218,26 @@ test('claude slash command triple → command/command_out; meta shapes dropped',
   }), []);
 });
 
+test('claude isMeta user records (image-scale companion, skill preamble) are not bubbles', () => {
+  assert.deepEqual(claude.translate({
+    type: 'user', isMeta: true, turnCompanion: true,
+    message: { role: 'user', content: '[Image: original 2200x2896, displayed at 1519x2000. Multiply coordinates by 1.45 to map to original image.]' },
+  }), []);
+  assert.deepEqual(claude.translate({
+    type: 'user', isMeta: true,
+    message: { content: [{ type: 'text', text: 'Base directory for this skill: /x' }] },
+  }), []);
+  // a tool result riding a meta record still lands
+  const [r] = claude.translate({
+    type: 'user', isMeta: true,
+    message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] },
+  });
+  assert.equal(r.kind, 'tool_result');
+  // the same text NOT flagged meta is a real prompt
+  const [u] = claude.translate({ type: 'user', message: { content: '[Image: my own words]' } });
+  assert.equal(u.kind, 'user');
+});
+
 // ---------- classifyBlocked ----------
 
 test('classifyBlocked: pending tool → permission; resolved → unknown', () => {

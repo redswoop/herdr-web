@@ -89,14 +89,17 @@ test('unknown project dir → null, not a throw', async () => {
 // stands in for the pane's claude so /proc/<pid>/stat is live.
 
 const regDir = path.join(home, '.claude', 'sessions');
+// null where there's no /proc (mac): the adapter falls back to a liveness check
+const HAS_PROC = await fsp.access('/proc/self/stat').then(() => true, () => false);
 async function procStart(pid) {
+  if (!HAS_PROC) return null;
   const stat = await fsp.readFile(`/proc/${pid}/stat`, 'utf8');
   return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
 }
-async function mkRegistry({ sessionId, cwd = CWD, procStart: ps, pid = process.pid }) {
+async function mkRegistry({ sessionId, cwd = CWD, procStart: ps, pid = process.pid, ...extra }) {
   await fsp.mkdir(regDir, { recursive: true });
   await fsp.writeFile(path.join(regDir, `${pid}.json`), JSON.stringify({
-    pid, sessionId, cwd, startedAt: Date.now(), procStart: ps ?? await procStart(pid), version: '2.1.292',
+    pid, sessionId, cwd, startedAt: Date.now(), procStart: ps ?? await procStart(pid), version: '2.1.292', ...extra,
   }));
 }
 
@@ -118,7 +121,8 @@ test('pid registry: registered but no jsonl yet → null, never a sibling\'s fil
   assert.equal(hit, null, 'a fresh registered session must read as pending');
 });
 
-test('pid registry: an entry left by a dead process (pid reused) is ignored', async () => {
+// the procStart guard needs /proc; on mac a reused pid is indistinguishable
+test('pid registry: an entry left by a dead process (pid reused) is ignored', { skip: !HAS_PROC && 'no /proc' }, async () => {
   await mkRegistry({ sessionId: sid(3), procStart: '1' });
   const hit = await find(CWD, { pid: process.pid });
   assert.equal(hit?.sessionId, sid(1), 'stale registry → fall through to the heuristic ladder');
@@ -205,4 +209,24 @@ test('continued-in: an appended record re-evaluates the memoised tail', async ()
   await fsp.appendFile(p, line({ type: 'file-history-snapshot', snapshot: {} }));
   const hit = await find(CWD, { sessionId: sid(8) });
   assert.equal(hit?.sessionId, sid(9), 'once the worker file appears the pointer resolves');
+});
+
+// Observed 2026-10-24 on homarr: /clear typed into a parked pane runs in the
+// worker, which takes a fresh session id and writes NO continued-in anywhere.
+// The chain dead-ends on the pre-clear file; the worker's own registry entry
+// (jobId = the pane's parkedJobId) is the only thing that knows the new id.
+test('parked: the worker registry (by jobId) beats a chain that dead-ends after a /clear', async () => {
+  const cleared = '00000000-0000-0000-0000-0000000000c1';
+  await mkSession(cleared, { mtime: Date.now() - 600_000 });
+  await mkRegistry({ sessionId: sid(5), parkedJobId: 'deadbeef' }); // pane: chain → sid(6), stale
+  await mkRegistry({ pid: process.ppid, sessionId: cleared, kind: 'bg', jobId: 'deadbeef' });
+  const hit = await find(CWD, { pid: process.pid });
+  assert.equal(hit?.sessionId, cleared, 'must follow the worker, not the pre-clear file');
+  assert.equal(hit.continuedFrom, sid(5));
+  // worker gone: the last-seen worker session still wins over the chain
+  await fsp.rm(path.join(regDir, `${process.ppid}.json`), { force: true });
+  await new Promise((r) => setTimeout(r, 1600));
+  const after = await find(CWD, { pid: process.pid });
+  assert.equal(after?.sessionId, cleared);
+  await fsp.rm(path.join(regDir, `${process.pid}.json`), { force: true });
 });
