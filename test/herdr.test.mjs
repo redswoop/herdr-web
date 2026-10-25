@@ -13,7 +13,7 @@ import path from 'node:path';
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'herdr-sock-'));
 const SOCK = path.join(dir, 'h.sock');
 process.env.HERDR_SOCK = SOCK;
-const { rpc, subscribe, HerdrError, isPromptable } = await import('../lib/herdr.js');
+const { rpc, subscribe, HerdrError, isPromptable, agentProcess } = await import('../lib/herdr.js');
 
 // One scripted behavior per connection, consumed FIFO.
 const behaviors = [];
@@ -112,4 +112,23 @@ test('subscribe delivers events then fires onDown(null) once on clean close', as
   await new Promise((res) => setTimeout(res, 100)); // catch any late second fire
   assert.deepEqual(events.map((e) => e.type), ['pane.updated']);
   assert.deepEqual(downs, [null]);
+});
+
+test('agentProcess finds claude on mac, where name is the version and MCP servers come first', () => {
+  // process_info for a claude pane on blackstar, trimmed
+  const info = {
+    foreground_process_group_id: 894,
+    foreground_processes: [
+      { pid: 971, name: 'node', argv0: 'chrome-devtools-mcp' },
+      { pid: 993, name: 'node', argv0: 'node', argv: ['node', '/x/.bin/playwright-mcp'] },
+      { pid: 894, name: '2.1.310', argv0: 'claude', argv: ['claude', '--dangerously-skip-permissions'] },
+    ],
+  };
+  assert.equal(agentProcess(info, 'claude').pid, 894);
+  // linux reports the name directly
+  assert.equal(agentProcess({ foreground_processes: [{ pid: 5, name: 'node' }, { pid: 7, name: 'claude' }] }, 'claude').pid, 7);
+  // nothing names the agent: the group leader, then the first process
+  assert.equal(agentProcess({ foreground_process_group_id: 7, foreground_processes: [{ pid: 5, name: 'x' }, { pid: 7, name: 'y' }] }, 'claude').pid, 7);
+  assert.equal(agentProcess({ foreground_processes: [{ pid: 5, name: 'x' }] }, 'claude').pid, 5);
+  assert.equal(agentProcess({}, 'claude'), null);
 });

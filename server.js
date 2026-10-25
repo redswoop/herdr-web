@@ -6,7 +6,7 @@ import fs, { constants as fsConstants } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { rpc, subscribe, isPromptable } from './lib/herdr.js';
+import { rpc, subscribe, isPromptable, agentProcess } from './lib/herdr.js';
 import { adapterFor, lastTurnAt, readEvents, readEventsCached, listSessions, classifyBlocked } from './lib/adapters.js';
 import { trimEvents, windowEvents } from './lib/transcript-window.js';
 import {
@@ -284,8 +284,7 @@ async function paneProcess(paneId, kind) {
   const info = { at: Date.now(), pid: null, startedAt: null };
   try {
     const r = await rpc('pane.process_info', { pane_id: paneId });
-    const procs = r.process_info?.foreground_processes ?? [];
-    info.pid = (procs.find((p) => p.name === kind) ?? procs[0])?.pid ?? null;
+    info.pid = agentProcess(r.process_info, kind)?.pid ?? null;
     const btime = await bootTimeMs();
     if (info.pid && btime) {
       const stat = await fsp.readFile(`/proc/${info.pid}/stat`, 'utf8');
