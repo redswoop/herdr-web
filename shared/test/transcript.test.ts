@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildNodes, fmtDur, fmtTok, stepFile, stepSummary } from '../src/transcript';
+import { buildNodes, fmtDur, fmtTok, stepFile, stepSummary, turnTexts } from '../src/transcript';
 import type { Item } from '../src/types';
 
 describe('buildNodes', () => {
@@ -101,5 +101,30 @@ describe('helpers', () => {
   it('fmtDur / fmtTok', () => {
     expect(fmtDur(5000)).toBe('5s');
     expect(fmtTok(1500)).toBe('1.5k');
+  });
+});
+
+describe('turnTexts', () => {
+  const ev = (key: number, kind: string, text: string, at = 1e12 + key * 1000): Item => ({
+    type: 'event', ev: { kind, text } as Item extends { ev: infer E } ? E : never, key, at,
+  });
+  it('one block per turn: prompt + replies, tools left out, keyed by every member', () => {
+    const items: Item[] = [
+      ev(1, 'user', 'first ask'),
+      ev(2, 'assistant', 'looking'),
+      { type: 'event', ev: { kind: 'tool_use', name: 'Bash', text: 'ls', id: 't', input: {} }, key: 3, at: 1e12 + 3000 },
+      ev(4, 'assistant', 'found it'),
+      ev(5, 'user', 'second ask'),
+      ev(6, 'assistant', 'sure'),
+    ];
+    const nodes = buildNodes(items, false);
+    const map = turnTexts(nodes);
+    const first = '**You:** first ask\n\nlooking\n\nfound it';
+    expect(map.get('e1')).toBe(first);
+    expect(map.get('e4')).toBe(first);
+    const meta = nodes.find((n) => n.type === 'meta');
+    expect(meta && map.get(meta.key)).toBe(first);
+    expect(map.get('e6')).toBe('**You:** second ask\n\nsure');
+    expect([...map.values()].some((v) => v.includes('ls'))).toBe(false);
   });
 });

@@ -50,7 +50,7 @@ export const mdIsWide = (src: string) => /(^|\n)\s*(\||```)/.test(src);
 // one unbounded <Text> past the iOS layer size limit draws as an empty box.
 /** tap-to-copy for a span or a block: the one copy affordance that works
  *  while per-glyph selection is off (see InlineSeg) */
-function copy(text: string) {
+export function copy(text: string) {
   void Clipboard.setStringAsync(text);
   tick();
   toast('copied');
@@ -167,7 +167,13 @@ function BlockView({
   // all don't. So long code lines wrap and tables are a flex grid.
   if (block.type === 'code') {
     return (
-      <Pressable style={({ pressed }) => [styles.codeBlock, pressed && styles.pressed]} onPress={() => copy(block.text)}>
+      // pressDelay: a touch that turns into a scroll is claimed by the list
+      // before the dim shows — no flash while flicking through code
+      <Pressable
+        style={({ pressed }) => [styles.codeBlock, pressed && styles.pressed]}
+        unstable_pressDelay={130}
+        onPress={() => copy(block.text)}
+      >
         {splitPlain(block.text).map((s, i) => (
           <Text key={i} style={styles.codeBlockText} allowFontScaling={false}>
             {/* a URL in a fence opens on tap; the rest of the block still copies */}

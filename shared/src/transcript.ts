@@ -260,3 +260,46 @@ export const AUX_LABEL: Record<string, string> = {
   note: 'ℹ️ note',
   salvage: '⏹ salvaged from screen',
 };
+
+/**
+ * The whole turn — your prompt plus every reply up to the next prompt — as
+ * one paste-able block, keyed by every node that belongs to it (the prompt,
+ * each assistant bubble, the stats footer) so a long-press or the footer's
+ * copy can find it. Tool activity is left out: it's the conversation you
+ * want to carry somewhere else, not the plumbing.
+ */
+export function turnTexts(nodes: Node[]): Map<string, string> {
+  const out = new Map<string, string>();
+  let keys: string[] = [];
+  let prompt: string | null = null;
+  let replies: string[] = [];
+  const flush = () => {
+    if (!keys.length) return;
+    const parts = [prompt !== null ? `**You:** ${prompt.trim()}` : null, ...replies.map((r) => r.trim())]
+      .filter((p): p is string => !!p);
+    const text = parts.join('\n\n');
+    for (const k of keys) out.set(k, text);
+    keys = [];
+    prompt = null;
+    replies = [];
+  };
+  for (const n of nodes) {
+    if (n.type === 'item') {
+      const it = n.item;
+      const isPrompt = it.type === 'mine' || it.ev.kind === 'user';
+      if (isPrompt) {
+        flush();
+        prompt = it.type === 'mine' ? it.mine.text : it.ev.text;
+        keys.push(n.key);
+      } else if (it.ev.kind === 'assistant') {
+        replies.push(it.ev.text);
+        keys.push(n.key);
+      }
+    } else if (n.type === 'meta') {
+      keys.push(n.key);
+      flush();
+    }
+  }
+  flush();
+  return out;
+}

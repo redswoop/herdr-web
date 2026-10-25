@@ -1,18 +1,24 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
+  ActionSheetIOS,
+  Alert,
   FlatList,
+  Platform,
   Pressable,
+  Share,
   StyleSheet,
   Text,
   View,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
-import * as Clipboard from 'expo-clipboard';
 import {
   AUX_LABEL,
   EPOCH_MS,
   HERDING,
   MINE_STATUS,
   buildNodes,
+  turnTexts,
   clip,
   firstLine,
   fmtDur,
@@ -27,7 +33,9 @@ import {
 } from '@herdr/shared';
 import { alpha, mix, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
-import { MdView, mdIsWide } from './MdView';
+import { MdView, copy, mdIsWide } from './MdView';
+import { quoteIntoComposer } from '../compose-bus';
+import { tick } from '../toast';
 import { SegText } from './SegText';
 
 import { transcriptDebug } from './debug';
@@ -81,6 +89,11 @@ export function Transcript({
     if (!away) setFresh(false);
   }, [away]);
   const nodes = useMemo(() => buildNodes(items, working), [items, working]);
+  // read at long-press time through a stable ref, so a streaming turn
+  // doesn't re-render every memo'd bubble on each new chunk
+  const turns = useMemo(() => turnTexts(nodes), [nodes]);
+  const turnsRef = useRef(turns);
+  turnsRef.current = turns;
   // inverted list: reverse so newest is near index 0 (keyboard side)
   const data = useMemo(() => {
     const showPill = working && nodes[nodes.length - 1]?.type !== 'group';
@@ -105,6 +118,7 @@ export function Transcript({
   }
 
   return (
+    <TurnsContext.Provider value={turnsRef}>
     <View style={styles.list}>
     <FlatList
       ref={listRef}
@@ -173,6 +187,7 @@ export function Transcript({
       </Pressable>
     )}
     </View>
+    </TurnsContext.Provider>
   );
 
   function renderNode(n: (typeof data)[number]) {
@@ -180,7 +195,7 @@ export function Transcript({
         if (n.type === 'group') {
           return <ActivityGroup node={n} live={working && n === nodes[nodes.length - 1]} onOpenFile={onOpenFile} />;
         }
-        if (n.type === 'meta') return <TurnMeta dur={n.dur} tok={n.tok} ctx={n.ctx} />;
+        if (n.type === 'meta') return <TurnMeta dur={n.dur} tok={n.tok} ctx={n.ctx} nodeKey={n.key} />;
         if (n.type === 'command') {
           return <CommandPill name={n.name} args={n.args} out={n.out} err={n.err} />;
         }
@@ -191,11 +206,72 @@ export function Transcript({
             cancellable={it.mine.key === cancellableKey}
             onInterrupt={onInterrupt}
             onOpenFile={onOpenFile}
+            nodeKey={n.key}
           />
         ) : (
-          <EventNode ev={it.ev} onOpenFile={onOpenFile} />
+          <EventNode ev={it.ev} onOpenFile={onOpenFile} nodeKey={n.key} />
         );
   }
+}
+
+/** node key → whole-turn text (turnTexts); a ref so lookups never re-render */
+const TurnsContext = createContext<{ current: Map<string, string> }>({ current: new Map() });
+
+/** A bubble whose long-press opens its actions: copy it, copy the whole
+ *  turn, quote it into the composer, share. No dim on touch-down: every
+ *  scroll starts as a touch on some bubble, and a pressed-state dim flashed
+ *  the row under your thumb on each flick (read as "it's copying").
+ *  delayLongPress is under the 500 ms default — the longer the hold, the more
+ *  chance a few points of drift hand the touch to the list instead. */
+function CopyBubble({
+  text,
+  nodeKey,
+  style,
+  children,
+}: {
+  text: string;
+  nodeKey?: string;
+  style: StyleProp<ViewStyle>;
+  children: ReactNode;
+}) {
+  const styles = useStyles(makeStyles);
+  const turns = useContext(TurnsContext);
+  const [hot, setHot] = useState(false);
+  useEffect(() => {
+    if (!hot) return;
+    const id = setTimeout(() => setHot(false), 420);
+    return () => clearTimeout(id);
+  }, [hot]);
+  const open = () => {
+    tick();
+    setHot(true);
+    const turn = nodeKey ? turns.current.get(nodeKey) : undefined;
+    const acts: Array<[string, () => void]> = [
+      ['Copy', () => copy(text)],
+      ...(turn && turn !== text ? [['Copy whole turn', () => copy(turn)] as [string, () => void]] : []),
+      ['Quote in reply', () => quoteIntoComposer(text)],
+      ['Share…', () => void Share.share({ message: text }).catch(() => {})],
+    ];
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options: [...acts.map((a) => a[0]), 'Cancel'], cancelButtonIndex: acts.length, userInterfaceStyle: 'dark' },
+        (i) => acts[i]?.[1](),
+      );
+    } else {
+      // Android dialogs hold three buttons; share is the one left out
+      Alert.alert('', undefined, acts.slice(0, 3).map(([label, run]) => ({ text: label, onPress: run })), { cancelable: true });
+    }
+  };
+  return (
+    <Pressable
+      style={[style, hot && styles.copyPress]}
+      delayLongPress={380}
+      onLongPress={open}
+      accessibilityHint="Long press for copy, quote and share"
+    >
+      {children}
+    </Pressable>
+  );
 }
 
 function WorkingPill() {
@@ -217,9 +293,11 @@ function WorkingPill() {
 const EventNode = memo(function EventNode({
   ev,
   onOpenFile,
+  nodeKey,
 }: {
   ev: TEvent;
   onOpenFile: (path: string) => void;
+  nodeKey?: string;
 }) {
   const t = useTheme();
   const styles = useStyles(makeStyles);
@@ -241,28 +319,22 @@ const EventNode = memo(function EventNode({
       </View>
     );
   }
-  // long-press copies the whole message — replaces per-glyph selection, which
-  // is disabled while the selectable/Fabric black-box bug is in play (MdView)
+  // long-press copies the whole message (CopyBubble) — replaces per-glyph
+  // selection, disabled while the selectable/Fabric black-box bug is in play
   if (ev.kind === 'user') {
     return (
-      <Pressable
-        style={({ pressed }) => [styles.msg, styles.user, mdIsWide(ev.text) && styles.msgWide, pressed && styles.copyPress]}
-        onLongPress={() => Clipboard.setStringAsync(ev.text)}
-      >
+      <CopyBubble text={ev.text} nodeKey={nodeKey} style={[styles.msg, styles.user, mdIsWide(ev.text) && styles.msgWide]}>
         {t.cyber && <Text style={styles.you}>▸ YOU</Text>}
         <MdView src={ev.text} onOpenFile={onOpenFile} />
-      </Pressable>
+      </CopyBubble>
     );
   }
   if (ev.kind === 'assistant') {
     return (
-      <Pressable
-        style={({ pressed }) => [styles.msg, styles.assistant, mdIsWide(ev.text) && styles.msgWide, pressed && styles.copyPress]}
-        onLongPress={() => Clipboard.setStringAsync(ev.text)}
-      >
+      <CopyBubble text={ev.text} nodeKey={nodeKey} style={[styles.msg, styles.assistant, mdIsWide(ev.text) && styles.msgWide]}>
         {t.cyber && <View style={styles.diamond} />}
         <MdView src={ev.text} onOpenFile={onOpenFile} />
-      </Pressable>
+      </CopyBubble>
     );
   }
   return (
@@ -417,19 +489,39 @@ const TurnMeta = memo(function TurnMeta({
   dur,
   tok,
   ctx,
+  nodeKey,
 }: {
   dur: number | null;
   tok: number;
   ctx: number | null;
+  nodeKey: string;
 }) {
   const styles = useStyles(makeStyles);
+  const turns = useContext(TurnsContext);
   const parts = [
     dur !== null ? fmtDur(dur) : null,
     tok > 0 ? `${fmtTok(tok)} tokens` : null,
     ctx !== null && ctx > 0 ? `ctx ${fmtTok(ctx)}` : null,
   ].filter(Boolean);
   if (!parts.length) return null;
-  return <Text style={styles.turnMeta}>{parts.join(' · ')}</Text>;
+  // the turn's footer is the one-tap "copy this whole exchange"
+  return (
+    <View style={styles.turnMetaRow}>
+      <Text style={styles.turnMeta}>{parts.join(' · ')}</Text>
+      <Pressable
+        onPress={() => {
+          const turn = turns.current.get(nodeKey);
+          if (turn) copy(turn);
+        }}
+        hitSlop={10}
+        unstable_pressDelay={100}
+        style={({ pressed }) => [styles.turnCopy, pressed && styles.copyPress]}
+        accessibilityLabel="copy whole turn"
+      >
+        <Text style={[styles.turnMeta, styles.turnCopyText]}>copy turn</Text>
+      </Pressable>
+    </View>
+  );
 });
 
 const MineBubble = memo(function MineBubble({
@@ -437,26 +529,23 @@ const MineBubble = memo(function MineBubble({
   cancellable,
   onInterrupt,
   onOpenFile,
+  nodeKey,
 }: {
   mine: Mine;
   cancellable: boolean;
   onInterrupt: () => void;
   onOpenFile?: (path: string) => void;
+  nodeKey?: string;
 }) {
   const t = useTheme();
   const styles = useStyles(makeStyles);
-  // View (not Pressable) so message text stays selectable; hold-to-stop lives
-  // on the status line only; bubble-body long-press copies (the status Text
-  // captures its own long-press first, so stop and copy don't collide).
+  // hold-to-stop lives on the status line only; bubble-body long-press copies
+  // (the status Text captures its own long-press first, so they don't collide)
   return (
-    <Pressable
-      style={({ pressed }) => [
-        styles.mine,
-        mdIsWide(mine.text) && styles.mineWide,
-        cancellable && styles.mineCancellable,
-        pressed && styles.copyPress,
-      ]}
-      onLongPress={() => Clipboard.setStringAsync(mine.text)}
+    <CopyBubble
+      text={mine.text}
+      nodeKey={nodeKey}
+      style={[styles.mine, mdIsWide(mine.text) && styles.mineWide, cancellable && styles.mineCancellable]}
     >
       <MdView src={mine.text} onOpenFile={onOpenFile} />
       <Text
@@ -467,7 +556,7 @@ const MineBubble = memo(function MineBubble({
         {cancellable ? 'hold to stop · ' : ''}
         {MINE_STATUS[mine.state] ?? ''}
       </Text>
-    </Pressable>
+    </CopyBubble>
   );
 });
 
@@ -502,7 +591,7 @@ const makeStyles = (t: Tokens) =>
   // tables/code need a definite width — see mdIsWide in MdView
   msgWide: { width: '92%' },
   mineWide: { width: '85%' },
-  copyPress: { opacity: 0.6 }, // long-press feedback: copying, not selecting
+  copyPress: { opacity: 0.6 }, // copy confirmation (CopyBubble) / tap dim (footer)
   user: t.cyber
     ? {
         alignSelf: 'flex-end',
@@ -599,6 +688,14 @@ const makeStyles = (t: Tokens) =>
     fontSize: t.sz('chat', 11),
     marginVertical: 4,
   },
+  turnMetaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12 },
+  turnCopy: {
+    paddingHorizontal: 8,
+    borderRadius: t.r(999),
+    borderWidth: 1,
+    borderColor: alpha(t.colors.accent, 0.35),
+  },
+  turnCopyText: { color: t.colors.accent, ...t.hud },
   mineCancellable: { borderWidth: 1, borderColor: t.colors.working },
   mine: {
     alignSelf: 'flex-end',

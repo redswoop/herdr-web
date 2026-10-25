@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ActionSheetIOS,
+  AppState,
   Image,
   Keyboard,
   Platform,
@@ -11,6 +12,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import {
@@ -28,6 +30,7 @@ import { NeonRail } from '../cyber';
 import { Beacon, RailPacket } from '../cyber-fx';
 import { ChamferPlate } from '../cyber-skia';
 import { tick } from '../toast';
+import { asQuote, onComposerQuote } from '../compose-bus';
 import { useAutocorrect } from '../device-prefs';
 import { alpha, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
@@ -102,9 +105,19 @@ function persistAtts(paneId: string, atts: Attachment[]) {
 
 // the bytes land on the server the pane runs on — that's the disk its agent reads
 async function uploadBytes(uri: string, mime: string, host: string | null): Promise<string> {
-  const src = await fetch(uri);
-  if (!src.ok) throw new Error('could not read file');
-  const body = await src.arrayBuffer();
+  let body: ArrayBuffer;
+  if (uri.startsWith('data:')) {
+    // a clipboard image arrives as a base64 data URI — decode here rather
+    // than trust fetch() with the data: scheme on every platform
+    const bin = atob(uri.slice(uri.indexOf(',') + 1));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+    body = bytes.buffer;
+  } else {
+    const src = await fetch(uri);
+    if (!src.ok) throw new Error('could not read file');
+    body = await src.arrayBuffer();
+  }
   const r = await fetch(apiUrl('/api/upload', host), {
     method: 'POST',
     headers: { 'content-type': mime || 'application/octet-stream' },
@@ -149,6 +162,33 @@ export function Composer({
   const [atts, setAtts] = useState<Attachment[]>(() => loadAtts(paneId));
   const [selection, setSelection] = useState<{ start: number; end: number } | undefined>();
   const [menuOpen, setMenuOpen] = useState(false);
+  // An image on the clipboard (a screenshot's "Copy and Delete", say) can't
+  // reach a TextInput — RN's field only takes text, so the keyboard's paste
+  // suggestion never offers it here. Offer it ourselves while the field is
+  // focused. hasImageAsync is a silent probe (no iOS paste banner); only the
+  // actual paste reads the pasteboard. Once pasted or dismissed it isn't
+  // re-offered until the clipboard changes or the app comes back.
+  const [clipImg, setClipImg] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const clipSkip = useRef(false);
+  const checkClip = () => {
+    if (clipSkip.current) return setClipImg(false);
+    Clipboard.hasImageAsync().then(setClipImg, () => setClipImg(false));
+  };
+  useEffect(() => {
+    const fresh = () => {
+      clipSkip.current = false;
+      checkClip();
+    };
+    const sub = Clipboard.addClipboardListener(fresh);
+    const app = AppState.addEventListener('change', (st) => st === 'active' && fresh());
+    checkClip();
+    return () => {
+      sub.remove();
+      app.remove();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Yoga sizes the multiline input to its text on both platforms; pinning a
   // `height` from onContentSizeChange stalls under Fabric (the event reports
   // the frame back). We only track the laid-out height to decide when the
@@ -173,6 +213,23 @@ export function Composer({
     if (t) kv.set(textKey(paneId), t);
     else kv.remove(textKey(paneId));
   };
+
+  // "Quote in reply" from a bubble's long-press menu: append as a blockquote
+  // and put the cursor after it, ready to type
+  useEffect(
+    () =>
+      onComposerQuote((q) => {
+        setTextState((cur) => {
+          const next = `${cur.trim() ? `${cur.trimEnd()}\n\n` : ''}${asQuote(q)}\n\n`;
+          kv.set(textKey(paneId), next);
+          return next;
+        });
+        setPinned(false);
+        setSelection(undefined);
+        requestAnimationFrame(() => inputRef.current?.focus());
+      }),
+    [paneId, kv],
+  );
 
   const mutateAtts = (pane: string, fn: (cur: Attachment[]) => Attachment[] | null) => {
     setAtts((cur) => {
@@ -289,34 +346,57 @@ export function Composer({
     }
   };
 
-  const openAttachMenu = () => {
+  const pasteImage = async () => {
+    clipSkip.current = true;
+    setClipImg(false);
+    let img: Clipboard.ClipboardImage | null = null;
+    try {
+      img = await Clipboard.getImageAsync({ format: 'png' });
+    } catch {}
+    if (!img?.data) {
+      getPlatform().notifyError('no image on the clipboard');
+      return;
+    }
+    tick();
+    enqueueUpload(img.data, 'image/png', 'image', 'clipboard.png');
+  };
+
+  const openAttachMenu = async () => {
+    // probe now: the clipboard may have changed since the last check
+    const canPaste = await Clipboard.hasImageAsync().catch(() => false);
     const keyLabel = showKeys ? 'Hide key pad' : 'Show key pad';
-    const run = (action: 'photos' | 'camera' | 'files' | 'keys') => {
+    const run = (action: 'paste' | 'photos' | 'camera' | 'files' | 'keys') => {
       setMenuOpen(false);
-      if (action === 'photos') void pickPhotos();
+      if (action === 'paste') void pasteImage();
+      else if (action === 'photos') void pickPhotos();
       else if (action === 'camera') void takePhoto();
       else if (action === 'files') void pickFiles();
       else onToggleKeys();
     };
 
     if (Platform.OS === 'ios') {
+      const acts = [
+        ...(canPaste ? [['Paste image', 'paste'] as const] : []),
+        ['Photo library', 'photos'] as const,
+        ['Camera', 'camera'] as const,
+        ['Files', 'files'] as const,
+        [keyLabel, 'keys'] as const,
+      ];
       ActionSheetIOS.showActionSheetWithOptions(
         {
-          options: ['Photo library', 'Camera', 'Files', keyLabel, 'Cancel'],
-          cancelButtonIndex: 4,
+          options: [...acts.map((a) => a[0]), 'Cancel'],
+          cancelButtonIndex: acts.length,
           userInterfaceStyle: 'dark',
         },
         (i) => {
-          if (i === 0) run('photos');
-          else if (i === 1) run('camera');
-          else if (i === 2) run('files');
-          else if (i === 3) run('keys');
+          if (i < acts.length) run(acts[i][1]);
         },
       );
       return;
     }
 
     // Android / others: in-app sheet (also used as visual fallback)
+    setClipImg(canPaste);
     setMenuOpen((o) => !o);
   };
 
@@ -398,8 +478,41 @@ export function Composer({
         </View>
       )}
 
+      {clipImg && focused && !menuOpen && (
+        <View style={styles.clipRow}>
+          <Pressable
+            style={({ pressed }) => [styles.clipPill, pressed && styles.clipPillOn]}
+            onPress={() => void pasteImage()}
+            accessibilityLabel="paste image from clipboard"
+          >
+            <Icon name="image" size={14} color={t.colors.accent} />
+            <Text style={styles.clipText}>paste image</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              clipSkip.current = true;
+              setClipImg(false);
+            }}
+            hitSlop={8}
+            accessibilityLabel="dismiss"
+          >
+            <Icon name="close" size={12} color={t.colors.sub} />
+          </Pressable>
+        </View>
+      )}
+
       {menuOpen && (
         <View style={styles.menu}>
+          {clipImg && (
+            <MenuRow
+              icon="image"
+              label="Paste image"
+              onPress={() => {
+                setMenuOpen(false);
+                void pasteImage();
+              }}
+            />
+          )}
           <MenuRow
             icon="image"
             label="Photo library"
@@ -441,7 +554,7 @@ export function Composer({
       <View style={styles.frame}>
         <Pressable
           style={[styles.iconBtn, menuOpen && styles.iconBtnOn]}
-          onPress={openAttachMenu}
+          onPress={() => void openAttachMenu()}
           onLongPress={() => {
             // long-press: jump straight to key pad (muscle memory)
             setMenuOpen(false);
@@ -477,6 +590,11 @@ export function Composer({
             }}
             blurOnSubmit={false}
             returnKeyType="default"
+            onFocus={() => {
+              setFocused(true);
+              checkClip();
+            }}
+            onBlur={() => setFocused(false)}
           />
           {hasText && (
             <Pressable
@@ -542,6 +660,20 @@ const makeStyles = (t: Tokens) =>
     paddingTop: 6,
   },
   rail: { marginTop: -6, marginBottom: 6 },
+  clipRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingBottom: 6 },
+  clipPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: t.r(999),
+    borderWidth: 1,
+    borderColor: alpha(t.colors.accent, 0.5),
+    backgroundColor: t.cyber ? alpha(t.colors.bg, 0.9) : t.colors.surface2,
+  },
+  clipPillOn: { backgroundColor: alpha(t.colors.accent, 0.18) },
+  clipText: { color: t.colors.accent, fontSize: t.sz('ui', 12), ...t.font(t.cyber ? 'mono' : 'ui', '600'), ...t.hud },
   attRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
