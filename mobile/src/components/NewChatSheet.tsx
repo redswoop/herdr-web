@@ -5,12 +5,12 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { KeyboardAwareScrollView, KeyboardStickyView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   describeError,
@@ -55,6 +55,7 @@ import { Brackets } from '../cyber';
 import { Scramble } from '../cyber-fx';
 import { ChamferPlate } from '../cyber-skia';
 import { alpha, useStyles, useTheme, type Tokens } from '../theme';
+import { FolderBrowser } from './FolderBrowser';
 import { Icon } from './Icon';
 
 type Session = SessionEntry & { dir: string; kind: string };
@@ -105,6 +106,8 @@ export function NewChatSheet({
   const [dest, setDest] = useState<Dest>(() => initialDest(roster, target));
   // the place list stays folded when we already know where you're going
   const [picking, setPicking] = useState(() => dest.type === 'path');
+  // the place list swaps for a folder browser — typing paths on glass is bad
+  const [browsing, setBrowsing] = useState(false);
   const [filter, setFilter] = useState('');
   const [cwd, setCwd] = useState(target?.cwd && dest.type === 'path' ? target.cwd : '');
   const [branch, setBranch] = useState('');
@@ -114,6 +117,8 @@ export function NewChatSheet({
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // the start bar rides the keyboard; the scroll keeps a focused field above it
+  const [footH, setFootH] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -350,7 +355,12 @@ export function NewChatSheet({
         </Pressable>
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        bottomOffset={footH + 12}
+      >
         {/* which box, first — the places below belong to it */}
         {servers.length > 1 && (
           <View style={styles.kindRow}>
@@ -367,6 +377,7 @@ export function NewChatSheet({
                   setHost(s.id);
                   setDest({ type: 'path' });
                   setPicking(true);
+                  setBrowsing(false);
                   setOpenPlace(null);
                 }}
                 accessibilityState={{ selected: host === s.id }}
@@ -378,7 +389,13 @@ export function NewChatSheet({
           </View>
         )}
         {/* where: the pick, as one row; tap to change */}
-        <Pressable style={[styles.where, picking && styles.whereOpen]} onPress={() => setPicking((v) => !v)}>
+        <Pressable
+          style={[styles.where, picking && styles.whereOpen]}
+          onPress={() => {
+            setPicking((v) => !v);
+            setBrowsing(false);
+          }}
+        >
           <Brackets color={picking ? t.colors.accent : alpha(t.colors.accent, 0.5)} />
           <View style={styles.whereMain}>
             <Scramble style={styles.whereName} numberOfLines={1}>
@@ -392,7 +409,19 @@ export function NewChatSheet({
           <Text style={styles.whereChange}>{picking ? 'done' : 'change'}</Text>
         </Pressable>
 
-        {picking && (
+        {picking && browsing && (
+          <FolderBrowser
+            start={dest.type === 'path' ? cwd.trim() : ''}
+            host={host || null}
+            onBack={() => setBrowsing(false)}
+            onPick={(p) => {
+              setCwd(p);
+              setBrowsing(false);
+              pickDest({ type: 'path' });
+            }}
+          />
+        )}
+        {picking && !browsing && (
           <View style={styles.picker}>
             <TextInput
               style={styles.filter}
@@ -433,27 +462,18 @@ export function NewChatSheet({
                 </View>
               );
             })}
-            <TextInput
-              style={[styles.input, key === 'path' && styles.destOn]}
-              value={cwd}
-              onFocus={() => setDest({ type: 'path' })}
-              onChangeText={setCwd}
-              placeholder="other folder… (~ if blank)"
-              placeholderTextColor={t.colors.sub}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            {key === 'path' && (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chips} keyboardShouldPersistTaps="handled">
-                {places.flatMap((p) => p.dirs).map((d) => (
-                  <Pressable key={d} style={styles.chip} onPress={() => setCwd(d)}>
-                    <Text style={styles.chipText} numberOfLines={1}>
-                      {shortPath(d)}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            )}
+            <Pressable style={[styles.dest, key === 'path' && styles.destOn]} onPress={() => setBrowsing(true)}>
+              <Icon name="folder" size={13} color={key === 'path' ? t.colors.accent : t.colors.sub} />
+              <Text style={[styles.destLabel, key === 'path' && styles.destLabelOn]} numberOfLines={1}>
+                other folder…
+              </Text>
+              {key === 'path' && !!cwd.trim() && (
+                <Text style={styles.destExtra} numberOfLines={1}>
+                  {shortPath(cwd.trim())}
+                </Text>
+              )}
+              <Icon name="chevron-right" size={14} color={t.colors.sub} />
+            </Pressable>
           </View>
         )}
 
@@ -529,9 +549,9 @@ export function NewChatSheet({
         )}
 
         {!!error && <Text style={styles.error}>{error}</Text>}
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
-      <View style={styles.foot}>
+      <KeyboardStickyView style={styles.foot} onLayout={(e) => setFootH(e.nativeEvent.layout.height)}>
         <Pressable style={[styles.btnPrimary, t.cyber && styles.btnPlate, (busy || !effKind) && styles.btnDisabled]} disabled={busy || !effKind} onPress={submit}>
           <ChamferPlate fill={t.colors.hot} stroke="#ffffff55" cut={14} glow={8} />
           {busy ? (
@@ -542,7 +562,7 @@ export function NewChatSheet({
             </Text>
           )}
         </Pressable>
-      </View>
+      </KeyboardStickyView>
     </SafeAreaView>
   );
 }
@@ -657,17 +677,6 @@ const makeStyles = (t: Tokens) =>
       ...t.font('input'),
       fontSize: t.sz('ui', 15),
     },
-    chips: { marginTop: 6, maxHeight: 36 },
-    chip: {
-      backgroundColor: t.cyber ? 'transparent' : t.colors.surface3,
-      borderWidth: t.cyber ? 1 : 0,
-      borderColor: alpha(t.colors.accent, 0.3),
-      borderRadius: t.r(999),
-      paddingHorizontal: 10,
-      paddingVertical: 6,
-      marginRight: 6,
-    },
-    chipText: { ...t.font('ui'), ...t.hud, color: t.colors.sub, fontSize: t.cyber ? 11 : 12 },
 
     kindRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
     seg: {
