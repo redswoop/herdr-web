@@ -6,6 +6,7 @@ import { loadAsync as loadFonts } from 'expo-font';
 import { adoptDeepLink, adoptUrlSettings, loadServers } from './settings-store';
 import { currentTokens, initPrefs, pullPrefs, subscribePrefs } from './prefs';
 import { initUpdates } from './updates';
+import { startIconSync } from './app-icon';
 import { RosterProvider } from './roster';
 import { DEFAULT_TOKENS, FONT_FILES, ThemeProvider, useTokensFrom } from './theme';
 
@@ -32,6 +33,7 @@ export function BootProvider({ children }: { children: ReactNode }) {
       initNativePlatform({ servers: await loadServers() });
       initPrefs(); // cached skin first; the server's answer lands when it lands
       initUpdates(); // OTA: quiet check now and on every foreground
+      startIconSync(); // the home-screen goat follows the palette
       // bundled faces, a few hundred KB: wait rather than flash system type
       await loadFonts(FONT_FILES).catch(() => {});
       setReady(true);

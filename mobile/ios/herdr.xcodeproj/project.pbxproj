@@ -360,6 +360,7 @@
 			baseConfigurationReference = 960817161E386CA6B3FAC7CF /* Pods-herdr.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon-night-city AppIcon-arasaka AppIcon-militech AppIcon-netrunner AppIcon-afterlife AppIcon-trauma-team AppIcon-silverhand AppIcon-blackwall";
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = herdr/herdr.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
@@ -397,6 +398,7 @@
 			baseConfigurationReference = FA91C8EFD24F86FAB16B6F65 /* Pods-herdr.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon-night-city AppIcon-arasaka AppIcon-militech AppIcon-netrunner AppIcon-afterlife AppIcon-trauma-team AppIcon-silverhand AppIcon-blackwall";
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = herdr/herdr.entitlements;
 				CURRENT_PROJECT_VERSION = 1;

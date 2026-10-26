@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Platform,
   Pressable,
   ScrollView,
@@ -18,6 +19,7 @@ import { palettesFor, type Theme } from '@herdr/shared/cyber';
 import { describeError, FONT_AREAS, FONT_MAX, FONT_MIN, FONT_STEP } from '@herdr/shared';
 import { paletteOf, setFont, setPalette, setTheme } from '../src/prefs';
 import { setAutocorrect, useAutocorrect } from '../src/device-prefs';
+import { ICON_THUMBS, iconsSupported, setIconChoice, useIconChoice, wantedIcon } from '../src/app-icon';
 import { checkForUpdate, restartForUpdate, updateInfo, updateReady } from '../src/updates';
 import { ServerList } from '../src/components/ServerList';
 import { alpha, useStyles, useTheme, type Tokens } from '../src/theme';
@@ -35,6 +37,7 @@ export default function SettingsScreen() {
     <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <ServerList />
       <Appearance />
+      <AppIcon />
       <TextSize />
       <ComposerPrefs />
       <Pressable style={styles.labLink} onPress={() => router.push('/lab')}>
@@ -224,6 +227,44 @@ function Appearance() {
   );
 }
 
+/** home-screen icon: follow the palette, or pin one goat (this device only) */
+function AppIcon() {
+  const styles = useStyles(makeStyles);
+  useTheme(); // re-render on palette changes so 'match' shows the right goat
+  const choice = useIconChoice();
+  if (!iconsSupported()) return null;
+  const names = Object.fromEntries(palettesFor('cyber').map((p) => [p.id, p.name]));
+  const tiles = [{ id: 'auto', src: ICON_THUMBS[wantedIcon()] ?? ICON_THUMBS.kabuki, name: 'match' }].concat(
+    Object.entries(ICON_THUMBS).map(([id, src]) => ({ id, src, name: names[id] ?? id })),
+  );
+  return (
+    <View style={styles.section}>
+      <Text style={styles.label}>app icon</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.swatches}>
+        {tiles.map((tile) => {
+          const on = tile.id === choice;
+          return (
+            <Pressable
+              key={tile.id}
+              style={[styles.iconTile, on && styles.swatchOn]}
+              onPress={() => setIconChoice(tile.id)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: on }}
+              accessibilityLabel={tile.id === 'auto' ? 'app icon: match the palette' : `app icon: ${tile.name}`}
+            >
+              <Image source={tile.src} style={styles.iconImg} />
+              <Text style={[styles.swatchName, on && styles.swatchNameOn]} numberOfLines={1}>
+                {tile.name}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+      <Text style={styles.hint} allowFontScaling={false}>this device only · match follows the cyber palette</Text>
+    </View>
+  );
+}
+
 const makeStyles = (t: Tokens) =>
   StyleSheet.create({
   root: { flex: 1 },
@@ -254,6 +295,17 @@ const makeStyles = (t: Tokens) =>
   },
   swatchOn: t.cyber ? { borderColor: t.colors.red, ...t.boxGlow(t.colors.red, 14, 0.5) } : { borderColor: t.colors.accent },
   chips: { flexDirection: 'row', gap: 4 },
+  iconTile: {
+    width: 96,
+    padding: 8,
+    gap: 6,
+    alignItems: 'center',
+    backgroundColor: t.glass,
+    borderRadius: t.radius.md,
+    borderWidth: 1,
+    borderColor: t.cyber ? alpha(t.colors.red, 0.3) : t.colors.hairline,
+  },
+  iconImg: { width: 56, height: 56, borderRadius: 13 },
   chip: { flex: 1, height: 18, borderRadius: t.r(4), transform: t.cyber ? [{ skewX: '-12deg' }] : [] },
   swatchName: t.cyber
     ? { ...t.font('display', '700'), color: t.colors.sub, fontSize: t.sz('ui', 10), letterSpacing: 1, textTransform: 'uppercase' }
