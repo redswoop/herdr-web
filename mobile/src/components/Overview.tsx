@@ -10,6 +10,8 @@ import {
 } from 'react-native';
 import {
   STATUS_WORD,
+  byAttention,
+  byGroupRank,
   chipName,
   getServers,
   hostColor,
@@ -23,14 +25,6 @@ import { Brackets } from '../cyber';
 import { AlarmSweep, RailPacket, Scramble, StatusDot } from '../cyber-fx';
 import { alpha, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
-
-const STATUS_ORDER: Record<string, number> = {
-  blocked: 0,
-  working: 1,
-  idle: 2,
-  unknown: 3,
-  done: 4,
-};
 
 const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
 const shortPath = (p: string) => p.replace(/^\/(?:home|Users)\/[^/]+/, '~');
@@ -64,9 +58,7 @@ function buildCards(roster: Roster): Card[] {
     cards.set(key, c);
   }
   for (const c of cards.values()) {
-    c.agents.sort(
-      (a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9),
-    );
+    c.agents.sort(byAttention);
     if (c.path) {
       const counts = new Map<string, number>();
       for (const a of c.agents) counts.set(a.workspaceId, (counts.get(a.workspaceId) ?? 0) + 1);
@@ -74,12 +66,8 @@ function buildCards(roster: Roster): Card[] {
       c.spawn = { cwd: c.path, workspaceId: top, ...(c.host ? { host: c.host } : {}) };
     }
   }
-  return [...cards.values()].sort(
-    (a, b) =>
-      (STATUS_ORDER[a.agents[0]?.status] ?? 9) - (STATUS_ORDER[b.agents[0]?.status] ?? 9) ||
-      b.agents.length - a.agents.length ||
-      a.title.localeCompare(b.title),
-  );
+  // what needs me, then what I touched last — the list's order, per card
+  return [...cards.values()].sort((a, b) => byGroupRank(a, b) || a.title.localeCompare(b.title));
 }
 
 export function Overview({

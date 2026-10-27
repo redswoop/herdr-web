@@ -1,5 +1,5 @@
 import { useMemo, useRef } from 'react';
-import { chipName } from '@herdr/shared';
+import { byAttention, byGroupRank, chipName } from '@herdr/shared';
 import { ThemeToggle } from './ui/ThemeToggle';
 import { HomeToggle } from './ui/HomeToggle';
 import { Freshness } from './ui/Freshness';
@@ -8,7 +8,7 @@ import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import type { Sync } from '../sync';
 import type { SpawnTarget } from '../spawn';
 import type { Agent, Roster, Workspace } from '../types';
-import { STATUS_ORDER, STATUS_WORD, basename, shortPath } from '../util';
+import { STATUS_WORD, basename, shortPath } from '../util';
 
 interface Card {
   key: string;
@@ -40,9 +40,7 @@ function buildCards(roster: Roster): Card[] {
     cards.set(key, c);
   }
   for (const c of cards.values()) {
-    c.agents.sort(
-      (a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9),
-    );
+    c.agents.sort(byAttention);
     if (c.path) {
       // spawn joins the workspace most of the card's sessions live in
       const counts = new Map<string, number>();
@@ -51,12 +49,8 @@ function buildCards(roster: Roster): Card[] {
       c.spawn = { cwd: c.path, workspaceId: top };
     }
   }
-  return [...cards.values()].sort(
-    (a, b) =>
-      (STATUS_ORDER[a.agents[0]?.status] ?? 9) - (STATUS_ORDER[b.agents[0]?.status] ?? 9) ||
-      b.agents.length - a.agents.length ||
-      a.title.localeCompare(b.title),
-  );
+  // what needs me, then what I touched last — the list's order, per card
+  return [...cards.values()].sort((a, b) => byGroupRank(a, b) || a.title.localeCompare(b.title));
 }
 
 /** Home surface: one card per project with its live sessions. Starting

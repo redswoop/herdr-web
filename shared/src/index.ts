@@ -18,6 +18,7 @@ export {
   isGenericTitle,
   buildGroups,
   byAttention,
+  byGroupRank,
   isStale,
   STALE_MS,
   cleanAgentName,

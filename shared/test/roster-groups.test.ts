@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildGroups, chipName, cleanAgentName, dominant, isGenericTitle } from '../src/roster-groups';
+import { buildGroups, byAttention, byGroupRank, chipName, cleanAgentName, dominant, isGenericTitle } from '../src/roster-groups';
 import type { Agent } from '../src/types';
 
 const agent = (partial: Partial<Agent> & { paneId: string }): Agent => ({
@@ -125,6 +125,21 @@ describe('recency ordering', () => {
     expect(live.agents.map((a) => a.paneId)).toEqual(['help', 'busy', 'new', 'mid']);
     expect(stale.defaultClosed).toBe(true);
     expect(stale.agents.map((a) => a.paneId)).toEqual(['old']);
+  });
+
+  it('cards: freshest project beats a crowd of idle ones, rows newest-first', () => {
+    const card = (key: string, agents: Agent[]) => ({ key, agents: [...agents].sort(byAttention) });
+    const cards = [
+      card('crowd', [
+        agent({ paneId: 'c1', lastActiveAt: now - 86_400_000 }),
+        agent({ paneId: 'c2', lastActiveAt: now - 7_200_000 }),
+        agent({ paneId: 'c3', lastActiveAt: now - 3_600_000 }),
+      ]),
+      card('fresh', [agent({ paneId: 'f1', lastActiveAt: now - 60_000 })]),
+      card('busy', [agent({ paneId: 'b1', status: 'working', lastActiveAt: now - 86_400_000 })]),
+    ].sort(byGroupRank);
+    expect(cards.map((c) => c.key)).toEqual(['busy', 'fresh', 'crowd']);
+    expect(cards[2].agents.map((a) => a.paneId)).toEqual(['c3', 'c2', 'c1']);
   });
 
   it('space mode: busiest space first, empties last, unnamed tabs never split', () => {

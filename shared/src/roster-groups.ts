@@ -157,7 +157,9 @@ const groupRank = (g: { agents: Agent[] }) => {
   if (!top) return { rank: 3, at: 0 };
   return { rank: top.status === 'blocked' ? 0 : top.status === 'working' ? 1 : 2, at: top.lastActiveAt ?? 0 };
 };
-const byGroupRank = (a: { agents: Agent[] }, b: { agents: Agent[] }) => {
+/** Groups/cards: by their most urgent, then most recent, member — members
+ *  must already be byAttention-sorted. */
+export const byGroupRank = (a: { agents: Agent[] }, b: { agents: Agent[] }) => {
   const x = groupRank(a);
   const y = groupRank(b);
   return x.rank - y.rank || y.at - x.at;
