@@ -75,10 +75,12 @@ export function applyEvents(prev: Item[], stamped: StampedEvent[]): Item[] {
     }
     if (ev.kind === 'command') {
       const full = [ev.name, ev.text].filter(Boolean).join(' ');
+      // `!ls` typed in the composer comes back as name '!' + text 'ls'
+      const tight = ev.name === '!' ? `!${ev.text}` : full;
       const i = next.findIndex(
         (it) =>
           it.type === 'mine' &&
-          it.mine.text === full &&
+          (it.mine.text === full || it.mine.text === tight) &&
           !it.mine.reconciled &&
           it.mine.state !== 'stopping' &&
           it.mine.state !== 'stopped',

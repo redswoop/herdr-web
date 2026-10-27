@@ -1,14 +1,16 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   AUX_LABEL,
   EPOCH_MS,
   HERDING,
   MINE_STATUS,
+  baseName,
   buildNodes,
   clip,
   firstLine,
   fmtDur,
   fmtTok,
+  isImagePath,
   stepFile,
   stepSummary,
   type Node,
@@ -105,6 +107,13 @@ export function Transcript({
     if (follow.current) setUnseen(false);
   };
 
+  // a thumbnail decodes after the layout pass pinned the bottom — its height
+  // would shove the tail out of view, so re-pin if we were following
+  const onGrow = useCallback(() => {
+    const el = ref.current;
+    if (el && follow.current) el.scrollTop = el.scrollHeight;
+  }, []);
+
   const toBottom = () => {
     const el = ref.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
@@ -147,6 +156,18 @@ export function Transcript({
         }
         if (n.type === 'command') {
           return <CommandPill key={n.key} name={n.name} args={n.args} out={n.out} err={n.err} />;
+        }
+        if (n.type === 'files') {
+          return (
+            <SentFiles
+              key={n.key}
+              files={n.files}
+              caption={n.caption}
+              attach={n.attach}
+              onOpenFile={onOpenFile}
+              onGrow={onGrow}
+            />
+          );
         }
         const it = n.item;
         return it.type === 'mine' ? (
@@ -368,8 +389,9 @@ function StepRow({ step, onOpenFile }: { step: Step; onOpenFile: (path: string) 
   );
 }
 
-/** A slash command run in the TUI (`/model`, `/compact`, …); stdout expands
- *  on tap, errors render expanded — yellow bold, like claude itself. */
+/** A slash command run in the TUI (`/model`, `/compact`, …) or a `!` bash
+ *  line; stdout expands on tap (bash output starts open), errors render
+ *  expanded — yellow bold, like claude itself. */
 const CommandPill = memo(function CommandPill({
   name,
   args,
@@ -381,10 +403,11 @@ const CommandPill = memo(function CommandPill({
   out: string;
   err: string;
 }) {
-  const [open, setOpen] = useState(false);
+  // `!` bash mode: the output is what you asked for — show it
+  const [open, setOpen] = useState(name === '!');
   const label = [name || 'command output', args].filter(Boolean).join(' ');
   return (
-    <div className={`command-pill ${open ? 'open' : ''}`}>
+    <div className={`command-pill ${open ? 'open' : ''} ${name === '!' ? 'bash' : ''}`}>
       <button
         className="cmd-head"
         onClick={out ? () => setOpen((o) => !o) : undefined}
@@ -396,6 +419,66 @@ const CommandPill = memo(function CommandPill({
       </button>
       {open && <pre className="cmd-out" dangerouslySetInnerHTML={{ __html: esc(clip(out)) }} />}
       {err && <pre className="cmd-err" dangerouslySetInnerHTML={{ __html: esc(clip(err)) }} />}
+    </div>
+  );
+});
+
+/* ---------- sent files ---------- */
+
+const rawUrl = (path: string) => `/api/file/raw?path=${encodeURIComponent(path)}`;
+
+/** SendUserFile: thumbnails for images, chips for the rest; tap opens the
+ *  file viewer. Most of these live in a /tmp scratchpad that a reboot wipes,
+ *  so a dead thumbnail folds to a "gone" chip instead of a broken image. */
+const SentFiles = memo(function SentFiles({
+  files,
+  caption,
+  attach,
+  onOpenFile,
+  onGrow,
+}: {
+  files: string[];
+  caption: string;
+  attach: boolean;
+  onOpenFile: (path: string) => void;
+  onGrow: () => void;
+}) {
+  const [gone, setGone] = useState<ReadonlySet<string>>(new Set());
+  const imgs = attach ? [] : files.filter((f) => isImagePath(f) && !gone.has(f));
+  const chips = files.filter((f) => !imgs.includes(f));
+  return (
+    <div className="sent-files">
+      {caption && <div className="sent-caption">{caption}</div>}
+      {imgs.length > 0 && (
+        <div className={`sent-thumbs ${imgs.length === 1 ? 'solo' : ''}`}>
+          {imgs.map((f) => (
+            <button key={f} className="sent-thumb" title={f} onClick={() => onOpenFile(f)}>
+              <img
+                src={rawUrl(f)}
+                alt={baseName(f)}
+                loading="lazy"
+                onLoad={onGrow}
+                onError={() => setGone((g) => new Set(g).add(f))}
+              />
+            </button>
+          ))}
+        </div>
+      )}
+      {chips.length > 0 && (
+        <div className="sent-chips">
+          {chips.map((f) =>
+            gone.has(f) ? (
+              <span key={f} className="sent-chip gone" title={f}>
+                {baseName(f)} · gone
+              </span>
+            ) : (
+              <button key={f} className="sent-chip" title={f} onClick={() => onOpenFile(f)}>
+                📎 {baseName(f)}
+              </button>
+            ),
+          )}
+        </div>
+      )}
     </div>
   );
 });

@@ -329,6 +329,8 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === 'GET' && seg[1] === 'file' && seg[2] === 'raw') {
+    // a scratchpad file a reboot wiped
+    if ((url.searchParams.get('path') || '').includes('/gone/')) return sendJson(res, 404, { error: 'no such file' });
     res.writeHead(200, { 'content-type': 'image/png', 'access-control-allow-origin': '*' });
     // 1x1 png
     res.end(

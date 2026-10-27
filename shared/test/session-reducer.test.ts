@@ -99,6 +99,15 @@ describe('applyEvents', () => {
     expect(items.some((i) => i.type === 'event' && i.ev.kind === 'command')).toBe(true);
   });
 
+  it('swallows mine bubble for a ! bash line, spaced or not', () => {
+    for (const text of ['!upq ls', '! upq ls']) {
+      const clock = createAtClock();
+      const prev: Item[] = [{ type: 'mine', mine: { key: 1, text, state: 'sent' }, at: 1 }];
+      const items = apply(prev, [{ kind: 'command', name: '!', text: 'upq ls' }], clock);
+      expect(items.some((i) => i.type === 'mine')).toBe(false);
+    }
+  });
+
   it('inserts late events above interrupt by at', () => {
     const clock = createAtClock(1000);
     const prev: Item[] = [

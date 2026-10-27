@@ -376,6 +376,7 @@ export default function AgentScreen() {
         cancellableKey={cancellableKey}
         onInterrupt={interrupt}
         onOpenFile={onOpenFile}
+        host={hostOf(paneId)}
         older={older}
         loadingOlder={loadingOlder}
         onLoadOlder={loadOlder}

@@ -200,6 +200,9 @@
     font-family: var(--mono);
     background: color-mix(in srgb, var(--surface-2) 80%, transparent);
   }
+  & .sent-thumb { border-radius: 0; clip-path: var(--chamfer); --cut: 8px; }
+  & .sent-thumb:hover { border-color: var(--live); }
+  & .sent-chip { border-radius: 0; clip-path: var(--slant); }
   & .act-count { font-weight: 400; letter-spacing: 0.06em; }
   & .act-steps { border-left: 1px dashed color-mix(in srgb, var(--live) 35%, transparent); }
   & .step-name { text-shadow: var(--glow); }

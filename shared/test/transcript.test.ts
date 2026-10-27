@@ -78,6 +78,55 @@ describe('buildNodes: grok usage events', () => {
   });
 });
 
+describe('buildNodes: SendUserFile', () => {
+  const ev = (key: number, e: Item & { type: 'event' } extends { ev: infer E } ? E : never): Item => ({
+    type: 'event',
+    ev: e,
+    key,
+    at: 1e12 + key,
+  });
+  const items: Item[] = [
+    { type: 'mine', mine: { key: 1, text: 'show me', state: 'confirmed' }, at: 1e12 },
+    ev(2, { kind: 'tool_use', name: 'Bash', text: 'make', id: 'b1', input: { command: 'make' } }),
+    ev(3, { kind: 'tool_result', text: 'ok', id: 'b1' }),
+    ev(4, {
+      kind: 'tool_use',
+      name: 'SendUserFile',
+      text: '',
+      id: 's1',
+      input: { files: ['/tmp/a.png', '/tmp/b.csv'], caption: 'round 1', status: 'proactive', display: 'render' },
+    }),
+    ev(5, { kind: 'tool_result', text: '2 files delivered to user.', id: 's1' }),
+    ev(6, { kind: 'assistant', text: 'there you go' }),
+  ];
+
+  it('breaks the send out of the activity group as a files card', () => {
+    const nodes = buildNodes(items, false);
+    expect(nodes.map((n) => n.type)).toEqual(['item', 'group', 'files', 'item']);
+    const f = nodes[2];
+    if (f.type !== 'files') throw new Error('expected files');
+    expect(f.files).toEqual(['/tmp/a.png', '/tmp/b.csv']);
+    expect(f.caption).toBe('round 1');
+    expect(f.proactive).toBe(true);
+    expect(f.attach).toBe(false);
+  });
+
+  it('swallows the delivery receipt instead of opening a stray group', () => {
+    const nodes = buildNodes(items, false);
+    const g = nodes[1];
+    if (g.type !== 'group') throw new Error('expected group');
+    expect(g.steps).toHaveLength(1);
+  });
+
+  it('a malformed call stays an ordinary tool step', () => {
+    const nodes = buildNodes(
+      [ev(1, { kind: 'tool_use', name: 'SendUserFile', text: '', id: 'x', input: { files: [] } })],
+      false,
+    );
+    expect(nodes.map((n) => n.type)).toEqual(['group']);
+  });
+});
+
 describe('helpers', () => {
   it('stepFile / stepSummary (claude CamelCase)', () => {
     expect(stepFile('Read', { file_path: '/a/b/c.ts' })).toBe('/a/b/c.ts');

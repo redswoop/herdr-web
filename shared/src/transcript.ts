@@ -12,7 +12,8 @@ export type Node =
   | { type: 'item'; key: string; item: Item }
   | { type: 'group'; key: string; steps: Step[]; startAt: number; endAt: number }
   | { type: 'meta'; key: string; dur: number | null; tok: number; ctx: number | null }
-  | { type: 'command'; key: string; name: string; args: string; out: string; err: string };
+  | { type: 'command'; key: string; name: string; args: string; out: string; err: string }
+  | { type: 'files'; key: string; files: string[]; caption: string; attach: boolean; proactive: boolean };
 
 /**
  * Collapse each run of thought/tool_use/tool_result events into one activity
@@ -23,6 +24,7 @@ export type Node =
  */
 export function buildNodes(items: Item[], working: boolean): Node[] {
   const nodes: Node[] = [];
+  const sentIds = new Set<string>(); // SendUserFile calls — their receipts aren't worth a row
   let group: { key: string; steps: Step[]; startAt: number; endAt: number } | null = null;
   let turn: {
     key: string;
@@ -101,6 +103,19 @@ export function buildNodes(items: Item[], working: boolean): Node[] {
     // pure accounting (grok's per-turn token totals) — nothing to render
     if (e.kind === 'usage') continue;
 
+    // claude's SendUserFile: the agent handing over a file — that's the reply,
+    // not plumbing, so it breaks out of the activity group as its own card
+    if (e.kind === 'tool_use' && e.name === 'SendUserFile') {
+      const sent = sentFiles(e.input);
+      if (sent) {
+        flushGroup();
+        if (e.id) sentIds.add(e.id);
+        nodes.push({ type: 'files', key: `f${key}`, ...sent });
+        continue;
+      }
+    }
+    if (e.kind === 'tool_result' && e.id && sentIds.has(e.id)) continue;
+
     if (e.kind === 'thought' || e.kind === 'tool_use' || e.kind === 'tool_result') {
       if (e.kind === 'tool_result' && e.id && group) {
         const call = group.steps.find(
@@ -135,6 +150,32 @@ export function buildNodes(items: Item[], working: boolean): Node[] {
   flushGroup();
   if (!working) flushTurn();
   return nodes;
+}
+
+/** SendUserFile's input → what the card shows; null when it isn't one */
+export function sentFiles(
+  input: unknown,
+): { files: string[]; caption: string; attach: boolean; proactive: boolean } | null {
+  const i = (input ?? {}) as Record<string, unknown>;
+  const files = Array.isArray(i.files) ? i.files.filter((f): f is string => typeof f === 'string' && !!f) : [];
+  if (!files.length) return null;
+  return {
+    files,
+    caption: typeof i.caption === 'string' ? i.caption : '',
+    attach: i.display === 'attach',
+    proactive: i.status === 'proactive',
+  };
+}
+
+const IMG_EXT = /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i;
+
+/** worth an inline thumbnail (by extension — the card renders before any stat) */
+export function isImagePath(p: string): boolean {
+  return IMG_EXT.test(p);
+}
+
+export function baseName(p: string): string {
+  return p.split('/').filter(Boolean).pop() ?? p;
 }
 
 export function clip(text: string): string {

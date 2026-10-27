@@ -3,6 +3,7 @@ import {
   ActionSheetIOS,
   Alert,
   FlatList,
+  Image,
   Platform,
   Pressable,
   Share,
@@ -17,7 +18,9 @@ import {
   EPOCH_MS,
   HERDING,
   MINE_STATUS,
+  baseName,
   buildNodes,
+  isImagePath,
   turnTexts,
   clip,
   firstLine,
@@ -39,6 +42,7 @@ import { tick } from '../toast';
 import { SegText } from './SegText';
 
 import { transcriptDebug } from './debug';
+import { fileRawUrl } from '../api-urls';
 export { transcriptDebug };
 
 export function Transcript({
@@ -49,6 +53,7 @@ export function Transcript({
   cancellableKey,
   onInterrupt,
   onOpenFile,
+  host = null,
   older = 0,
   loadingOlder = false,
   onLoadOlder,
@@ -60,6 +65,8 @@ export function Transcript({
   cancellableKey: number | null;
   onInterrupt: () => void;
   onOpenFile: (path: string) => void;
+  /** the pane's own server — sent files live on that host's disk */
+  host?: string | null;
   /** events above the loaded window (server-side tail); 0 = all here */
   older?: number;
   loadingOlder?: boolean;
@@ -198,6 +205,11 @@ export function Transcript({
         if (n.type === 'meta') return <TurnMeta dur={n.dur} tok={n.tok} ctx={n.ctx} nodeKey={n.key} />;
         if (n.type === 'command') {
           return <CommandPill name={n.name} args={n.args} out={n.out} err={n.err} />;
+        }
+        if (n.type === 'files') {
+          return (
+            <SentFiles files={n.files} caption={n.caption} attach={n.attach} host={host} onOpenFile={onOpenFile} />
+          );
         }
         const it = n.item;
         return it.type === 'mine' ? (
@@ -469,7 +481,8 @@ function CommandPill({
   err: string;
 }) {
   const styles = useStyles(makeStyles);
-  const [open, setOpen] = useState(false);
+  // `!` bash mode: the output is what you asked for — show it
+  const [open, setOpen] = useState(name === '!');
   const label = [name || 'command output', args].filter(Boolean).join(' ');
   return (
     <View style={styles.cmd}>
@@ -484,6 +497,70 @@ function CommandPill({
     </View>
   );
 }
+
+/** SendUserFile: thumbnails for images, chips for the rest; tap opens the
+ *  file viewer. Scratchpad files die with a reboot — a dead thumbnail folds
+ *  to a "gone" chip. A wrapped row, not a horizontal ScrollView: no
+ *  scrollers inside transcript cells (the Fabric black-box bug). */
+const SentFiles = memo(function SentFiles({
+  files,
+  caption,
+  attach,
+  host,
+  onOpenFile,
+}: {
+  files: string[];
+  caption: string;
+  attach: boolean;
+  host: string | null;
+  onOpenFile: (path: string) => void;
+}) {
+  const styles = useStyles(makeStyles);
+  const [gone, setGone] = useState<ReadonlySet<string>>(new Set());
+  const imgs = attach ? [] : files.filter((f) => isImagePath(f) && !gone.has(f));
+  const chips = files.filter((f) => !imgs.includes(f));
+  const solo = imgs.length === 1;
+  return (
+    <View style={styles.sent}>
+      {!!caption && <Text style={styles.sentCaption}>{caption}</Text>}
+      {imgs.length > 0 && (
+        <View style={styles.sentThumbs}>
+          {imgs.map((f) => (
+            <Pressable
+              key={f}
+              onPress={() => onOpenFile(f)}
+              style={[styles.sentThumb, solo ? styles.sentSolo : styles.sentTile]}
+              accessibilityLabel={`open ${baseName(f)}`}
+            >
+              <Image
+                source={{ uri: fileRawUrl(f, null, host) }}
+                style={styles.sentImg}
+                resizeMode={solo ? 'contain' : 'cover'}
+                onError={() => setGone((g) => new Set(g).add(f))}
+              />
+            </Pressable>
+          ))}
+        </View>
+      )}
+      {chips.length > 0 && (
+        <View style={styles.sentThumbs}>
+          {chips.map((f) => (
+            <Pressable
+              key={f}
+              disabled={gone.has(f)}
+              onPress={() => onOpenFile(f)}
+              style={[styles.cmd, gone.has(f) && styles.sentGone]}
+            >
+              <Text style={styles.cmdName} numberOfLines={1}>
+                {gone.has(f) ? `${baseName(f)} · gone` : `📎 ${baseName(f)}`}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+});
 
 const TurnMeta = memo(function TurnMeta({
   dur,
@@ -671,6 +748,20 @@ const makeStyles = (t: Tokens) =>
     alignSelf: 'flex-start',
   },
   cmdHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  sent: { gap: 6, marginVertical: 4 },
+  sentCaption: { ...t.font('ui'), color: t.colors.sub, fontSize: t.sz('chat', 13) },
+  sentThumbs: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  sentThumb: {
+    borderRadius: t.r(8),
+    borderWidth: 1,
+    borderColor: t.cyber ? alpha(t.colors.accent, 0.35) : t.colors.hairline,
+    backgroundColor: t.glass2,
+    overflow: 'hidden',
+  },
+  sentSolo: { width: '100%', height: 240 },
+  sentTile: { width: 104, height: 104 },
+  sentImg: { width: '100%', height: '100%' },
+  sentGone: { opacity: 0.5 },
   cmdGlyph: { color: t.colors.accent },
   cmdName: { color: t.colors.text, fontSize: t.sz('chat', 13), ...t.font('mono'), },
   cmdErr: { color: t.colors.working, ...t.font('ui', '700') },

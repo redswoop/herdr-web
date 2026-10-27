@@ -884,6 +884,26 @@ textarea::placeholder { color: var(--sub); }
 .dialog-banner .ghost { font-size: calc(13px * var(--fs)); text-decoration: underline; }
 .dialog-mirror .screen { border-bottom: none; max-height: 38dvh; }
 
+/* ---------- sent files (SendUserFile) ---------- */
+.sent-files { align-self: flex-start; max-width: 88%; display: flex; flex-direction: column; gap: 6px; }
+.sent-caption { font-size: calc(13px * var(--fs)); color: var(--sub); }
+.sent-thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; }
+.sent-thumbs.solo { grid-template-columns: minmax(0, 520px); }
+.sent-thumb {
+  padding: 0; border: 1px solid var(--hairline); border-radius: 8px; overflow: hidden;
+  background: var(--surface); cursor: zoom-in; line-height: 0;
+}
+.sent-thumb img { width: 100%; max-height: 360px; object-fit: contain; }
+.sent-thumbs:not(.solo) .sent-thumb img { height: 140px; object-fit: cover; }
+.sent-thumb:hover { border-color: var(--accent); }
+.sent-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.sent-chip {
+  padding: 4px 12px; background: var(--surface); border: 1px solid var(--hairline); border-radius: 999px;
+  font-family: var(--mono); font-size: calc(11.5px * var(--fs)); color: var(--text); cursor: pointer;
+}
+.sent-chip:hover { color: var(--accent); }
+.sent-chip.gone { color: var(--sub); opacity: 0.6; cursor: default; text-decoration: line-through; }
+
 /* ---------- slash-command pill ---------- */
 .command-pill { align-self: flex-start; max-width: 88%; }
 .command-pill .cmd-head {
@@ -899,6 +919,9 @@ textarea::placeholder { color: var(--sub); }
 .command-pill .cmd-glyph { opacity: 0.6; font-size: calc(10px * var(--fs)); }
 .command-pill .chev { opacity: 0.5; font-size: calc(10px * var(--fs)); transition: transform 0.12s; }
 .command-pill.open .chev { transform: rotate(90deg); }
+/* bash output is usually columns — scroll it rather than wrap the table apart */
+.command-pill.bash { max-width: 100%; }
+.command-pill.bash .cmd-out { white-space: pre; overflow-x: auto; }
 .command-pill .cmd-out {
   margin: 6px 0 0 6px; padding: 8px 12px;
   background: var(--surface);

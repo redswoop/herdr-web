@@ -218,6 +218,24 @@ test('claude slash command triple → command/command_out; meta shapes dropped',
   }), []);
 });
 
+test('claude ! bash mode → command named ! + stdout/stderr, entities decoded, columns kept', () => {
+  const [cmd] = claude.translate({ type: 'user', message: { content: '<bash-input> upq ls</bash-input>' } });
+  assert.deepEqual([cmd.kind, cmd.name, cmd.text], ['command', '!', 'upq ls']);
+  const evs = claude.translate({
+    type: 'user',
+    message: {
+      content: '<bash-stdout>  ID STATUS\n   9 queued   Towers &amp; Jeremy &lt;x&gt;\n</bash-stdout><bash-stderr>warn: \u001b[33mslow\u001b[0m</bash-stderr>',
+    },
+  });
+  assert.deepEqual(evs.map((e) => e.kind), ['command_out', 'command_err']);
+  assert.equal(evs[0].text, '  ID STATUS\n   9 queued   Towers & Jeremy <x>');
+  assert.equal(evs[1].text, 'warn: slow');
+  // empty stderr, empty stdout → nothing
+  assert.deepEqual(claude.translate({
+    type: 'user', message: { content: '<bash-stdout></bash-stdout><bash-stderr></bash-stderr>' },
+  }), []);
+});
+
 test('claude isMeta user records (image-scale companion, skill preamble) are not bubbles', () => {
   assert.deepEqual(claude.translate({
     type: 'user', isMeta: true, turnCompanion: true,
