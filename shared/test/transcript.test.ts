@@ -199,4 +199,20 @@ describe('buildNodes: /compact', () => {
     expect(cmds[0]).toMatchObject({ name: '/compact', args: 'keep the auth notes', out: 'Compacted (ctrl+o to see full summary)' });
     expect(nodes.some((n) => n.type === 'item' && n.item.type === 'event' && n.item.ev.kind === 'note')).toBe(true);
   });
+
+  it('does not reach back over any other note', () => {
+    const ev = (key: number, e: TEvent): Item => ({ type: 'event', ev: e, key, at: 1e12 + key });
+    const nodes = buildNodes(
+      [
+        ev(1, { kind: 'command', name: '/model', text: 'opus' }),
+        ev(2, { kind: 'note', name: 'task', text: 'background task finished' }),
+        ev(3, { kind: 'command_out', text: 'stray output' }),
+      ],
+      false,
+    );
+    const cmds = nodes.filter((n) => n.type === 'command');
+    expect(cmds).toHaveLength(2);
+    expect(cmds[0]).toMatchObject({ name: '/model', out: '' });
+    expect(cmds[1]).toMatchObject({ name: '', out: 'stray output' });
+  });
 });

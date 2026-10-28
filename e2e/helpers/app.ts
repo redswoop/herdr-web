@@ -1,6 +1,9 @@
 import { type Page, expect } from '@playwright/test';
 
-const MOCK = process.env.MOCK_URL || 'http://127.0.0.1:7684';
+// MOCK_PORT is what playwright.config honours (the port the mock is spawned
+// on); a bare MOCK_PORT override must land here too or every test hits
+// whatever else lives on 7684
+const MOCK = process.env.MOCK_URL || `http://127.0.0.1:${process.env.MOCK_PORT || 7684}`;
 
 export async function mockReset() {
   const r = await fetch(`${MOCK}/__mock/reset`, { method: 'POST' });

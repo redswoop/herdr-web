@@ -246,6 +246,28 @@ test.after(async () => {
 
 // ---------- the tests ----------
 
+test('e2e: a tokenless server answers only to its own names (DNS rebinding)', async () => {
+  // a rebound evil.com still says evil.com in Host: the page's "same-origin"
+  // read of /api/file must get nothing. (fetch strips a Host override — raw http.)
+  const statusAs = (host) =>
+    new Promise((resolve, reject) => {
+      http.get({ host: '127.0.0.1', port: PORT, path: '/api/roster', headers: { host } }, (r) => {
+        r.resume();
+        resolve(r.statusCode);
+      }).on('error', reject);
+    });
+  assert.equal(await statusAs('evil.com'), 421);
+  assert.equal(await statusAs('evil.com:' + PORT), 421);
+  for (const host of ['127.0.0.1', `127.0.0.1:${PORT}`, 'localhost', 'LOCALHOST:1', os.hostname(), '[::1]:9']) {
+    assert.equal(await statusAs(host), 200, host);
+  }
+});
+
+test('e2e: JSON bodies must say so (a text/plain form post is refused)', async () => {
+  const r = await fetch(`${BASE}/api/prefs`, { method: 'PUT', headers: { 'content-type': 'text/plain' }, body: '{"theme":"x"}' });
+  assert.equal(r.status, 415);
+});
+
 test('e2e: registered pane binds via active_sessions pid match', async () => {
   const t = await api(`agent/${enc('w1:pB')}/transcript`);
   assert.equal(t.sessionId, 'sess-b');

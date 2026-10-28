@@ -26,6 +26,8 @@ export interface Agent {
   revision: number;
   hasTranscript: boolean;
   sessionId: string | null;
+  /** a parked claude: the session the pane was parked from (still its own — not resumable elsewhere) */
+  continuedFrom?: string | null;
   /** the harness's own session title (claude ai-title, grok generated_title, pi name) */
   sessionTitle?: string | null;
   /** first user prompt, truncated — the description of last resort */

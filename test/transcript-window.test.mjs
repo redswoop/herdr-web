@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { trimEvents, windowEvents, CLIP_CHARS } from '../lib/transcript-window.js';
+import { liteEvents, trimEvents, windowEvents, CLIP_CHARS } from '../lib/transcript-window.js';
 
 const ev = (kind, text = kind) => ({ kind, text });
 // three turns: u t r a | u t r t r a | u a
@@ -48,8 +48,31 @@ test('end pages further back', () => {
 
 test('tool results are clipped to what the UI shows', () => {
   const big = 'x'.repeat(CLIP_CHARS + 500);
-  const [r, a] = trimEvents([ev('tool_result', big), ev('assistant', big)]);
+  const [r, a, o, e] = trimEvents([ev('tool_result', big), ev('assistant', big), ev('command_out', big), ev('command_err', big)]);
   assert.ok(r.text.startsWith('x'.repeat(CLIP_CHARS)));
   assert.ok(r.text.endsWith('[truncated]'));
   assert.equal(a.text.length, big.length);
+  // `!cat big.log` is the same payload as a Read of it
+  assert.ok(o.text.endsWith('[truncated]'));
+  assert.ok(e.text.endsWith('[truncated]'));
+});
+
+test('lite drops tool output and thinking, keeps summary inputs clipped', () => {
+  const big = 'x'.repeat(5000);
+  const out = liteEvents([
+    { kind: 'tool_use', name: 'Write', text: big, input: { file_path: '/a/b.ts', content: big } },
+    { kind: 'tool_use', name: 'Bash', text: big, input: { command: big, timeout: 5 } },
+    { kind: 'tool_result', text: big },
+    { kind: 'thought', text: big },
+    { kind: 'assistant', text: 'hi' },
+    { kind: 'command_out', text: big },
+  ]);
+  assert.deepEqual(out[0].input, { file_path: '/a/b.ts' });
+  assert.equal(out[0].text, '');
+  assert.equal(out[1].input.command.length, 200);
+  assert.equal(out[1].input.timeout, undefined);
+  assert.equal(out[2].text, '');
+  assert.equal(out[3].text, '');
+  assert.equal(out[4].text, 'hi');
+  assert.equal(out[5].text, '');
 });

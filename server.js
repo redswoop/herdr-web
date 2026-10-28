@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rpc, subscribe, isPromptable, agentProcess } from './lib/herdr.js';
 import { adapterFor, lastTurnAt, readEvents, readEventsCached, listSessions, classifyBlocked } from './lib/adapters.js';
-import { trimEvents, windowEvents } from './lib/transcript-window.js';
+import { liteEvents, trimEvents, windowEvents } from './lib/transcript-window.js';
 import {
   parseMenuScreen, parseMenuFor, codexComposerText, piComposerText, isGrokProjectPicker, isGrokModalOverlay,
   isGrokPlanApproval, parseGrokPlanApproval, parseRewindScreen, isPiInputDialog,
@@ -36,7 +36,13 @@ const PORT = Number(argOf('--port', process.env.PORT ?? 7683));
 // proxy) on this machine. `auto` = the tailscale IP: tailnet-only, never the
 // LAN (loopback if it's down). `0.0.0.0` opens the LAN.
 const HOST = await resolveBindHost(argOf('--host', '127.0.0.1'));
-const TOKEN = process.env.HERDR_WEB_TOKEN ?? null;
+// `|| null`: an uncommented-but-blank Environment= line must read as "no
+// token", loudly, not as a token the gate silently accepts
+const TOKEN = process.env.HERDR_WEB_TOKEN || null;
+if (TOKEN && TOKEN.length < 16) {
+  console.error('herdr-web: HERDR_WEB_TOKEN is too short — use at least 16 random characters (`openssl rand -hex 24`).');
+  process.exit(2);
+}
 // Anyone who reaches this port can read any file this user can and drive (or
 // start, including with --dangerously-skip-permissions) agents. Off loopback,
 // that needs a token — `--insecure` is the explicit opt-out for trusted nets.
@@ -53,6 +59,29 @@ if (!TOKEN && !LOOPBACK && !args.includes('--insecure')) {
 // us (tailscale serve HTTPS by default; --public-url for anything else).
 const HOSTNAME = await shortHost();
 const PUBLIC_URL = await publicUrl({ override: argOf('--public-url', null), host: HOST, port: PORT });
+// Without a token the only thing between a web page and this port is the
+// browser's same-origin policy, and DNS rebinding beats that: evil.com
+// resolves to 127.0.0.1 and the page reads /api/file?path=~/.ssh/… as
+// same-origin. The Host header is the tell — a rebound request still says
+// evil.com — so a tokenless server answers only to names that are its own:
+// loopback, its hostnames, its interface addresses, the public URL, and
+// whatever `--allow-host a,b` adds. Non-browser clients never hit this.
+const ALLOWED_HOSTS = new Set(
+  [
+    'localhost', '127.0.0.1', '::1', HOST, HOSTNAME, os.hostname(), os.hostname().split('.')[0],
+    `${os.hostname().split('.')[0]}.local`,
+    (() => { try { return new URL(PUBLIC_URL).hostname; } catch { return ''; } })(),
+    ...Object.values(os.networkInterfaces()).flat().map((i) => i?.address ?? ''),
+    ...(argOf('--allow-host', '') ?? '').split(','),
+  ].map((h) => h.trim().toLowerCase().replace(/^\[|\]$/g, '')).filter(Boolean),
+);
+function hostAllowed(req) {
+  if (TOKEN) return true; // the cookie is bound to the real origin; ?token= can't be guessed
+  const raw = req.headers.host;
+  if (!raw) return true; // no browser sends without one
+  const host = raw.startsWith('[') ? raw.slice(1, raw.indexOf(']')) : raw.replace(/:\d+$/, '');
+  return ALLOWED_HOSTS.has(host.toLowerCase());
+}
 
 // Build stamp: hash of the code THIS process loaded (public/ is read from disk
 // per-request, so only server-side files count). Shown in the UI header.
@@ -174,6 +203,8 @@ async function doRefreshRoster() {
         revision: a.revision,
         hasTranscript: !!session,
         sessionId: session?.sessionId ?? null,
+        // a parked claude's pane still owns the session it was parked from
+        continuedFrom: session?.continuedFrom ?? null,
         sessionTitle: meta.desc?.title ?? null,
         firstPrompt: meta.desc?.firstPrompt ?? null,
         lastActiveAt,
@@ -1305,9 +1336,18 @@ async function listDir(dir, ents, sort, desc) {
     const st = await fsp.stat(p).catch(() => fsp.lstat(p).catch(() => null));
     return st ? { size: st.size, mtime: st.mtimeMs } : { size: 0, mtime: 0 };
   };
+  // in slices: a date sort on a 50k-file render folder would otherwise queue
+  // 50k stats on libuv's four threads and stall every pane's tail behind them
+  const statAll = async (rows) => {
+    const out = [];
+    for (let i = 0; i < rows.length; i += 256) {
+      out.push(...(await Promise.all(rows.slice(i, i + 256).map(async (r) => ({ ...r, ...(await statOf(r.name)) })))));
+    }
+    return out;
+  };
   const key = sort === 'size' || sort === 'mtime' ? sort : 'name';
   let rows = ents.map((d) => ({ name: d.name, dir: d.isDirectory() }));
-  if (key !== 'name') rows = await Promise.all(rows.map(async (r) => ({ ...r, ...(await statOf(r.name)) })));
+  if (key !== 'name') rows = await statAll(rows);
   const sign = (desc == null || desc === '' ? key !== 'name' : desc === '1') ? -1 : 1;
   const cmp = key === 'name' ? nameCmp : (a, b) => a[key] - b[key] || nameCmp(a, b);
   rows.sort(
@@ -1317,7 +1357,7 @@ async function listDir(dir, ents, sort, desc) {
       (a.dir && key === 'size' ? nameCmp(a, b) : sign * cmp(a, b)),
   );
   rows = rows.slice(0, DIR_MAX);
-  if (key === 'name') rows = await Promise.all(rows.map(async (r) => ({ ...r, ...(await statOf(r.name)) })));
+  if (key === 'name') rows = await statAll(rows);
   return rows;
 }
 
@@ -1476,6 +1516,12 @@ async function readBody(req) {
   // Concat buffers before decoding: per-chunk toString() mangles a multi-byte
   // UTF-8 sequence that straddles a chunk boundary into U+FFFDs — and since
   // U+FFFD is legal JSON, the corruption sails through parse to the agent.
+  //
+  // JSON only: a cross-origin <form enctype=text/plain> can carry a JSON-shaped
+  // body with the cookie riding along (SameSite=Strict stops other sites, not
+  // other ports of this host), and it would parse. Declaring JSON forces a
+  // CORS preflight, which the OPTIONS handler answers without the cookie.
+  if (!/^application\/json\b/i.test(req.headers['content-type'] ?? '')) throw httpErr(415, 'send application/json');
   const chunks = [];
   let size = 0;
   for await (const chunk of req) {
@@ -1543,6 +1589,11 @@ const server = http.createServer(async (req, res) => {
   });
   try {
     const seg = url.pathname.split('/').filter(Boolean); // ['api','agent','w1:p1','stream']
+    if (!hostAllowed(req)) {
+      return sendJson(res, 421, {
+        error: `herdr-web doesn't answer to "${req.headers.host}" without a token — reach it by its own name/address, set HERDR_WEB_TOKEN, or add --allow-host ${req.headers.host}`,
+      });
+    }
 
     // The clickable enrolment link: an https URL (terminals and chat apps
     // link those; capra:// they don't) that bounces into the app. Token
@@ -1652,7 +1703,7 @@ const server = http.createServer(async (req, res) => {
       // a session already bound to a live pane must not be resumed twice —
       // hand the client the pane instead so "resume" becomes "jump to it"
       for (const s of sessions) {
-        s.livePaneId = roster.agents.find((a) => a.sessionId === s.sessionId)?.paneId ?? null;
+        s.livePaneId = roster.agents.find((a) => a.sessionId === s.sessionId || a.continuedFrom === s.sessionId)?.paneId ?? null;
       }
       return sendJson(res, 200, { sessions });
     }
@@ -1721,7 +1772,9 @@ const server = http.createServer(async (req, res) => {
         // `start` tells the client how many older events it can still ask for.
         const tail = Number(url.searchParams.get('tail') ?? 0);
         const end = Number(url.searchParams.get('end') ?? 0);
-        const { events, start, total } = windowEvents(trimEvents(all), tail, end);
+        const { events: win, start, total } = windowEvents(trimEvents(all), tail, end);
+        // ?lite=1: the watch polls this every few seconds — no tool output
+        const events = url.searchParams.get('lite') === '1' ? liteEvents(win) : win;
         return sendJson(res, 200, { events, offset, start, total, file: session.file, sessionId: session.sessionId });
       }
 

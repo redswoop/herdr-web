@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 17883 + (process.pid % 100);
 const BASE = `http://127.0.0.1:${PORT}`;
-const TOKEN = 's3cret-tok';
+const TOKEN = 's3cret-tok-sixteen-plus';
 
 let home;
 let daemon;

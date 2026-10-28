@@ -81,12 +81,14 @@ export function buildNodes(items: Item[], working: boolean): Node[] {
       } else {
         let prev = nodes[nodes.length - 1];
         // /compact's stdout lands after its own boundary note — reach back
-        // over the note so the output joins its pill
+        // over that note (only that one: any other note means the pill
+        // before it isn't ours) so the output joins its pill
         const before = nodes[nodes.length - 2];
         if (
           prev?.type === 'item' &&
           prev.item.type === 'event' &&
           prev.item.ev.kind === 'note' &&
+          prev.item.ev.name === 'compact' &&
           before?.type === 'command'
         ) {
           prev = before;
