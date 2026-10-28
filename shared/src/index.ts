@@ -6,6 +6,7 @@ export * from './chrome';
 export * from './modes';
 export * from './launcher';
 export * from './transcript';
+export * from './files';
 export * from './commands';
 export {
   GROUP_MODES,

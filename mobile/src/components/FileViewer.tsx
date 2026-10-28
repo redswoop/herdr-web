@@ -14,7 +14,18 @@ import {
 import * as Sharing from 'expo-sharing';
 import { Directory, File, Paths } from 'expo-file-system';
 import type { FileInfo } from '@herdr/shared';
-import { describeError, getPlatform } from '@herdr/shared';
+import {
+  DIR_SORTS,
+  describeError,
+  dirOrderQuery,
+  fmtSize,
+  fmtStamp,
+  formatDirOrder,
+  getPlatform,
+  nextDirOrder,
+  parseDirOrder,
+  type DirOrder,
+} from '@herdr/shared';
 import { fileInfoUrl, fileRawUrl } from '../api-urls';
 import { useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
@@ -24,12 +35,8 @@ import { SegText } from './SegText';
 import { ZoomImage } from './ZoomImage';
 import { IMG_RE } from '../file-routes';
 
-function fmtSize(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-}
+// folder sort is a per-device habit; same key as the web client
+const ORDER_KEY = 'herdr.dirSort';
 
 const parent = (p: string) => p.replace(/\/[^/]+\/?$/, '') || '/';
 const join = (dir: string, name: string) => `${dir === '/' ? '' : dir}/${name}`;
@@ -75,6 +82,12 @@ export function FileViewer({
   const [galleryH, setGalleryH] = useState(0);
   // a zoomed image owns drags; the pager holds still
   const [zoomed, setZoomed] = useState(false);
+  const [order, setOrder] = useState(() => parseDirOrder(getPlatform().kv.get(ORDER_KEY)));
+  const pickOrder = (key: DirOrder['sort']) => {
+    const o = nextDirOrder(order, key);
+    setOrder(o);
+    getPlatform().kv.set(ORDER_KEY, formatDirOrder(o));
+  };
 
   useEffect(() => {
     let gone = false;
@@ -88,7 +101,7 @@ export function FileViewer({
       setRaw(false);
     }
     setEdit(cur);
-    fetch(fileInfoUrl(cur, cwd, host))
+    fetch(fileInfoUrl(cur, cwd, host) + dirOrderQuery(order))
       .then(async (r) => {
         const j = (await r.json()) as FileInfo & { error?: string };
         if (gone) return;
@@ -105,14 +118,14 @@ export function FileViewer({
     return () => {
       gone = true;
     };
-  }, [cur, cwd, host, onLoaded]);
+  }, [cur, cwd, host, onLoaded, order]);
 
   // an image: list the folder once, keep the images, page through them
   const galleryDir = info?.kind === 'image' ? parent(info.path) : null;
   useEffect(() => {
     if (!galleryDir) return;
     let gone = false;
-    fetch(fileInfoUrl(galleryDir, null, host))
+    fetch(fileInfoUrl(galleryDir, null, host) + dirOrderQuery(order))
       .then(async (r) => {
         const j = (await r.json()) as FileInfo;
         if (gone || !r.ok) return;
@@ -125,7 +138,7 @@ export function FileViewer({
     return () => {
       gone = true;
     };
-  }, [galleryDir, host]);
+  }, [galleryDir, host, order]);
   const galleryIdx = gallery ? gallery.items.indexOf(info?.path ?? cur) : -1;
   const galleryActive = !!gallery && galleryIdx >= 0;
 
@@ -336,6 +349,25 @@ export function FileViewer({
 
         {info?.kind === 'dir' && (
           <View style={styles.dir}>
+            <View style={styles.dirHead}>
+              {DIR_SORTS.map((s) => {
+                const on = order.sort === s.key;
+                const desc = (s.natural === 'desc') !== (on && order.reversed);
+                return (
+                  <Pressable
+                    key={s.key}
+                    hitSlop={8}
+                    accessibilityLabel={`sort by ${s.label}`}
+                    onPress={() => pickOrder(s.key)}
+                  >
+                    <Text style={[styles.dirCol, on && styles.dirColOn]}>
+                      {s.label}
+                      {on ? (desc ? ' ↓' : ' ↑') : ''}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
             {info.path !== '/' && (
               <Pressable style={styles.dirRow} onPress={() => onNavigate(parent(info.path))}>
                 <Icon name="folder" size={18} color={t.colors.working} />
@@ -353,9 +385,13 @@ export function FileViewer({
                   size={18}
                   color={e.dir ? t.colors.working : t.colors.sub}
                 />
-                <Text style={styles.dirName}>
+                <Text style={styles.dirName} numberOfLines={1} ellipsizeMode="middle">
                   {e.name}
                   {e.dir ? '/' : ''}
+                </Text>
+                <Text style={styles.dirMeta}>
+                  {e.dir ? '' : `${fmtSize(e.size)} · `}
+                  {fmtStamp(e.mtime)}
                 </Text>
               </Pressable>
             ))}
@@ -449,6 +485,17 @@ const makeStyles = (t: Tokens) =>
     borderBottomColor: t.colors.hairline,
   },
   dirName: { ...t.font('ui'), color: t.colors.text, fontSize: t.sz('ui', 15), flex: 1 },
+  dirMeta: { ...t.font('ui'), color: t.colors.sub, fontSize: t.sz('ui', 12), fontVariant: ['tabular-nums'] },
+  dirHead: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 18,
+    paddingBottom: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: t.colors.hairline,
+  },
+  dirCol: { ...t.font('ui'), color: t.colors.sub, fontSize: t.sz('ui', 12) },
+  dirColOn: { color: t.colors.accent },
   meta: {
     color: t.colors.sub,
     ...t.font('ui'),

@@ -255,9 +255,20 @@ export interface FileInfo {
   kind: 'text' | 'image' | 'video' | 'audio' | 'binary' | 'dir' | 'special';
   content?: string;
   truncated?: boolean;
-  entries?: { name: string; dir: boolean }[];
+  entries?: DirEntry[];
   clipped?: boolean;
 }
+
+/** a folder row; mtime is ms. Order is the server's (?sort=&desc=), folders first. */
+export interface DirEntry {
+  name: string;
+  dir: boolean;
+  size: number;
+  mtime: number;
+}
+
+/** GET /api/file?sort= — `desc` unset means the natural direction (A→Z, biggest, newest) */
+export type DirSort = 'name' | 'size' | 'mtime';
 
 export interface AskQuestion {
   question: string;

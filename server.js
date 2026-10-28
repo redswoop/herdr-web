@@ -1290,6 +1290,37 @@ function fsErr(e) {
   return e;
 }
 
+const DIR_MAX = 1000;
+const nameCmp = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
+
+// Folders first, then by `sort` (name | size | mtime). Sorting happens before
+// the clip, so the newest 1000 of a 6000-render ComfyUI output folder are the
+// newest 1000, not the alphabetically-first 1000. Only a size/date sort pays
+// for stat-ing every entry; a name sort stats just the rows it sends.
+// `desc` unset → the natural direction: A→Z, biggest first, newest first.
+async function listDir(dir, ents, sort, desc) {
+  const statOf = async (name) => {
+    const p = path.join(dir, name);
+    // a dangling symlink still gets a row, dated by the link itself
+    const st = await fsp.stat(p).catch(() => fsp.lstat(p).catch(() => null));
+    return st ? { size: st.size, mtime: st.mtimeMs } : { size: 0, mtime: 0 };
+  };
+  const key = sort === 'size' || sort === 'mtime' ? sort : 'name';
+  let rows = ents.map((d) => ({ name: d.name, dir: d.isDirectory() }));
+  if (key !== 'name') rows = await Promise.all(rows.map(async (r) => ({ ...r, ...(await statOf(r.name)) })));
+  const sign = (desc == null || desc === '' ? key !== 'name' : desc === '1') ? -1 : 1;
+  const cmp = key === 'name' ? nameCmp : (a, b) => a[key] - b[key] || nameCmp(a, b);
+  rows.sort(
+    (a, b) =>
+      Number(b.dir) - Number(a.dir) ||
+      // a folder's size is its inode, not its contents — folders stay A→Z under a size sort
+      (a.dir && key === 'size' ? nameCmp(a, b) : sign * cmp(a, b)),
+  );
+  rows = rows.slice(0, DIR_MAX);
+  if (key === 'name') rows = await Promise.all(rows.map(async (r) => ({ ...r, ...(await statOf(r.name)) })));
+  return rows;
+}
+
 async function fileInfo(url) {
   const target = resolveUserPath(url);
   let st;
@@ -1298,10 +1329,8 @@ async function fileInfo(url) {
   if (st.isDirectory()) {
     let ents;
     try { ents = await fsp.readdir(target, { withFileTypes: true }); } catch (e) { throw fsErr(e); }
-    const entries = ents
-      .map((d) => ({ name: d.name, dir: d.isDirectory() }))
-      .sort((a, b) => Number(b.dir) - Number(a.dir) || a.name.localeCompare(b.name));
-    return { ...base, kind: 'dir', entries: entries.slice(0, 1000), clipped: ents.length > 1000 };
+    const entries = await listDir(target, ents, url.searchParams.get('sort'), url.searchParams.get('desc'));
+    return { ...base, kind: 'dir', entries, clipped: ents.length > DIR_MAX };
   }
   if (!st.isFile()) return { ...base, kind: 'special' };
   const ext = path.extname(target).toLowerCase();

@@ -393,6 +393,38 @@ test('e2e: media files classify by extension and stream with byte ranges', async
   assert.equal((await (await fetch(`${BASE}/api/file?path=${enc(song)}&cwd=`)).json()).kind, 'audio');
 });
 
+test('e2e: folder listings sort by name, size or date, folders first', async () => {
+  const dir = path.join(home, 'sortme');
+  await fsp.mkdir(path.join(dir, 'zsub'), { recursive: true });
+  await fsp.mkdir(path.join(dir, 'asub'), { recursive: true });
+  const files = [
+    ['img_10.png', 30, 3000],
+    ['img_2.png', 10, 1000],
+    ['b.txt', 20, 2000],
+  ];
+  for (const [n, size, t] of files) {
+    await fsp.writeFile(path.join(dir, n), Buffer.alloc(size));
+    await fsp.utimes(path.join(dir, n), t, t);
+  }
+  const list = async (q = '') =>
+    (await (await fetch(`${BASE}/api/file?path=${enc(dir)}&cwd=${q}`)).json()).entries;
+  const names = (es) => es.map((e) => e.name);
+
+  // default: name A→Z, numeric-aware, every row carries size + mtime
+  const byName = await list();
+  assert.deepEqual(names(byName), ['asub', 'zsub', 'b.txt', 'img_2.png', 'img_10.png']);
+  assert.equal(byName.find((e) => e.name === 'b.txt').size, 20);
+  assert.equal(byName.find((e) => e.name === 'b.txt').mtime, 2_000_000);
+  assert.deepEqual(names(await list('&sort=name&desc=1')), ['zsub', 'asub', 'img_10.png', 'img_2.png', 'b.txt']);
+  // size: biggest first by default; folders keep A→Z either way
+  assert.deepEqual(names(await list('&sort=size')), ['asub', 'zsub', 'img_10.png', 'b.txt', 'img_2.png']);
+  assert.deepEqual(names(await list('&sort=size&desc=0')), ['asub', 'zsub', 'img_2.png', 'b.txt', 'img_10.png']);
+  // date: newest first by default
+  const byDate = names(await list('&sort=mtime'));
+  assert.deepEqual(byDate.slice(2), ['img_10.png', 'b.txt', 'img_2.png']);
+  assert.deepEqual(names(await list('&sort=mtime&desc=0')).slice(2), ['img_2.png', 'b.txt', 'img_10.png']);
+});
+
 test('e2e: rename renames the tab verbatim and the agent cleaned', async () => {
   calls.length = 0;
   const r = await fetch(`${BASE}/api/agent/${encodeURIComponent('w1:pA')}/rename`, {

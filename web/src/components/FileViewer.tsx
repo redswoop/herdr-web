@@ -1,9 +1,23 @@
 import { useEffect, useState } from 'react';
+import {
+  DIR_SORTS,
+  dirOrderQuery,
+  fmtSize,
+  fmtStamp,
+  formatDirOrder,
+  nextDirOrder,
+  parseDirOrder,
+  getPlatform,
+  type DirOrder,
+} from '@herdr/shared';
 import { md } from '../md';
 import type { FileInfo } from '../types';
 
 const fileUrl = (path: string, cwd: string | null, raw = false) =>
   `/api/file${raw ? '/raw' : ''}?path=${encodeURIComponent(path)}&cwd=${encodeURIComponent(cwd ?? '')}`;
+
+// folder sort is a per-device habit, like the text sizes
+const ORDER_KEY = 'herdr.dirSort';
 
 /** Full-screen read-only view of a file on the host. Hash-routed
  *  (#/agent/<pane>/file/<path>) so back closes it; relative paths resolve
@@ -35,6 +49,12 @@ export function FileViewer({
   const [raw, setRaw] = useState(false);
   const [edit, setEdit] = useState(path);
   const [histOpen, setHistOpen] = useState(false);
+  const [order, setOrder] = useState(() => parseDirOrder(getPlatform().kv.get(ORDER_KEY)));
+  const pickOrder = (key: DirOrder['sort']) => {
+    const o = nextDirOrder(order, key);
+    setOrder(o);
+    getPlatform().kv.set(ORDER_KEY, formatDirOrder(o));
+  };
 
   useEffect(() => {
     let gone = false;
@@ -42,7 +62,7 @@ export function FileViewer({
     setErr(null);
     setRaw(false);
     setEdit(path);
-    fetch(fileUrl(path, cwd))
+    fetch(fileUrl(path, cwd) + dirOrderQuery(order))
       .then(async (r) => {
         const j = await r.json();
         if (gone) return;
@@ -59,7 +79,7 @@ export function FileViewer({
     return () => {
       gone = true;
     };
-  }, [path, cwd]);
+  }, [path, cwd, order]);
 
   const isMd = /\.(md|markdown)$/i.test(info?.path ?? path);
   const parent = (p: string) => p.replace(/\/[^/]+\/?$/, '') || '/';
@@ -176,15 +196,40 @@ export function FileViewer({
 
         {info?.kind === 'dir' && (
           <div className="file-dir">
+            <div className="dir-head">
+              {DIR_SORTS.map((s) => {
+                const on = order.sort === s.key;
+                const desc = (s.natural === 'desc') !== (on && order.reversed);
+                return (
+                  <button
+                    key={s.key}
+                    className={`dir-col dir-${s.key} ${on ? 'on' : ''}`}
+                    aria-label={`sort by ${s.label}`}
+                    onClick={() => pickOrder(s.key)}
+                  >
+                    {s.label}
+                    {on && <span className="dir-arrow">{desc ? '↓' : '↑'}</span>}
+                  </button>
+                );
+              })}
+            </div>
             {info.path !== '/' && (
-              <button onClick={() => onNavigate(parent(info.path))}>
-                <span className="file-ico">📁</span> ..
+              <button className="dir-row" onClick={() => onNavigate(parent(info.path))}>
+                <span className="dir-name">
+                  <span className="file-ico">📁</span> ..
+                </span>
               </button>
             )}
             {info.entries?.map((e) => (
-              <button key={e.name} onClick={() => onNavigate(join(info.path, e.name))}>
-                <span className="file-ico">{e.dir ? '📁' : '📄'}</span> {e.name}
-                {e.dir ? '/' : ''}
+              <button key={e.name} className="dir-row" onClick={() => onNavigate(join(info.path, e.name))}>
+                <span className="dir-name" title={e.name}>
+                  <span className="file-ico">{e.dir ? '📁' : '📄'}</span> {e.name}
+                  {e.dir ? '/' : ''}
+                </span>
+                <span className="dir-size">{e.dir ? '' : fmtSize(e.size)}</span>
+                <span className="dir-mtime" title={e.mtime ? new Date(e.mtime).toLocaleString() : ''}>
+                  {fmtStamp(e.mtime)}
+                </span>
               </button>
             ))}
             {info.clipped && <div className="file-note">listing clipped at 1000 entries</div>}
@@ -199,11 +244,4 @@ export function FileViewer({
       )}
     </div>
   );
-}
-
-function fmtSize(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
