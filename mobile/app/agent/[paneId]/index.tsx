@@ -386,6 +386,7 @@ export default function AgentScreen() {
         onInterrupt={interrupt}
         onOpenFile={onOpenFile}
         host={hostOf(paneId)}
+        paneId={paneId}
         older={older}
         loadingOlder={loadingOlder}
         onLoadOlder={loadOlder}

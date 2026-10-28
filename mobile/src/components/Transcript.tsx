@@ -54,6 +54,7 @@ export function Transcript({
   onInterrupt,
   onOpenFile,
   host = null,
+  paneId = '',
   older = 0,
   loadingOlder = false,
   onLoadOlder,
@@ -67,6 +68,8 @@ export function Transcript({
   onOpenFile: (path: string) => void;
   /** the pane's own server — sent files live on that host's disk */
   host?: string | null;
+  /** which composer "Quote in reply" lands in (agent screens stack) */
+  paneId?: string;
   /** events above the loaded window (server-side tail); 0 = all here */
   older?: number;
   loadingOlder?: boolean;
@@ -125,6 +128,7 @@ export function Transcript({
   }
 
   return (
+    <PaneIdContext.Provider value={paneId}>
     <TurnsContext.Provider value={turnsRef}>
     <View style={styles.list}>
     <FlatList
@@ -195,6 +199,7 @@ export function Transcript({
     )}
     </View>
     </TurnsContext.Provider>
+    </PaneIdContext.Provider>
   );
 
   function renderNode(n: (typeof data)[number]) {
@@ -228,6 +233,8 @@ export function Transcript({
 
 /** node key → whole-turn text (turnTexts); a ref so lookups never re-render */
 const TurnsContext = createContext<{ current: Map<string, string> }>({ current: new Map() });
+/** the pane this transcript belongs to — the quote bus addresses its composer by it */
+const PaneIdContext = createContext<string>('');
 
 /** A bubble whose long-press opens its actions: copy it, copy the whole
  *  turn, quote it into the composer, share. No dim on touch-down: every
@@ -248,6 +255,7 @@ function CopyBubble({
 }) {
   const styles = useStyles(makeStyles);
   const turns = useContext(TurnsContext);
+  const paneId = useContext(PaneIdContext);
   const [hot, setHot] = useState(false);
   useEffect(() => {
     if (!hot) return;
@@ -261,7 +269,7 @@ function CopyBubble({
     const acts: Array<[string, () => void]> = [
       ['Copy', () => copy(text)],
       ...(turn && turn !== text ? [['Copy whole turn', () => copy(turn)] as [string, () => void]] : []),
-      ['Quote in reply', () => quoteIntoComposer(text)],
+      ['Quote in reply', () => quoteIntoComposer(paneId, text)],
       ['Share…', () => void Share.share({ message: text }).catch(() => {})],
     ];
     if (Platform.OS === 'ios') {

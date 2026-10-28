@@ -78,16 +78,21 @@ export function splitHost(id: string): { local: string; host: string | null } {
   return { local: id.slice(0, i), host: id.slice(i + 1) || null };
 }
 
+/** Qualify a local id with its host. The primary's ids stay bare whatever
+ *  its id is ('' on web, a slug on native) so they match what the roster
+ *  reports — a spawn seeded with `servers[0].id` must not come back `@stormer`. */
 export const joinHost = (local: string, host: string | null | undefined): string =>
-  host ? `${local}${HOST_SEP}${host}` : local;
+  host && host !== servers[0]?.id ? `${local}${HOST_SEP}${host}` : local;
 
 /** The server id a roster id belongs to (null = primary). */
 export const hostOf = (id: string | null | undefined): string | null => (id ? splitHost(id).host : null);
 
-/** Registry entry for a host id; null/'' or an unknown id → the primary. */
+/** Registry entry for a host id; null/'' → the primary. An unknown id (a
+ *  removed server) → undefined: routes then go nowhere rather than to the
+ *  primary's pane of the same local id. */
 export function serverFor(host: string | null | undefined): ServerConf | undefined {
   if (!host) return servers[0];
-  return servers.find((s) => s.id === host) ?? servers[0];
+  return servers.find((s) => s.id === host);
 }
 
 /** Chip label for a host id ('' for the primary when it's the only server). */

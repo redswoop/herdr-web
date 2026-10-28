@@ -76,6 +76,21 @@ describe('multi-host routing', () => {
     expect(hostOf('w1:p1')).toBeNull();
   });
 
+  it("the primary's own slug never becomes a suffix (native seeds spawns with servers[0].id)", () => {
+    // the roster leaves primary ids bare; a spawn joined with the primary's
+    // slug must produce the same id or the agent screen can't find it
+    expect(joinHost('w1:p1', 'stormer')).toBe('w1:p1');
+    expect(joinHost('w1:p1', 'blackstar')).toBe('w1:p1@blackstar');
+    expect(joinHost('w1:p1', '')).toBe('w1:p1');
+  });
+
+  it('an unknown host routes nowhere, not to the primary', () => {
+    // a removed server's pane id must not land on the primary's pane with the same local id
+    expect(agentPath('w1:p1@gone', 'prompt')).toBe('/api/agent/w1%3Ap1/prompt');
+    expect(apiUrl('/api/chats', 'gone')).toBe('/api/chats');
+    expect(hostName('gone')).toBe('');
+  });
+
   it('routes a bare pane id to the primary, relative', () => {
     expect(agentPath('w2Y:p3', 'prompt')).toBe('/api/agent/w2Y%3Ap3/prompt');
     expect(apiUrl(agentPath('w2Y:p3', 'prompt'))).toBe('https://stormer.ts.net/api/agent/w2Y%3Ap3/prompt?token=tok-s');

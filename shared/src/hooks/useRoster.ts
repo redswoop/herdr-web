@@ -40,6 +40,14 @@ function connectHost(server: ServerConf, platform: Platform, emit: (s: Slice) =>
   // means the pipe is dead even if the socket says open
   const stale = () => Date.now() - lastMsg > 20_000;
   const url = (p: string) => apiUrl(p, server.id || null);
+  // a sleeping tailnet peer leaves a native fetch hanging for ~60 s, and
+  // pull-to-refresh waits on every host: cap each snapshot so one dead box
+  // can't pin the spinner (the stream's own watchdog covers the rest)
+  const fetchT = (u: string, init?: RequestInit, ms = 6000) => {
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), ms);
+    return fetch(u, { ...init, signal: ac.signal }).finally(() => clearTimeout(t));
+  };
 
   const schedule = (ms: number) => {
     if (!alive || retry || linkDown) return;
@@ -59,7 +67,7 @@ function connectHost(server: ServerConf, platform: Platform, emit: (s: Slice) =>
     es?.close();
     es = null;
     try {
-      const r = await fetch(url('/api/roster'));
+      const r = await fetchT(url('/api/roster'));
       if (!alive) return;
       if (r.status === 401) {
         set({ authNeeded: true, connected: false });
@@ -96,7 +104,7 @@ function connectHost(server: ServerConf, platform: Platform, emit: (s: Slice) =>
 
   const refreshNow = async (): Promise<boolean> => {
     try {
-      const r = await fetch(url('/api/roster/refresh'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+      const r = await fetchT(url('/api/roster/refresh'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
       if (!alive || !r.ok) return false;
       set({ roster: (await r.json()) as Roster, syncedAt: Date.now() });
       // no bump(): a good POST says nothing about the stream's health

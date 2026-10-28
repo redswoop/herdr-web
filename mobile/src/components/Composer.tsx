@@ -220,7 +220,7 @@ export function Composer({
   // and put the cursor after it, ready to type
   useEffect(
     () =>
-      onComposerQuote((q) => {
+      onComposerQuote(paneId, (q) => {
         setTextState((cur) => {
           const next = `${cur.trim() ? `${cur.trimEnd()}\n\n` : ''}${asQuote(q)}\n\n`;
           kv.set(textKey(paneId), next);
