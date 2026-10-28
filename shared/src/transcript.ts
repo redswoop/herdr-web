@@ -80,6 +80,17 @@ export function buildNodes(items: Item[], working: boolean): Node[] {
         nodes.push({ type: 'command', key: `c${key}`, name: e.name ?? '', args: e.text, out: '', err: '' });
       } else {
         let prev = nodes[nodes.length - 1];
+        // /compact's stdout lands after its own boundary note — reach back
+        // over the note so the output joins its pill
+        const before = nodes[nodes.length - 2];
+        if (
+          prev?.type === 'item' &&
+          prev.item.type === 'event' &&
+          prev.item.ev.kind === 'note' &&
+          before?.type === 'command'
+        ) {
+          prev = before;
+        }
         if (prev?.type !== 'command') {
           prev = { type: 'command', key: `c${key}`, name: '', args: '', out: '', err: '' };
           nodes.push(prev);

@@ -1,7 +1,60 @@
 {
   "kinds": [
-    { "kind": "claude", "version": "1.0.0", "installed": true },
-    { "kind": "grok", "version": "0.9.0", "installed": true },
-    { "kind": "codex", "version": null, "installed": false }
+    {
+      "kind": "claude",
+      "version": "1.0.0",
+      "installed": true,
+      "commands": [
+        {
+          "verb": "new",
+          "label": "new",
+          "send": "/clear",
+          "effect": "session"
+        },
+        {
+          "verb": "rewind",
+          "label": "rewind",
+          "ui": "rewind"
+        },
+        {
+          "verb": "resume",
+          "label": "resume",
+          "ui": "resume"
+        },
+        {
+          "verb": "compact",
+          "label": "compact",
+          "send": "/compact",
+          "arg": "focus (optional)"
+        },
+        {
+          "verb": "effort",
+          "label": "effort",
+          "send": "/effort",
+          "values": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        {
+          "verb": "perms",
+          "label": "perms",
+          "ui": "mode"
+        }
+      ]
+    },
+    {
+      "kind": "grok",
+      "version": "0.9.0",
+      "installed": true
+    },
+    {
+      "kind": "codex",
+      "version": null,
+      "installed": false
+    }
   ]
 }

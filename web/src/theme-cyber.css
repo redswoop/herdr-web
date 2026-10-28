@@ -135,6 +135,23 @@
     clip-path: var(--chamfer);
   }
   & .mode-row.current .mode-name { text-shadow: var(--glow); }
+  & .deck-pop {
+    border-color: color-mix(in srgb, var(--live) 40%, transparent);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 12px 40px rgba(0, 0, 0, 0.7), 0 0 24px -8px var(--live);
+    clip-path: var(--chamfer);
+  }
+  & .deck-pop-name { font-family: var(--display); letter-spacing: 0.12em; text-transform: uppercase; color: var(--chrome); text-shadow: var(--glow); }
+  & .deck-arg input, & .deck-go { border-radius: 0; clip-path: var(--slant); }
+  & .deck-arg input { border-color: color-mix(in srgb, var(--live) 30%, transparent); font-family: var(--mono); }
+  & .deck-go { background: var(--signal); color: #000; }
+  /* Norton-Commander key bar: chrome digit, live label, hairline gutters */
+  & .deck { gap: 0; border-top: 1px solid transparent; border-image: linear-gradient(90deg, transparent, var(--chrome), transparent) 1; }
+  & .deck-key {
+    border-radius: 0; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--live); border-right: 1px solid color-mix(in srgb, var(--live) 14%, transparent);
+  }
+  & .deck-key b { color: var(--chrome); text-shadow: var(--glow); }
+  & .deck-key:hover:not(:disabled), & .deck-key.on { background: color-mix(in srgb, var(--live) 12%, transparent); }
   & .mode-row .mode-name { font-family: var(--mono); font-weight: 400; letter-spacing: 0.06em; }
 
   /* ---------- transcript ---------- */

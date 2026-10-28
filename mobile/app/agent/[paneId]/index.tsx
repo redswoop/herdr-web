@@ -13,9 +13,11 @@ import {
   hostUp,
   isTuiChrome,
   post,
+  sessionReadout,
   useAgentMode,
   useAgentSession,
   useBlockedContext,
+  useKindCommands,
   type AnswerBody,
   type RestoredDraft,
   type RewindState,
@@ -26,6 +28,7 @@ import { AgentHeader } from '../../../src/components/AgentHeader';
 import { agentMenu } from '../../../src/manage';
 import { fileScreenFor } from '../../../src/file-routes';
 import { BlockedCard } from '../../../src/components/BlockedCard';
+import { CommandDeck } from '../../../src/components/CommandDeck';
 import { RewindCard, ResumeCard } from '../../../src/components/Cards';
 import { Composer } from '../../../src/components/Composer';
 import { LiveTail } from '../../../src/components/LiveTail';
@@ -69,6 +72,11 @@ export default function AgentScreen() {
   const online = connected && linked;
   const { ctx, refresh } = useBlockedContext(paneId, status);
   const { mode, busy: modeBusy, setMode, accept: acceptMode } = useAgentMode(paneId, agent?.agent, status);
+  const commands = useKindCommands(agent?.agent, hostOf(paneId));
+  // model · effort · context, off the newest assistant record
+  const readout = useMemo(() => sessionReadout(items), [items]);
+  // the deck's perms slot opens the header's mode picker
+  const [modeOpen, setModeOpen] = useState(false);
 
   const [keysPinned, setKeysPinned] = useState(false);
   const [keysForced, setKeysForced] = useState(false);
@@ -352,10 +360,11 @@ export default function AgentScreen() {
         online={online}
         mode={mode}
         modeBusy={modeBusy}
-        rewindBusy={rewindBusy}
+        modeOpen={modeOpen}
+        onModeOpen={setModeOpen}
+        readout={readout}
         onBack={goBack}
         onSetMode={setMode}
-        onRewind={openRewind}
         onMenu={agent ? () => agentMenu(agent, { onClosed: goBack, onFiles: () => onOpenFile(agent.cwd ?? '~') }) : undefined}
       />
       {blocked && (
@@ -409,6 +418,17 @@ export default function AgentScreen() {
           onGone={onDialogGone}
         />
       )}
+      <CommandDeck
+        commands={commands}
+        disabled={working || blocked || rewindBusy}
+        effort={readout.effort}
+        onSend={(text) => sendFromComposer(text)}
+        onPanel={(ui) => {
+          if (ui === 'rewind') void openRewind();
+          else if (ui === 'resume') setResumeOpen(true);
+          else if (ui === 'mode') setModeOpen(true);
+        }}
+      />
       <Composer
         paneId={paneId}
         working={working}

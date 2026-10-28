@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildNodes, fmtDur, fmtTok, stepFile, stepSummary, turnTexts } from '../src/transcript';
-import type { Item } from '../src/types';
+import type { Item, TEvent } from '../src/types';
 
 describe('buildNodes', () => {
   it('groups thoughts and tools', () => {
@@ -79,7 +79,7 @@ describe('buildNodes: grok usage events', () => {
 });
 
 describe('buildNodes: SendUserFile', () => {
-  const ev = (key: number, e: Item & { type: 'event' } extends { ev: infer E } ? E : never): Item => ({
+  const ev = (key: number, e: TEvent): Item => ({
     type: 'event',
     ev: e,
     key,
@@ -175,5 +175,28 @@ describe('turnTexts', () => {
     expect(meta && map.get(meta.key)).toBe(first);
     expect(map.get('e6')).toBe('**You:** second ask\n\nsure');
     expect([...map.values()].some((v) => v.includes('ls'))).toBe(false);
+  });
+});
+
+describe('buildNodes: /compact', () => {
+  it('joins the stdout to its pill across the compaction note', () => {
+    const ev = (key: number, e: TEvent): Item => ({
+      type: 'event',
+      ev: e,
+      key,
+      at: 1e12 + key,
+    });
+    const nodes = buildNodes(
+      [
+        ev(1, { kind: 'command', name: '/compact', text: 'keep the auth notes' }),
+        ev(2, { kind: 'note', name: 'compact', text: 'context compacted' }),
+        ev(3, { kind: 'command_out', text: 'Compacted (ctrl+o to see full summary)' }),
+      ],
+      false,
+    );
+    const cmds = nodes.filter((n) => n.type === 'command');
+    expect(cmds).toHaveLength(1);
+    expect(cmds[0]).toMatchObject({ name: '/compact', args: 'keep the auth notes', out: 'Compacted (ctrl+o to see full summary)' });
+    expect(nodes.some((n) => n.type === 'item' && n.item.type === 'event' && n.item.ev.kind === 'note')).toBe(true);
   });
 });

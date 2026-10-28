@@ -61,7 +61,9 @@ const TUI_CHROME_RES = [
   /\? for shortcuts/,
   /esc to interrupt/,
   /^[✻✳✶✢✽]\s/, // spinner
-  /^●\s+\S+ · \/effort$/, // effort chip
+  /^[·*]\s+\S[^…]*…/, // spinner's dim frames: "· Compacting conversation… (1s)"
+  /^[●○◐◑]\s+\S+ · \/effort$/, // effort chip (● high, ○ low …)
+  /^(⎿\s*)?Tip:/, // claude's rotating tips under a finished command
 ];
 
 export function isTuiChrome(line: string): boolean {

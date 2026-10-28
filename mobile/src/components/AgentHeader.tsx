@@ -1,8 +1,8 @@
-/* The agent screen's own header: back, who/where, and the live controls
-   (rewind, permission mode, status). Replaces the native stack header, whose
+/* The agent screen's own header: back, who/where (+ model · effort ·
+   context readout), and the live controls (permission mode, status). Session
+   verbs — rewind, compact, effort … — live on the CommandDeck strip. Replaces the native stack header, whose
    centred title lost to the back circle and the status chip on a phone. */
-import { useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   LIVE_MODE_KINDS,
@@ -10,13 +10,16 @@ import {
   MODE_LABEL,
   MODE_ORDER,
   chipName,
+  fmtTokens,
   getServers,
   hostColor,
   hostName,
+  shortModel,
   type Agent,
   type AgentStatus,
   type ModeState,
   type PermissionMode,
+  type SessionReadout,
 } from '@herdr/shared';
 import { NeonRail } from '../cyber';
 import { FlickerIn, Glitch, RailPacket, Scramble, StatusDot } from '../cyber-fx';
@@ -33,10 +36,11 @@ export function AgentHeader({
   online = true,
   mode,
   modeBusy,
-  rewindBusy,
+  modeOpen,
+  onModeOpen,
+  readout,
   onBack,
   onSetMode,
-  onRewind,
   onMenu,
 }: {
   paneId: string;
@@ -47,21 +51,21 @@ export function AgentHeader({
   online?: boolean;
   mode: ModeState;
   modeBusy: boolean;
-  rewindBusy: boolean;
+  /** mode picker open — lifted so the deck's perms slot can open it too */
+  modeOpen: boolean;
+  onModeOpen: (open: boolean) => void;
+  readout: SessionReadout;
   onBack: () => void;
   onSetMode: (m: PermissionMode) => Promise<boolean>;
-  onRewind: () => void;
   /** tap or long-press on the name: rename / close */
   onMenu?: () => void;
 }) {
   const t = useTheme();
   const styles = useStyles(makeStyles);
   const insets = useSafeAreaInsets();
-  const [modeOpen, setModeOpen] = useState(false);
+  const setModeOpen = onModeOpen;
   const kind = agent?.agent;
   const liveMode = !!kind && LIVE_MODE_KINDS.includes(kind) && mode !== 'unknown';
-  const canRewind = kind === 'claude';
-  const blocked = status === 'blocked';
   const sColor = online ? t.status(status) : t.colors.blocked; // the skin's attention colour
   const mColor = modeColor(t, mode);
 
@@ -84,28 +88,19 @@ export function AgentHeader({
                 <Text style={{ color: hostColor(agent.host), fontWeight: '700' }}>{hostName(agent.host)}</Text>
               )}
               {getServers().length > 1 && ' · '}
-              {[agent.displayAgent ?? agent.agent, agent.cwd ? shortPath(agent.cwd) : null]
+              {[
+                // the model names the agent well enough — the row is narrow
+                readout.model ? shortModel(readout.model) : (agent.displayAgent ?? agent.agent),
+                readout.effort,
+                readout.ctx != null ? `${fmtTokens(readout.ctx)} ctx` : null,
+                agent.cwd ? shortPath(agent.cwd) : null,
+              ]
                 .filter(Boolean)
                 .join(' · ')}
             </Text>
           )}
           </Pressable>
         </FlickerIn>
-        {canRewind && (
-          <Pressable
-            onPress={onRewind}
-            disabled={rewindBusy || working || blocked}
-            hitSlop={6}
-            style={[styles.ctl, (rewindBusy || working || blocked) && styles.ctlOff]}
-            accessibilityLabel="rewind to a checkpoint"
-          >
-            {rewindBusy ? (
-              <ActivityIndicator size="small" color={t.colors.accent} />
-            ) : (
-              <Icon name="rewind" size={16} color={t.colors.accent} />
-            )}
-          </Pressable>
-        )}
         {liveMode && (
           <Pressable
             onPress={() => setModeOpen(true)}
@@ -189,16 +184,6 @@ const makeStyles = (t: Tokens) =>
       ? { ...t.font('display', '700'), color: t.colors.red, fontSize: t.sz('ui', 13), letterSpacing: 1.2, textTransform: 'uppercase', ...t.glow(t.colors.red, 10) }
       : { ...t.font('ui', '700'), color: t.colors.text, fontSize: t.sz('ui', 16) },
     sub: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: t.sz('ui', 11) },
-    ctl: {
-      width: 30,
-      height: 30,
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderRadius: t.r(15),
-      borderWidth: 1,
-      borderColor: alpha(t.colors.accent, 0.35),
-      backgroundColor: t.cyber ? 'transparent' : t.colors.surface2,
-    },
     ctlOff: { opacity: 0.35 },
     chip: {
       height: 26,

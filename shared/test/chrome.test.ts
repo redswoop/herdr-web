@@ -28,6 +28,12 @@ describe('stripChrome', () => {
 describe('isTuiChrome', () => {
   it('flags spinner and shortcuts', () => {
     expect(isTuiChrome('? for shortcuts')).toBe(true);
+    expect(isTuiChrome('⎿  Tip: Run /ultrareview for a cloud-based multi-agent review')).toBe(true);
+    expect(isTuiChrome('○ low · /effort')).toBe(true);
+    expect(isTuiChrome('· Compacting conversation… (1s)')).toBe(true);
+    expect(isTuiChrome('* Compacting conversation… (4s · ↓ 44 tokens)')).toBe(true);
+    expect(isTuiChrome('* a markdown bullet')).toBe(false);
+    expect(isTuiChrome('● high · /effort')).toBe(true);
     expect(isTuiChrome('✻ Thinking')).toBe(true);
     expect(isTuiChrome('real code here')).toBe(false);
   });

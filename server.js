@@ -906,7 +906,12 @@ async function listKinds() {
         break;
       } catch {}
     }
-    return { kind: m.agent, version: m.active_version ?? null, installed };
+    return {
+      kind: m.agent,
+      version: m.active_version ?? null,
+      installed,
+      commands: adapterFor(m.agent)?.commands ?? [],
+    };
   }));
 }
 

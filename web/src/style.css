@@ -803,6 +803,48 @@ button.option.opt-aux.on { background: color-mix(in srgb, var(--accent) 22%, var
 .plan-doc pre { overflow-x: auto; }
 textarea.plan-fb { margin-bottom: 8px; }
 
+/* ---------- command deck (F-key bar above the composer) ---------- */
+.deck-wrap { position: relative; flex: none; }
+.deck {
+  display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none;
+  padding: 4px 8px;
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  border-top: 1px solid var(--hairline);
+}
+.deck::-webkit-scrollbar { display: none; }
+/* phone: the bar scrolls — fade the edge so the clipped keys read as more */
+@media (max-width: 600px) {
+  .deck { mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); }
+}
+.deck-key {
+  flex: none; display: flex; align-items: baseline; gap: 3px;
+  padding: 4px 9px; border-radius: 6px;
+  font: calc(12px * var(--fs)) var(--mono); color: var(--text);
+}
+.deck-key b { color: var(--accent); font-weight: 700; }
+.deck-key:hover:not(:disabled), .deck-key.on { background: var(--surface-2); }
+.deck-key:disabled { opacity: 0.35; }
+.deck-key.busy { opacity: 0.6; animation: pulse 1.1s ease-in-out infinite; }
+.deck-pop {
+  position: absolute; bottom: calc(100% + 6px); left: 10px; z-index: 10;
+  background: var(--surface); border: 1px solid var(--hairline);
+  border-radius: var(--r-sm); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  padding: 6px; min-width: 220px; max-width: calc(100vw - 20px);
+  animation: rise 0.14s ease both;
+}
+.deck-pop-head { display: flex; flex-direction: column; gap: 1px; padding: 6px 10px 8px; }
+.deck-pop-name { font: 600 calc(13px * var(--fs)) var(--mono); color: var(--accent); }
+.deck-pop-desc { font-size: calc(12px * var(--fs)); color: var(--sub); }
+.deck-arg { display: flex; gap: 6px; padding: 0 4px 4px; }
+.deck-arg input {
+  flex: 1; min-width: 0; padding: 7px 9px; font-size: calc(14px * var(--fs));
+  background: var(--surface-2); border: 1px solid var(--hairline); border-radius: 6px; color: var(--text);
+}
+.deck-go {
+  padding: 7px 12px; border-radius: 6px; font-weight: 600;
+  background: var(--accent); color: var(--accent-ink);
+}
+
 /* ---------- composer ---------- */
 .composer {
   flex: none;

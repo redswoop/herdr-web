@@ -171,6 +171,7 @@ test('claude assistant blocks carry usage + msgId; sidechains dropped', () => {
   const evs = claude.translate({
     type: 'assistant',
     timestamp: '2026-08-01T12:00:00Z',
+    effort: 'high',
     message: {
       id: 'msg_1',
       model: 'claude-fable-5',
@@ -184,9 +185,30 @@ test('claude assistant blocks carry usage + msgId; sidechains dropped', () => {
   assert.equal(evs.length, 2);
   assert.equal(evs[0].msgId, 'msg_1');
   assert.deepEqual(evs[0].usage, { out: 10, ctx: 1000 });
+  assert.equal(evs[0].model, 'claude-fable-5');
+  assert.equal(evs[0].effort, 'high');
   assert.equal(evs[1].kind, 'tool_use');
 
   assert.deepEqual(claude.translate({ type: 'assistant', isSidechain: true, message: { content: [] } }), []);
+});
+
+test('claude reports a command deck; verbs are unique and each fires or opens a panel', () => {
+  const cmds = claude.commands;
+  assert.ok(cmds.length > 0);
+  assert.equal(new Set(cmds.map((c) => c.verb)).size, cmds.length);
+  for (const c of cmds) assert.ok(c.send || c.ui, c.verb);
+  assert.equal(cmds.find((c) => c.verb === 'new').send, '/clear');
+  assert.equal(adapterFor('grok').commands, undefined);
+});
+
+test('claude /compact pre-boundary echo is dropped; its command record still pills', () => {
+  assert.deepEqual(claude.translate({ type: 'user', message: { role: 'user', content: '/compact keep the word ok' } }), []);
+  assert.deepEqual(claude.translate({ type: 'user', message: { role: 'user', content: '/compactor is a word' } })[0].kind, 'user');
+  const evs = claude.translate({
+    type: 'user',
+    message: { content: '<command-name>/compact</command-name>\n<command-args>keep the word ok</command-args>' },
+  });
+  assert.deepEqual(evs.map((e) => [e.kind, e.name, e.text]), [['command', '/compact', 'keep the word ok']]);
 });
 
 test('claude bracketed paste unwraps to the pasted text', () => {

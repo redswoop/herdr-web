@@ -67,6 +67,36 @@ export interface AgentKind {
   version: string | null;
   /** the kind's executable is on the daemon's PATH */
   installed: boolean;
+  /** session controls the adapter supports (command deck); [] = none yet */
+  commands?: KindCommand[];
+}
+
+/** Shared verbs the command deck lays out in fixed slots. */
+export type CommandVerb =
+  | 'new'
+  | 'rewind'
+  | 'resume'
+  | 'compact'
+  | 'effort'
+  | 'perms'
+  | 'model'
+  | 'context';
+
+/** One deck entry, as the adapter reports it (lib/adapters.js). */
+export interface KindCommand {
+  verb: CommandVerb;
+  label: string;
+  desc?: string;
+  /** slash text to fire through the composer path */
+  send?: string;
+  /** a first-class client panel instead of a slash command */
+  ui?: 'rewind' | 'resume' | 'mode';
+  /** pick list, fired as `${send} ${value}` */
+  values?: string[];
+  /** optional free-text argument (placeholder text) */
+  arg?: string;
+  /** 'session' = the pane moves to a new session file */
+  effect?: 'session';
 }
 
 export interface NewChatRequest {
@@ -187,6 +217,9 @@ export interface TEvent {
   /** output tokens + context size: claude ships it inline on message events,
    *  grok as a standalone 'usage' event at turn end */
   usage?: { out: number; ctx: number };
+  /** claude: model id + effort level of the API call that produced this */
+  model?: string;
+  effort?: string;
 }
 
 /** A locally-sent prompt: rendered instantly, reconciled against the session file. */

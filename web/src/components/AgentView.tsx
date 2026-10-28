@@ -1,11 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MODE_DESC, MODE_LABEL, MODE_ORDER, chipName, isTuiChrome, useAgentMode } from '@herdr/shared';
+import {
+  MODE_DESC,
+  MODE_LABEL,
+  MODE_ORDER,
+  chipName,
+  fmtTokens,
+  isTuiChrome,
+  sessionReadout,
+  shortModel,
+  useAgentMode,
+  useKindCommands,
+} from '@herdr/shared';
 import { agentPath, errorOf, post } from '../api';
 import { useAgentSession } from '../hooks/useAgentSession';
 import { useBlockedContext } from '../hooks/useBlockedContext';
 import { WIDE, useMediaQuery } from '../hooks/useMediaQuery';
 import type { Agent, AnswerBody, RestoredDraft, RewindState, SessionEntry } from '../types';
 import { BlockedCard } from './BlockedCard';
+import { CommandDeck } from './CommandDeck';
 import { ResumeCard } from './ResumeCard';
 import { RewindCard } from './RewindCard';
 import { Composer } from './Composer';
@@ -41,6 +53,9 @@ export function AgentView({
     accept: acceptMode,
   } = useAgentMode(paneId, agent?.agent, status);
   const [modeOpen, setModeOpen] = useState(false);
+  const commands = useKindCommands(agent?.agent, agent?.host);
+  // model · effort · context, off the newest assistant record
+  const readout = useMemo(() => sessionReadout(items), [items]);
   // live TUI mirror opened by hand: the blocked banner's "view screen", or
   // the blocked card's multi-select `done`
   const [mirror, setMirror] = useState(false);
@@ -376,20 +391,19 @@ export function AgentView({
             {agent ? chipName(agent) : paneId}
           </div>
           <div className="sub">
-            {agent ? [agent.displayAgent ?? agent.agent, agent.cwd].filter(Boolean).join(' · ') : ''}
+            {agent
+              ? [
+                  // the model names the agent well enough — phone width is tight
+                  readout.model ? shortModel(readout.model) : (agent.displayAgent ?? agent.agent),
+                  readout.effort,
+                  readout.ctx != null ? `${fmtTokens(readout.ctx)} ctx` : null,
+                  agent.cwd,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')
+              : ''}
           </div>
         </div>
-        {agent?.agent === 'claude' && (
-          <button
-            className="chip"
-            title="rewind to a checkpoint"
-            aria-label="rewind"
-            disabled={rewindBusy || working || blocked}
-            onClick={openRewind}
-          >
-            {rewindBusy ? '…' : '⏪'}
-          </button>
-        )}
         {agent?.agent === 'claude' && mode !== 'unknown' && (
           <button
             className={`chip mode-chip mode-${mode} ${modeBusy ? 'busy' : ''}`}
@@ -486,6 +500,18 @@ export function AgentView({
           onGone={onDialogGone}
         />
       )}
+
+      <CommandDeck
+        commands={commands}
+        disabled={working || blocked || rewindBusy}
+        effort={readout.effort}
+        onSend={(text) => sendFromComposer(text)}
+        onPanel={(ui) => {
+          if (ui === 'rewind') void openRewind();
+          else if (ui === 'resume') setResumeOpen(true);
+          else if (ui === 'mode') setModeOpen(true);
+        }}
+      />
 
       <Composer
         paneId={paneId}
