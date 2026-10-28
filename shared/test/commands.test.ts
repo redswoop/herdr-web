@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { commandText, fmtTokens, sessionReadout, shortModel } from '../src/commands';
+import { commandText, currentValue, fmtTokens, sessionReadout, shortModel } from '../src/commands';
 import type { Item, TEvent } from '../src/types';
 
 let key = 0;
@@ -34,8 +34,30 @@ describe('sessionReadout', () => {
     expect(sessionReadout(items)).toEqual({ model: 'claude-opus-5-5', effort: 'high', ctx: null });
   });
 
+  it('a /model switch newer than the last turn sets the model and blanks effort', () => {
+    const items = [
+      ev({ kind: 'assistant', model: 'claude-opus-5-5', effort: 'high', usage: { out: 1, ctx: 5 } }),
+      ev({ kind: 'command', name: '/model', text: 'sonnet' }),
+      ev({ kind: 'command_out', text: 'Set model to `Sonnet 5.5` and saved as your default for new sessions' }),
+    ];
+    expect(sessionReadout(items)).toEqual({ model: 'claude-sonnet-5-5', effort: null, ctx: 5 });
+    // an /effort after the switch is the real level again
+    items.push(ev({ kind: 'command_out', text: 'Set effort level to low (saved as your default for new sessions)' }));
+    expect(sessionReadout(items).effort).toBe('low');
+  });
+
   it('is all-null on an empty session', () => {
     expect(sessionReadout([])).toEqual({ model: null, effort: null, ctx: null });
+  });
+});
+
+describe('currentValue', () => {
+  const r = { model: 'claude-opus-5-5', effort: 'xhigh', ctx: null };
+  it('marks the effort level and the model family', () => {
+    expect(currentValue({ verb: 'effort', label: 'effort', values: ['high', 'xhigh'] }, r)).toBe('xhigh');
+    expect(currentValue({ verb: 'model', label: 'model', values: ['fable', 'opus', 'sonnet'] }, r)).toBe('opus');
+    expect(currentValue({ verb: 'model', label: 'model', values: ['fable'] }, r)).toBeNull();
+    expect(currentValue({ verb: 'compact', label: 'compact' }, r)).toBeNull();
   });
 });
 

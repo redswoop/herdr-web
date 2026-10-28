@@ -43,6 +43,17 @@
           "verb": "perms",
           "label": "perms",
           "ui": "mode"
+        },
+        {
+          "verb": "model",
+          "label": "model",
+          "send": "/model",
+          "values": [
+            "fable",
+            "opus",
+            "sonnet",
+            "haiku"
+          ]
         }
       ]
     },

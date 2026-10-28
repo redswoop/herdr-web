@@ -1,24 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
-import { DECK_VERBS, commandText } from '@herdr/shared';
-import type { CommandVerb, KindCommand } from '@herdr/shared';
+import { DECK_VERBS, commandText, currentValue } from '@herdr/shared';
+import type { CommandVerb, KindCommand, SessionReadout } from '@herdr/shared';
 
 /** DOS-style function-key bar of session controls (`1new 2rewind …`), laid
  *  out from the adapter's manifest. Slots are fixed: a verb this kind lacks
  *  keeps its number, dimmed. Alt+digit fires a slot from anywhere on the
- *  page. Pickers (effort) and the compact focus line open a small pop above
- *  the bar; rewind/resume/perms hand off to the view's own panels. */
+ *  page. Pickers (effort, model) and the compact focus line open a small
+ *  pop above the bar; rewind/resume/perms hand off to the view's own panels. */
 export function CommandDeck({
   commands,
   disabled,
-  effort,
+  readout,
   onSend,
   onPanel,
 }: {
   commands: KindCommand[];
   /** agent working/blocked — every slot is off */
   disabled: boolean;
-  /** current effort (readout), highlighted in the picker */
-  effort: string | null;
+  /** what the session is on now — marked in the pickers */
+  readout: SessionReadout;
   onSend: (text: string, cmd: KindCommand) => Promise<void> | void;
   onPanel: (ui: NonNullable<KindCommand['ui']>) => void;
 }) {
@@ -77,6 +77,7 @@ export function CommandDeck({
 
   if (!commands.length) return null;
   const open = pop ? byVerb.get(pop) : undefined;
+  const cur = open ? currentValue(open, readout) : null;
 
   return (
     <div className="deck-wrap">
@@ -91,11 +92,11 @@ export function CommandDeck({
             {open.values?.map((v) => (
               <button
                 key={v}
-                className={`mode-row ${v === effort ? 'current' : ''}`}
-                onClick={() => (v === effort ? setPop(null) : fire(open, v))}
+                className={`mode-row ${v === cur ? 'current' : ''}`}
+                onClick={() => (v === cur ? setPop(null) : fire(open, v))}
               >
                 <span className="mode-name">
-                  {v === effort ? '❯ ' : ''}
+                  {v === cur ? '❯ ' : ''}
                   {v}
                 </span>
               </button>

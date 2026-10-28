@@ -421,7 +421,7 @@ export default function AgentScreen() {
       <CommandDeck
         commands={commands}
         disabled={working || blocked || rewindBusy}
-        effort={readout.effort}
+        readout={readout}
         onSend={(text) => sendFromComposer(text)}
         onPanel={(ui) => {
           if (ui === 'rewind') void openRewind();

@@ -1,6 +1,6 @@
 /* Session controls strip above the composer — Capra's take on the web F-key
    bar (`1new 2rewind …`), laid out from the adapter's manifest. Slots are
-   fixed: a verb this kind lacks keeps its place, dimmed. Pickers (effort)
+   fixed: a verb this kind lacks keeps its place, dimmed. Pickers (effort, model)
    and compact's focus line open a bottom sheet; rewind/resume/perms hand off
    to the screen's own panels. */
 import { useEffect, useState } from 'react';
@@ -14,21 +14,29 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { DECK_VERBS, commandText, getPlatform, type CommandVerb, type KindCommand } from '@herdr/shared';
+import {
+  DECK_VERBS,
+  commandText,
+  currentValue,
+  getPlatform,
+  type CommandVerb,
+  type KindCommand,
+  type SessionReadout,
+} from '@herdr/shared';
 import { alpha, useStyles, useTheme, type Tokens } from '../theme';
 
 export function CommandDeck({
   commands,
   disabled,
-  effort,
+  readout,
   onSend,
   onPanel,
 }: {
   commands: KindCommand[];
   /** agent working/blocked — every slot is off */
   disabled: boolean;
-  /** current effort (readout), marked in the picker */
-  effort: string | null;
+  /** what the session is on now — marked in the pickers */
+  readout: SessionReadout;
   onSend: (text: string, cmd: KindCommand) => Promise<void> | void;
   onPanel: (ui: NonNullable<KindCommand['ui']>) => void;
 }) {
@@ -46,6 +54,7 @@ export function CommandDeck({
 
   if (!commands.length) return null;
   const open = pop ? byVerb.get(pop) : undefined;
+  const cur = open ? currentValue(open, readout) : null;
 
   const close = () => {
     setPop(null);
@@ -115,7 +124,7 @@ export function CommandDeck({
               <Text style={styles.sheetName}>{open.label}</Text>
               {!!open.desc && <Text style={styles.sheetDesc}>{open.desc}</Text>}
               {open.values?.map((v) => {
-                const on = v === effort;
+                const on = v === cur;
                 return (
                   <Pressable
                     key={v}

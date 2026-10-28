@@ -7,8 +7,8 @@ test('deck lays out fixed slots from the kind manifest; unsupported verbs stay d
   await expect(keys).toHaveCount(8);
   await expect(keys.nth(3)).toHaveText('4compact');
   await expect(keys.nth(3)).toBeEnabled();
-  // claude's fixture manifest has no model/context — they keep their slots, off
-  await expect(keys.nth(6)).toBeDisabled();
+  await expect(keys.nth(6)).toBeEnabled();
+  // claude's fixture manifest has no context — it keeps its slot, off
   await expect(keys.nth(7)).toBeDisabled();
 });
 
@@ -63,4 +63,22 @@ test('effort picker marks the current level and fires the pick; readout follows 
   await expect
     .poll(async () => (await mockLog()).prompts)
     .toContainEqual(expect.objectContaining({ paneId: 'w1:p1', text: '/effort low' }));
+});
+
+test('model picker lists the aliases, marks the family, and fires /model <alias>', async ({ page }) => {
+  await openAgent(page, 'w1:p1');
+  await mockState({
+    appendEvents: {
+      'w1:p1': [
+        { kind: 'assistant', text: 'done', ts: '2024-06-01T12:00:09.000Z', model: 'claude-opus-5-5', effort: 'high', msgId: 'm9' },
+      ],
+    },
+  });
+  await page.reload();
+  await page.locator('.deck-key', { hasText: 'model' }).click();
+  await expect(page.locator('.deck-pop .mode-row')).toHaveText(['fable', '❯ opus', 'sonnet', 'haiku']);
+  await page.locator('.deck-pop .mode-row', { hasText: 'sonnet' }).click();
+  await expect
+    .poll(async () => (await mockLog()).prompts)
+    .toContainEqual(expect.objectContaining({ paneId: 'w1:p1', text: '/model sonnet' }));
 });

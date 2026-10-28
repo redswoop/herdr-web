@@ -66,6 +66,8 @@ export interface SessionReadout {
 // claude's /effort stdout: "Set effort level to low (saved as your default
 // for new sessions): …" (interactive); "Effort level set to …" (headless)
 const EFFORT_SET_RE = /^(?:Set effort level to|Effort level set to) (\w+)/;
+// …and /model's: "Set model to `Sonnet 5.5` and saved as your default …"
+const MODEL_SET_RE = /^Set model to `?([A-Za-z]+) (\d+)(?:\.(\d+))?/;
 
 /**
  * Newest model / effort / context size in the transcript. Assistant records
@@ -77,24 +79,46 @@ export function sessionReadout(items: Item[]): SessionReadout {
   // a compaction newer than the last turn makes its context size stale —
   // blank until the next turn reports the real one
   let ctxDone = false;
+  // a model switch newer than any effort report resets effort to that
+  // model's own default — unknown until the next turn says
+  let effortDone = false;
   for (let i = items.length - 1; i >= 0; i -= 1) {
     const it = items[i];
     if (it.type !== 'event') continue;
     const ev = it.ev;
     if (ev.kind === 'note' && ev.name === 'compact') ctxDone = true;
-    if (out.effort == null && ev.kind === 'command_out') {
-      const m = EFFORT_SET_RE.exec(ev.text);
-      if (m) out.effort = m[1];
+    if (ev.kind === 'command_out') {
+      const e = !effortDone && EFFORT_SET_RE.exec(ev.text);
+      if (e) {
+        out.effort = e[1];
+        effortDone = true;
+      }
+      const m = out.model == null && MODEL_SET_RE.exec(ev.text);
+      if (m) {
+        out.model = `claude-${m[1].toLowerCase()}-${m[2]}${m[3] ? `-${m[3]}` : ''}`;
+        effortDone = true;
+      }
     }
     if (out.model == null && ev.model) out.model = ev.model;
-    if (out.effort == null && ev.effort) out.effort = ev.effort;
+    if (!effortDone && ev.effort) {
+      out.effort = ev.effort;
+      effortDone = true;
+    }
     if (!ctxDone && ev.usage) {
       out.ctx = ev.usage.ctx;
       ctxDone = true;
     }
-    if (out.model != null && out.effort != null && ctxDone) break;
+    if (out.model != null && effortDone && ctxDone) break;
   }
   return out;
+}
+
+/** The pick-list value the session is on now, marked in the deck's picker. */
+export function currentValue(cmd: KindCommand, r: SessionReadout): string | null {
+  if (cmd.verb === 'effort') return r.effort;
+  // model values are claude's aliases (opus, sonnet …) — match the family
+  if (cmd.verb === 'model') return cmd.values?.find((v) => r.model?.startsWith(`claude-${v}-`)) ?? null;
+  return null;
 }
 
 /** claude-opus-5-5 → "opus 5.5"; claude-sonnet-4-5-20250929 → "sonnet 4.5". */
