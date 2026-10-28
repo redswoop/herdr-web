@@ -43,8 +43,13 @@ export function CommandDeck({
   };
 
   const activate = (cmd: KindCommand | undefined) => {
-    if (!cmd || disabled) return;
+    // `busy` too: the buttons are disabled while a send is in flight, the
+    // hotkey path has to be as well or Alt+4 twice compacts twice
+    if (!cmd || disabled || busy) return;
     if (cmd.ui) return onPanel(cmd.ui);
+    // a session-wide effect (/clear) from a hotkey is one mis-chord from
+    // losing the context: ask
+    if (cmd.effect === 'session' && !confirm(`${cmd.label}: ${cmd.desc ?? cmd.send}?`)) return;
     if (cmd.values || cmd.arg) return setPop((p) => (p === cmd.verb ? null : cmd.verb));
     void fire(cmd);
   };
@@ -61,6 +66,9 @@ export function CommandDeck({
       // e.code, not e.key: on macOS Option+1 produces "¡"
       const n = /^Digit([1-9])$/.exec(e.code)?.[1];
       if (!n) return;
+      // not under a dialog or a docked file: the deck belongs to the agent
+      // view, and a chord while reading a file must not reach the session
+      if (document.querySelector('.modal-backdrop, .file-viewer')) return;
       const verb = DECK_VERBS[Number(n) - 1];
       if (!verb) return;
       e.preventDefault();
@@ -70,9 +78,13 @@ export function CommandDeck({
     return () => removeEventListener('keydown', onKey);
   }, [commands.length]);
 
-  // an agent that starts working closes any half-made pick
+  // an agent that starts working closes any half-made pick — and drops its
+  // half-typed focus line, or the next /compact opens pre-filled with it
   useEffect(() => {
-    if (disabled) setPop(null);
+    if (disabled) {
+      setPop(null);
+      setArg('');
+    }
   }, [disabled]);
 
   if (!commands.length) return null;
