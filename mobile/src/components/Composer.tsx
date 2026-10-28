@@ -159,6 +159,8 @@ export function Composer({
   const autocorrect = useAutocorrect();
   const kv = getPlatform().kv;
   const [text, setTextState] = useState(() => kv.get(textKey(paneId)) ?? '');
+  // `!ls` / `/model`: a command, not prose — no "Ls", no "/Model"
+  const shellish = /^[!/]/.test(text);
   const [atts, setAtts] = useState<Attachment[]>(() => loadAtts(paneId));
   const [selection, setSelection] = useState<{ start: number; end: number } | undefined>();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -581,9 +583,9 @@ export function Composer({
             multiline
             scrollEnabled={atCap}
             textAlignVertical="top"
-            autoCorrect={autocorrect}
-            autoCapitalize={autocorrect ? 'sentences' : 'none'}
-            spellCheck={autocorrect}
+            autoCorrect={autocorrect && !shellish}
+            autoCapitalize={autocorrect && !shellish ? 'sentences' : 'none'}
+            spellCheck={autocorrect && !shellish}
             selection={selection}
             onSelectionChange={(e) => {
               if (selection) setSelection(e.nativeEvent.selection);
