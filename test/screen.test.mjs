@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parseMenuScreen, parseCursorMenuScreen, parseGrokMenuScreen, parseMenuFor, isGrokProjectPicker, isGrokModalOverlay,
+  parseMenuScreen, parseCursorMenuScreen, parsePiMenuScreen, isPiInputDialog, parseGrokMenuScreen, parseMenuFor, isGrokProjectPicker, isGrokModalOverlay,
   isGrokPlanApproval, parseGrokPlanApproval,
   parseRewindScreen, parseMode, composerText, typedComposerText, trimSalvage,
 } from '../lib/screen.js';
@@ -451,6 +451,57 @@ test('cursor menu needs the confirm footer at the bottom of the screen', () => {
   assert.equal(parseCursorMenuScreen(`${CLAUDE_TRUST}\n❯ \n  ? for shortcuts\n`), null);
   // numbered menus keep their own grammar (no nav flag)
   assert.equal(parseMenuScreen(CLAUDE_PERMISSION).nav, undefined);
+});
+
+// ---------- pi menus ----------
+// Live captures from pi 1.3.0 (2026-10-28): ask-gate.ts's ctx.ui.select and
+// its "why not?" ctx.ui.input, with pi's status rows under the footer.
+const RULE = '─'.repeat(60);
+const PI_CHROME = `${RULE}\n~/src/thing\n↑3.9k ↓55 3.0%/131k (auto)            qwen3.8-27b-heretic\n`;
+const PI_GATE = `
+ $ touch gate-probe.txt
+
+${RULE}
+
+ Run command?
+
+ touch gate-probe.txt
+
+ → Yes
+   Yes, always allow touch this session
+   No
+   No, and tell it why…
+
+ ↑↓ navigate  enter select  escape/ctrl+c cancel
+
+${PI_CHROME}`;
+const PI_WHY = `
+ $ mkdir probe-dir
+${RULE}
+ Why not? (sent to the model)
+>
+ enter submit  escape/ctrl+c cancel
+${PI_CHROME}`;
+
+test('pi select: → cursor rows, nav-answered, command as detail', () => {
+  const m = parseMenuFor('pi', PI_GATE);
+  assert.equal(m.nav, true);
+  assert.equal(m.question, 'Run command?');
+  assert.equal(m.detail, 'touch gate-probe.txt');
+  assert.deepEqual(m.options.map((o) => [o.n, o.label, o.selected]), [
+    [1, 'Yes', true],
+    [2, 'Yes, always allow touch this session', false],
+    [3, 'No', false],
+    [4, 'No, and tell it why…', false],
+  ]);
+});
+
+test('pi select: footer must sit just above pi chrome; input box is not a menu', () => {
+  // a footer quoted up in scrollback, live composer below
+  assert.equal(parsePiMenuScreen(`${PI_GATE}\n reply\n\n reply\n\n reply\n${PI_CHROME}`), null);
+  assert.equal(parsePiMenuScreen(PI_WHY), null);
+  assert.equal(isPiInputDialog(PI_WHY), true);
+  assert.equal(isPiInputDialog(PI_GATE), false);
 });
 
 // ---------- codex menus ----------

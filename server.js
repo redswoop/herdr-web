@@ -11,7 +11,7 @@ import { adapterFor, lastTurnAt, readEvents, readEventsCached, listSessions, cla
 import { trimEvents, windowEvents } from './lib/transcript-window.js';
 import {
   parseMenuScreen, parseMenuFor, codexComposerText, piComposerText, isGrokProjectPicker, isGrokModalOverlay,
-  isGrokPlanApproval, parseGrokPlanApproval, parseRewindScreen,
+  isGrokPlanApproval, parseGrokPlanApproval, parseRewindScreen, isPiInputDialog,
   composerText, typedComposerText, parseMode, MODES, trimSalvage,
 } from './lib/screen.js';
 import { PushStore, Coordinator } from './lib/notify.js';
@@ -739,6 +739,8 @@ async function blockedContext(paneId) {
         if (menu) {
           ctx.options = menu.options;
           if (ctx.kind === 'plan') ctx.question = menu.question;
+          // pi's tool_use text is the raw JSON args; the gate shows the command
+          if (agent.agent === 'pi' && menu.detail) ctx.detail = menu.detail;
         }
       }
       if (ctx.kind === 'plan' && !ctx.plan) {
@@ -746,6 +748,9 @@ async function blockedContext(paneId) {
         await attachGrokPlanFile(ctx, session);
       }
     } catch {}
+    // pi's gate also opens a free-text "why not?" box — the classic 1/2/3
+    // guess would type digits into it; leave that one to the key pad
+    if (agent.agent === 'pi' && ctx.kind === 'permission' && !ctx.options) ctx = { kind: 'unknown' };
   }
   return ctx;
 }
@@ -1231,6 +1236,19 @@ async function promptRaw(paneId, text) {
   await new Promise((r) => setTimeout(r, 150));
   await rpc('pane.send_keys', { pane_id: paneId, keys: ['enter'] });
   console.error(`prompt pasted raw into ${paneId}: ${a.agent} still launch_pending`);
+  return true;
+}
+
+// A composer send while pi sits in an extension's text box (ask-gate's "why
+// not?"): agent.prompt is refused on a blocked pane, so paste it into the box.
+// One line — Enter submits the box, and a newline would too.
+async function answerPiInput(paneId, text) {
+  if (roster.agents.find((x) => x.paneId === paneId)?.agent !== 'pi') return false;
+  if (!isPiInputDialog(await readScreen(paneId))) return false;
+  const line = text.replace(/\s+/g, ' ').trim();
+  await rpc('pane.send_text', { pane_id: paneId, text: `\x1b[200~${line}\x1b[201~` });
+  await new Promise((r) => setTimeout(r, 150));
+  await rpc('pane.send_keys', { pane_id: paneId, keys: ['enter'] });
   return true;
 }
 
@@ -1801,12 +1819,13 @@ const server = http.createServer(async (req, res) => {
             return sendJson(res, 409, { error: 'screen changed', screen });
           }
         }
-        // unnumbered cursor menus (claude's folder-trust prompt) ignore digits
-        // — a client build that predates menu.nav still sends one; steer it
-        // through cursor nav instead of dropping the tap on the floor
+        // unnumbered cursor menus (claude's folder-trust prompt, pi's select)
+        // ignore digits — the permission card and older clients still send
+        // one; steer it through cursor nav instead of dropping the tap
+        const kind = roster.agents.find((x) => x.paneId === paneId)?.agent;
         if (keys.length === 1 && /^[1-9]$/.test(keys[0])
-          && parseMenuScreen(await readScreen(paneId))?.nav) {
-          const ok = await answerByNav(paneId, { option: +keys[0] });
+          && parseMenuFor(kind, await readScreen(paneId))?.nav) {
+          const ok = await answerByNav(paneId, { option: +keys[0], kind });
           if (!ok) return sendJson(res, 409, { error: 'screen changed', screen: await readScreen(paneId) });
           return sendJson(res, 200, { ok: true });
         }
@@ -1843,7 +1862,8 @@ const server = http.createServer(async (req, res) => {
           await agentRpc('agent.prompt', { target: paneId, text });
           verifyPromptLanded(paneId, text); // fire-and-forget — don't hold the response
         } catch (e) {
-          if (!isNotReady(e) || !(await promptRaw(paneId, text))) throw e;
+          const raw = isNotReady(e) ? await promptRaw(paneId, text) : await answerPiInput(paneId, text);
+          if (!raw) throw e;
         }
         // a session switch is only visible in herdr's report — pick it up now
         // so open streams reset in ~1s instead of at the next roster poll
