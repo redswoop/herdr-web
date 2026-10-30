@@ -25,6 +25,7 @@ import {
   fmtStamp,
   formatDirOrder,
   getPlatform,
+  mediaSiblings,
   nextDirOrder,
   parseDirOrder,
   type DirOrder,
@@ -36,7 +37,6 @@ import { MdView } from './MdView';
 import { AudioPlayer, VideoPlayer } from './MediaPlayer';
 import { SegText } from './SegText';
 import { ZoomImage } from './ZoomImage';
-import { IMG_RE } from '../file-routes';
 
 // folder sort is a per-device habit; same key as the web client
 const ORDER_KEY = 'herdr.dirSort';
@@ -80,9 +80,16 @@ export function FileViewer({
   // navigation is a new card); only a swipe through sibling images moves it.
   const [cur, setCur] = useState(path);
   const viaSwipeRef = useRef(false);
-  // sibling images of an image, for swiping sideways through the folder
-  const [gallery, setGallery] = useState<{ dir: string; items: string[] } | null>(null);
+  // sibling images of an image (videos of a video), for swiping sideways
+  // through the folder
+  const [gallery, setGallery] = useState<{ dir: string; kind: 'image' | 'video'; items: string[] } | null>(
+    null,
+  );
   const [galleryH, setGalleryH] = useState(0);
+  // the folder whose listing came back (gallery or not): a video waits for it,
+  // so its player mounts once, in the pager or alone — a player mounted alone
+  // and swapped for the pager's a beat later is released mid-create on Android
+  const [listedDir, setListedDir] = useState<string | null>(null);
   // a zoomed image owns drags; the pager holds still
   const [zoomed, setZoomed] = useState(false);
   const [order, setOrder] = useState(() => parseDirOrder(getPlatform().kv.get(ORDER_KEY)));
@@ -124,27 +131,29 @@ export function FileViewer({
     };
   }, [cur, cwd, host, onLoaded, order]);
 
-  // an image: list the folder once, keep the images, page through them
-  const galleryDir = info?.kind === 'image' ? parent(info.path) : null;
+  // an image or a video: list the folder once, keep that kind, page through them
+  const galleryKind = info?.kind === 'image' || info?.kind === 'video' ? info.kind : null;
+  const galleryDir = galleryKind ? parent(info!.path) : null;
   useEffect(() => {
-    if (!galleryDir) return;
+    if (!galleryDir || !galleryKind) return;
     let gone = false;
     fetch(fileInfoUrl(galleryDir, null, host) + dirOrderQuery(order))
       .then(async (r) => {
         const j = (await r.json()) as FileInfo;
-        if (gone || !r.ok) return;
-        const items = (j.entries ?? [])
-          .filter((e) => !e.dir && IMG_RE.test(e.name))
-          .map((e) => join(galleryDir, e.name));
-        if (items.length > 1) setGallery({ dir: galleryDir, items });
+        if (gone) return;
+        const items = r.ok ? mediaSiblings(galleryDir, j.entries ?? [], galleryKind) : [];
+        if (items.length > 1) setGallery({ dir: galleryDir, kind: galleryKind, items });
+        setListedDir(galleryDir);
       })
-      .catch(() => {});
+      .catch(() => !gone && setListedDir(galleryDir));
     return () => {
       gone = true;
     };
-  }, [galleryDir, host, order]);
-  const galleryIdx = gallery ? gallery.items.indexOf(info?.path ?? cur) : -1;
+  }, [galleryDir, galleryKind, host, order]);
+  const galleryIdx = gallery && gallery.kind === galleryKind ? gallery.items.indexOf(info?.path ?? cur) : -1;
   const galleryActive = !!gallery && galleryIdx >= 0;
+  // the page on screen: a swipe sets `cur` before its info lands
+  const onPage = gallery?.items.includes(cur) ? cur : info?.path;
 
   const isMd = /\.(md|markdown)$/i.test(info?.path ?? path);
   // the folder above: a file's own folder, a folder's parent; nothing at /
@@ -286,7 +295,22 @@ export function FileViewer({
             }
           }}
           renderItem={({ item }) =>
-            galleryH > 0 ? (
+            galleryH > 0 && gallery.kind === 'video' ? (
+              // one live player, on the page you're on; swiping away unmounts
+              // (and so stops) it, the neighbours are just their names
+              <View style={[styles.videoPage, { width: winW, height: galleryH }]}>
+                {item === onPage ? (
+                  <VideoPlayer uri={fileRawUrl(item, null, host)} />
+                ) : (
+                  <View style={styles.videoNext}>
+                    <Icon name="playArrow" size={28} color={t.colors.sub} />
+                    <Text style={styles.videoNextName} numberOfLines={1} ellipsizeMode="middle">
+                      {item.split('/').pop()}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            ) : galleryH > 0 ? (
               <ZoomImage
                 uri={fileRawUrl(item, null, host)}
                 width={winW}
@@ -346,7 +370,9 @@ export function FileViewer({
         {info?.kind === 'binary' && (
           <Text style={styles.empty}>binary file · {fmtSize(info.size)}</Text>
         )}
-        {info?.kind === 'video' && <VideoPlayer uri={fileRawUrl(info.path, null, host)} />}
+        {info?.kind === 'video' && !galleryActive && listedDir === galleryDir && (
+          <VideoPlayer uri={fileRawUrl(info.path, null, host)} />
+        )}
         {info?.kind === 'audio' && (
           <AudioPlayer uri={fileRawUrl(info.path, null, host)} name={info.path.split('/').pop() || info.path} />
         )}
@@ -495,6 +521,17 @@ const makeStyles = (t: Tokens) =>
   img: { width: '100%', height: 360, borderRadius: t.radius.md },
   galleryImg: { width: '100%', height: '100%' },
   hidden: { display: 'none' },
+  videoPage: { justifyContent: 'center', paddingHorizontal: 14 },
+  videoNext: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    backgroundColor: '#000',
+    borderRadius: t.r(10),
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  videoNextName: { color: t.colors.sub, fontSize: t.sz('ui', 12), ...t.font('ui'), maxWidth: '80%' },
   mediaBox: { alignItems: 'center', gap: 10, marginTop: 20 },
   mediaBtn: {
     marginTop: 8,
