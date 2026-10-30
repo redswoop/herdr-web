@@ -5,6 +5,7 @@ import {
   dirDesc,
   dirOrderLabel,
   dirOrderQuery,
+  fetchPlaces,
   fmtSize,
   fmtStamp,
   formatDirOrder,
@@ -12,7 +13,9 @@ import {
   parseDirOrder,
   getPlatform,
   mediaSiblings,
+  togglePin,
   type DirOrder,
+  type Places,
 } from '@herdr/shared';
 import { md } from '../md';
 import type { FileInfo } from '../types';
@@ -64,8 +67,8 @@ export function FileViewer({
     getPlatform().kv.set(ORDER_KEY, formatDirOrder(o));
   };
   const pickOrder = (key: DirOrder['sort']) => saveOrder(nextDirOrder(order, key));
-  const [sortMenu, setSortMenu] = useState<MenuState | null>(null);
-  const closeSortMenu = useCallback(() => setSortMenu(null), []);
+  const [menu, setMenu] = useState<MenuState | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
   // the whole sort lives in one menu (a fourth column won't fit a phone);
   // size/date stay as clickable column captions where the columns are
   const sortItems = (): MenuItem[] => [
@@ -112,6 +115,25 @@ export function FileViewer({
       gone = true;
     };
   }, [path, cwd, order]);
+
+  // ⌂ the session's project root + the host's pinned folders
+  const [places, setPlaces] = useState<Places | null>(null);
+  useEffect(() => {
+    let gone = false;
+    void fetchPlaces(cwd).then((p) => !gone && setPlaces(p));
+    return () => {
+      gone = true;
+    };
+  }, [cwd]);
+  const here = info?.kind === 'dir' ? info.path : null;
+  const pinned = !!here && !!places?.pins.some((p) => p.path === here);
+  const flipPin = async (dir: string) => {
+    if (!places) return;
+    const pins = await togglePin(places, dir);
+    if (pins) setPlaces({ ...places, pins });
+    else getPlatform().notifyError('could not save pins');
+  };
+  const leaf = (p: string) => p.split('/').filter(Boolean).pop() || p;
 
   const isMd = /\.(md|markdown)$/i.test(info?.path ?? path);
   const parent = (p: string) => p.replace(/\/[^/]+\/?$/, '') || '/';
@@ -271,6 +293,16 @@ export function FileViewer({
             if (e.key === 'Enter' && edit.trim()) onNavigate(edit.trim());
           }}
         />
+        {places && (
+          <button
+            className={`ghost file-toggle file-home ${info?.path === places.home ? 'dim' : ''}`}
+            aria-label="project home"
+            title={places.home}
+            onClick={() => onNavigate(places.home)}
+          >
+            ⌂
+          </button>
+        )}
         {info?.kind === 'text' && isMd && (
           <button className="ghost file-toggle" onClick={() => setRaw((r) => !r)}>
             {raw ? 'pretty' : 'raw'}
@@ -367,12 +399,36 @@ export function FileViewer({
 
         {info?.kind === 'dir' && (
           <div className="file-dir">
+            {places && (
+              <nav className="places" aria-label="pinned places">
+                {places.pins.map((p) => (
+                  <button
+                    key={p.pin}
+                    className={`place ${p.path === here ? 'here' : ''}`}
+                    title={p.path}
+                    onClick={() => onNavigate(p.path)}
+                    onContextMenu={(e) =>
+                      setMenu(menuAt(e, p.pin, [{ label: 'Unpin', danger: true, run: () => void flipPin(p.path) }]))
+                    }
+                  >
+                    ★ {leaf(p.pin)}
+                  </button>
+                ))}
+                <button
+                  className={`place pin ${pinned ? 'on' : ''}`}
+                  aria-pressed={pinned}
+                  onClick={() => void flipPin(info.path)}
+                >
+                  {pinned ? '★ pinned' : '☆ pin this folder'}
+                </button>
+              </nav>
+            )}
             <div className="dir-head">
               <button
                 className="dir-col dir-name dir-sort"
                 aria-label="sort"
                 aria-haspopup="menu"
-                onClick={(e) => setSortMenu(menuAt(e, 'sort', sortItems()))}
+                onClick={(e) => setMenu(menuAt(e, 'sort', sortItems()))}
               >
                 ⇅ {dirOrderLabel(order)}
                 {!order.foldersFirst && <span className="dir-mix"> · folders mixed</span>}
@@ -442,7 +498,7 @@ export function FileViewer({
           </div>,
           document.body,
         )}
-      <ContextMenu menu={sortMenu} onClose={closeSortMenu} />
+      <ContextMenu menu={menu} onClose={closeMenu} />
     </div>
   );
 }

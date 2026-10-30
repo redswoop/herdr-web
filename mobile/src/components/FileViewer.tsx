@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Modal,
   Pressable,
@@ -21,6 +22,7 @@ import {
   dirDesc,
   dirOrderLabel,
   dirOrderQuery,
+  fetchPlaces,
   fmtSize,
   fmtStamp,
   formatDirOrder,
@@ -28,7 +30,9 @@ import {
   mediaSiblings,
   nextDirOrder,
   parseDirOrder,
+  togglePin,
   type DirOrder,
+  type Places,
 } from '@herdr/shared';
 import { fileInfoUrl, fileRawUrl } from '../api-urls';
 import { alpha, useStyles, useTheme, type Tokens } from '../theme';
@@ -154,6 +158,25 @@ export function FileViewer({
   const galleryActive = !!gallery && galleryIdx >= 0;
   // the page on screen: a swipe sets `cur` before its info lands
   const onPage = gallery?.items.includes(cur) ? cur : info?.path;
+
+  // ⌂ the session's project root + the host's pinned folders
+  const [places, setPlaces] = useState<Places | null>(null);
+  useEffect(() => {
+    let gone = false;
+    void fetchPlaces(cwd, host).then((p) => !gone && setPlaces(p));
+    return () => {
+      gone = true;
+    };
+  }, [cwd, host]);
+  const here = info?.kind === 'dir' ? info.path : null;
+  const pinned = !!here && !!places?.pins.some((p) => p.path === here);
+  const flipPin = async (dir: string) => {
+    if (!places) return;
+    const pins = await togglePin(places, dir, host);
+    if (pins) setPlaces({ ...places, pins });
+    else getPlatform().notifyError('could not save pins');
+  };
+  const leaf = (p: string) => p.split('/').filter(Boolean).pop() || p;
 
   const isMd = /\.(md|markdown)$/i.test(info?.path ?? path);
   // the folder above: a file's own folder, a folder's parent; nothing at /
@@ -326,13 +349,56 @@ export function FileViewer({
       {info?.kind === 'dir' && (
         // outside the ScrollView so it stays put; the whole sort is one sheet
         // (a fourth column won't fit a phone)
-        <Pressable style={styles.dirHead} onPress={() => setSortOpen(true)} accessibilityLabel="sort" hitSlop={6}>
-          <Icon name="sort" size={14} color={t.colors.accent} />
-          <Text style={styles.dirSort}>
-            {dirOrderLabel(order)}
-            {!order.foldersFirst && <Text style={styles.dirCol}> · folders mixed</Text>}
-          </Text>
-        </Pressable>
+        // places on the left (⌂, pins, ☆ this folder), sort on the right
+        <View style={styles.dirHead}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.places} contentContainerStyle={styles.placesRow}>
+            {places && (
+              <>
+                <Pressable
+                  style={[styles.place, here === places.home && styles.placeHere]}
+                  onPress={() => onNavigate(places.home)}
+                  accessibilityLabel="project home"
+                  hitSlop={4}
+                >
+                  <Icon name="home" size={13} color={here === places.home ? t.colors.accent : t.colors.text} />
+                </Pressable>
+                {places.pins.map((p) => (
+                  <Pressable
+                    key={p.pin}
+                    style={[styles.place, p.path === here && styles.placeHere]}
+                    onPress={() => onNavigate(p.path)}
+                    onLongPress={() =>
+                      Alert.alert(`Unpin ${leaf(p.pin)}?`, p.pin, [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Unpin', style: 'destructive', onPress: () => void flipPin(p.path) },
+                      ])
+                    }
+                    accessibilityLabel={`pinned ${p.pin}`}
+                  >
+                    <Text style={[styles.placeText, p.path === here && styles.placeTextHere]} numberOfLines={1}>
+                      {leaf(p.pin)}
+                    </Text>
+                  </Pressable>
+                ))}
+                <Pressable
+                  style={styles.pinBtn}
+                  onPress={() => here && void flipPin(here)}
+                  accessibilityLabel={pinned ? 'unpin this folder' : 'pin this folder'}
+                  hitSlop={6}
+                >
+                  <Icon name={pinned ? 'star' : 'starOutline'} size={16} color={pinned ? t.colors.accent : t.colors.sub} />
+                </Pressable>
+              </>
+            )}
+          </ScrollView>
+          <Pressable style={styles.sortBtn} onPress={() => setSortOpen(true)} accessibilityLabel="sort" hitSlop={6}>
+            <Icon name="sort" size={14} color={t.colors.accent} />
+            <Text style={styles.dirSort}>
+              {dirOrderLabel(order)}
+              {!order.foldersFirst && <Text style={styles.dirCol}> · mixed</Text>}
+            </Text>
+          </Pressable>
+        </View>
       )}
       <ScrollView style={[styles.body, galleryActive && styles.hidden]} contentContainerStyle={styles.bodyContent}>
         {err && <Text style={styles.empty}>{err}</Text>}
@@ -556,13 +622,30 @@ const makeStyles = (t: Tokens) =>
   dirHead: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: 6,
+    gap: 10,
     paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingVertical: 6,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: t.colors.hairline,
   },
+  places: { flex: 1 },
+  placesRow: { alignItems: 'center', gap: 6 },
+  place: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    minHeight: 26,
+    justifyContent: 'center',
+    borderRadius: t.r(13),
+    backgroundColor: t.colors.surface2,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: t.colors.hairline,
+    maxWidth: 140,
+  },
+  placeHere: { borderColor: t.colors.accent },
+  placeText: { ...t.font('ui'), color: t.colors.text, fontSize: t.sz('ui', 12) },
+  placeTextHere: { color: t.colors.accent },
+  pinBtn: { paddingHorizontal: 4, paddingVertical: 4 },
+  sortBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   dirSort: { ...t.font('ui', '600'), color: t.colors.accent, fontSize: t.sz('ui', 12) },
   dirCol: { ...t.font('ui'), color: t.colors.sub, fontSize: t.sz('ui', 12) },
   sheetRoot: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.55)' },

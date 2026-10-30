@@ -190,6 +190,40 @@ export const renameWorkspace = (workspaceId: string, name: string) =>
 export const closeWorkspace = (workspaceId: string) => post(workspacePath(workspaceId, 'close'), {});
 
 
+/* ---------------- file viewer places: ⌂ home + pins ---------------- */
+
+export interface Places {
+  /** the session's project root (git toplevel of its cwd, else the cwd) */
+  home: string;
+  /** `pin` as stored (`~/Sync`), `path` resolved on that host */
+  pins: { pin: string; path: string }[];
+}
+
+export async function fetchPlaces(cwd: string | null, host?: string | null): Promise<Places | null> {
+  try {
+    const r = await get(`/api/places?cwd=${encodeURIComponent(cwd ?? '')}`, host);
+    return r.ok ? ((await r.json()) as Places) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** pin or unpin a folder (absolute path); the host's new list, or null on failure */
+export async function togglePin(places: Places, dir: string, host?: string | null): Promise<Places['pins'] | null> {
+  const on = places.pins.some((p) => p.path === dir);
+  const pins = on ? places.pins.filter((p) => p.path !== dir).map((p) => p.pin) : [...places.pins.map((p) => p.pin), dir];
+  try {
+    const r = await fetch(apiUrl('/api/places', host), {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pins }),
+    });
+    return r.ok ? ((await r.json()) as { pins: Places['pins'] }).pins : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The host the client is configured against, for messages — '' on web (relative URLs). */
 export function apiHost(host?: string | null): string {
   try {

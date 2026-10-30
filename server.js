@@ -16,6 +16,7 @@ import {
 } from './lib/screen.js';
 import { PushStore, Coordinator } from './lib/notify.js';
 import { loadPrefs, savePrefs } from './lib/prefs.js';
+import { places, savePins } from './lib/places.js';
 import { shortHost, resolveBindHost, publicUrl, capraLink } from './lib/host.js';
 
 // A stray rejection (e.g. a background refresh path that missed a catch) must
@@ -1727,6 +1728,10 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, await saveUpload(req));
     }
 
+    if (seg[1] === 'places' && !seg[2]) {
+      if (req.method === 'GET') return sendJson(res, 200, await places(url.searchParams.get('cwd')));
+      if (req.method === 'PUT') return sendJson(res, 200, { pins: await savePins((await readBody(req))?.pins) });
+    }
     if (seg[1] === 'prefs' && !seg[2]) {
       if (req.method === 'GET') return sendJson(res, 200, { prefs: await loadPrefs() });
       if (req.method === 'PUT') return sendJson(res, 200, { prefs: await savePrefs(await readBody(req)) });

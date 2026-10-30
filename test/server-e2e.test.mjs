@@ -263,6 +263,32 @@ test('e2e: a tokenless server answers only to its own names (DNS rebinding)', as
   }
 });
 
+test('e2e: places — home is the git toplevel of the cwd; pins round-trip ~/-relative', async () => {
+  const repo = path.join(home, 'proj');
+  await fsp.mkdir(path.join(repo, 'src', 'lib'), { recursive: true });
+  await new Promise((ok, bad) =>
+    spawn('git', ['init', '-q', repo]).on('exit', (c) => (c === 0 ? ok() : bad(new Error(`git init ${c}`)))),
+  );
+  const at = async (cwd) => (await fetch(`${BASE}/api/places?cwd=${encodeURIComponent(cwd)}`)).json();
+  const real = await fsp.realpath(repo);
+  assert.equal((await at(path.join(repo, 'src', 'lib'))).home, real);
+  assert.equal((await at(cwdA)).home, cwdA, 'not a repo: the cwd itself');
+  assert.deepEqual((await at(cwdA)).pins, []);
+
+  const put = await fetch(`${BASE}/api/places`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ pins: [path.join(home, 'Sync'), '/mnt/x', 'relative'] }),
+  });
+  assert.equal(put.status, 200);
+  const want = [
+    { pin: '~/Sync', path: path.join(home, 'Sync') },
+    { pin: '/mnt/x', path: '/mnt/x' },
+  ];
+  assert.deepEqual((await put.json()).pins, want);
+  assert.deepEqual((await at(cwdB)).pins, want);
+});
+
 test('e2e: JSON bodies must say so (a text/plain form post is refused)', async () => {
   const r = await fetch(`${BASE}/api/prefs`, { method: 'PUT', headers: { 'content-type': 'text/plain' }, body: '{"theme":"x"}' });
   assert.equal(r.status, 415);

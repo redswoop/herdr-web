@@ -1221,6 +1221,19 @@ video.lb-media { cursor: auto; background: #000; }
   display: grid; grid-template-columns: minmax(0, 1fr) 8.5ch 11ch;
   align-items: center; column-gap: 12px;
 }
+/* pinned folders (per host) above a listing; ☆ pins the one you're in */
+.places { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 10px; scrollbar-width: none; }
+.place {
+  flex: none; max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 4px 10px; border-radius: 999px;
+  font-size: calc(13px * var(--fs)); color: var(--text);
+  background: var(--surface-2); border: 1px solid var(--hairline);
+}
+.place.here { border-color: var(--accent); color: var(--accent); }
+.place.pin { color: var(--sub); background: transparent; border-style: dashed; }
+.place.pin.on { color: var(--accent); border-style: solid; }
+.file-toggle.dim { opacity: 0.35; }
+.file-home { font-size: calc(20px * var(--fs)); line-height: 1; }
 /* pinned while the listing scrolls; -14px = .file-body's top padding */
 .dir-head {
   position: sticky; top: -14px; z-index: 1;

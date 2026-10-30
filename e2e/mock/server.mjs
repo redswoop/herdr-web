@@ -76,6 +76,7 @@ const log = {
 
 let chatSeq = 0;
 let pushSubscribed = false;
+let pins = []; // /api/places
 
 function sendJson(res, status, obj) {
   const body = JSON.stringify(obj);
@@ -174,6 +175,7 @@ function appendEvents(paneId, events) {
 
 function resetState() {
   epoch += 1; // orphan every pending later() from the previous test
+  pins = [{ pin: '~/Sync', path: '/home/armen/Sync' }];
   roster = clone(readJson('roster.json'));
   transcripts['w1:p1'] = clone(readJson('transcript-w1p1.json'));
   transcripts['w1:p2'] = clone(readJson('transcript-w1p2.json'));
@@ -329,6 +331,13 @@ const server = http.createServer(async (req, res) => {
     const pathOut = `/tmp/herdr-upload-${Date.now()}.png`;
     log.uploads.push({ type: body.type || req.headers['content-type'], path: pathOut });
     return sendJson(res, 200, { path: pathOut });
+  }
+
+  if (seg[1] === 'places' && !seg[2]) {
+    if (req.method === 'GET') return sendJson(res, 200, { home: '/home/armen/src/app', pins });
+    const body = await readBody(req);
+    pins = (body.pins ?? []).map((p) => ({ pin: p, path: p.replace(/^~/, '/home/armen') }));
+    return sendJson(res, 200, { pins });
   }
 
   if (req.method === 'GET' && seg[1] === 'file' && seg[2] === 'raw') {

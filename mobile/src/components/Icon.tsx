@@ -38,7 +38,10 @@ export type IconName =
   | 'down'
   | 'pause'
   | 'playArrow'
-  | 'sort';
+  | 'sort'
+  | 'home'
+  | 'star'
+  | 'starOutline';
 
 const MAP: Record<IconName, keyof typeof Ionicons.glyphMap> = {
   send: 'arrow-up',
@@ -76,6 +79,9 @@ const MAP: Record<IconName, keyof typeof Ionicons.glyphMap> = {
   pause: 'pause',
   playArrow: 'play',
   sort: 'swap-vertical',
+  home: 'home-outline',
+  star: 'star',
+  starOutline: 'star-outline',
 };
 
 export function Icon({

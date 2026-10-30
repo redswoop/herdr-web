@@ -149,3 +149,35 @@ test('a video keeps its playhead moving into the lightbox and back', async ({ pa
   await page.keyboard.press('Escape');
   await expect.poll(() => inline.evaluate((v: HTMLVideoElement) => v.currentTime)).toBeCloseTo(0.6, 1);
 });
+
+// TODO #17: ⌂ = the session's project root; pins are the host's, above a listing
+test.describe('places', () => {
+  const at = (p: string) => `/agent/${encodeURIComponent('w1:p1')}/file/${encodeURIComponent(p)}`;
+
+  test('⌂ jumps to the project root and dims there', async ({ page }) => {
+    await openApp(page, { hash: at('/srv/gallery/a.png') });
+    const viewer = page.locator('.file-viewer').first();
+    await viewer.getByRole('button', { name: 'project home' }).click();
+    await expect(viewer.locator('.file-path')).toHaveValue('/home/armen/src/app');
+    await expect(viewer.getByRole('button', { name: 'project home' })).toHaveClass(/dim/);
+  });
+
+  test('pin the folder you are in; a pin jumps there; right-click unpins', async ({ page }) => {
+    await openApp(page, { hash: at('/srv/gallery') });
+    const viewer = page.locator('.file-viewer').first();
+    const strip = viewer.getByRole('navigation', { name: 'pinned places' });
+    await expect(strip.getByRole('button')).toHaveText(['★ Sync', '☆ pin this folder']);
+
+    await strip.getByRole('button', { name: '☆ pin this folder' }).click();
+    await expect(strip.getByRole('button')).toHaveText(['★ Sync', '★ gallery', '★ pinned']);
+    await expect(strip.getByRole('button', { name: '★ gallery' })).toHaveClass(/here/);
+
+    await strip.getByRole('button', { name: '★ Sync' }).click();
+    await expect(viewer.locator('.file-path')).toHaveValue('/home/armen/Sync');
+
+    await strip.getByRole('button', { name: '★ gallery' }).click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Unpin' }).click();
+    // we're in Sync now, which is pinned
+    await expect(strip.getByRole('button')).toHaveText(['★ Sync', '★ pinned']);
+  });
+});
