@@ -130,6 +130,22 @@ Notes: Android Chrome caps notification action buttons at 2 (we never send
 more). If push seems dead, tap the build badge in the header — it reports
 secure-context and service-worker diagnostics.
 
+## Telling claude it runs under herdr
+
+`docs/agent-context.md` is a short contract for the agent: paths in backticks
+become tappable chips, which extensions the viewer plays, whether SendUserFile
+exists in this session, what markdown renders. `scripts/agent-context-hook.py`
+injects it as a Claude Code SessionStart hook whenever the pane has
+`HERDR_ENV=1` (never for subagents):
+
+```
+python3 scripts/agent-context-hook.py --install   # adds the hook to ~/.claude/settings.json
+python3 scripts/agent-context-hook.py --print     # what this environment would inject
+```
+
+The doc is read on every session start, so when the client learns a trick
+(a new viewer kind, a new card), add it there and the next session knows.
+
 ## HTTP API
 
 All under `/api`, JSON in/out. `:pane` is a herdr pane id like `w1:p2`.

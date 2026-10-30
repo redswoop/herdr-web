@@ -1319,6 +1319,7 @@ async function answerPiInput(paneId, text) {
 // that can ask an agent to read anything — so no path jail, just no writes.
 
 const TEXT_MAX = 512 * 1024;
+// Also listed for the agent in docs/agent-context.md — update both.
 const IMG_MIME = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
   '.webp': 'image/webp', '.svg': 'image/svg+xml', '.avif': 'image/avif',
