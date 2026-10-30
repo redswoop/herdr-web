@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Modal,
   Pressable,
   ScrollView,
   Share,
@@ -17,6 +18,8 @@ import type { FileInfo } from '@herdr/shared';
 import {
   DIR_SORTS,
   describeError,
+  dirDesc,
+  dirOrderLabel,
   dirOrderQuery,
   fmtSize,
   fmtStamp,
@@ -27,7 +30,7 @@ import {
   type DirOrder,
 } from '@herdr/shared';
 import { fileInfoUrl, fileRawUrl } from '../api-urls';
-import { useStyles, useTheme, type Tokens } from '../theme';
+import { alpha, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
 import { MdView } from './MdView';
 import { AudioPlayer, VideoPlayer } from './MediaPlayer';
@@ -83,8 +86,9 @@ export function FileViewer({
   // a zoomed image owns drags; the pager holds still
   const [zoomed, setZoomed] = useState(false);
   const [order, setOrder] = useState(() => parseDirOrder(getPlatform().kv.get(ORDER_KEY)));
-  const pickOrder = (key: DirOrder['sort']) => {
-    const o = nextDirOrder(order, key);
+  const [sortOpen, setSortOpen] = useState(false);
+  const saveOrder = (o: DirOrder) => {
+    setSortOpen(false);
     setOrder(o);
     getPlatform().kv.set(ORDER_KEY, formatDirOrder(o));
   };
@@ -295,6 +299,17 @@ export function FileViewer({
           }
         />
       )}
+      {info?.kind === 'dir' && (
+        // outside the ScrollView so it stays put; the whole sort is one sheet
+        // (a fourth column won't fit a phone)
+        <Pressable style={styles.dirHead} onPress={() => setSortOpen(true)} accessibilityLabel="sort" hitSlop={6}>
+          <Icon name="sort" size={14} color={t.colors.accent} />
+          <Text style={styles.dirSort}>
+            {dirOrderLabel(order)}
+            {!order.foldersFirst && <Text style={styles.dirCol}> · folders mixed</Text>}
+          </Text>
+        </Pressable>
+      )}
       <ScrollView style={[styles.body, galleryActive && styles.hidden]} contentContainerStyle={styles.bodyContent}>
         {err && <Text style={styles.empty}>{err}</Text>}
         {!err && !info && (
@@ -349,25 +364,6 @@ export function FileViewer({
 
         {info?.kind === 'dir' && (
           <View style={styles.dir}>
-            <View style={styles.dirHead}>
-              {DIR_SORTS.map((s) => {
-                const on = order.sort === s.key;
-                const desc = (s.natural === 'desc') !== (on && order.reversed);
-                return (
-                  <Pressable
-                    key={s.key}
-                    hitSlop={8}
-                    accessibilityLabel={`sort by ${s.label}`}
-                    onPress={() => pickOrder(s.key)}
-                  >
-                    <Text style={[styles.dirCol, on && styles.dirColOn]}>
-                      {s.label}
-                      {on ? (desc ? ' ↓' : ' ↑') : ''}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
             {info.path !== '/' && (
               <Pressable style={styles.dirRow} onPress={() => onNavigate(parent(info.path))}>
                 <Icon name="folder" size={18} color={t.colors.working} />
@@ -406,6 +402,40 @@ export function FileViewer({
           {fmtSize(info.size)} · {new Date(info.mtime).toLocaleString()}
         </Text>
       )}
+      <Modal visible={sortOpen} transparent animationType="fade" onRequestClose={() => setSortOpen(false)}>
+        <View style={styles.sheetRoot}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setSortOpen(false)} accessibilityLabel="close" />
+          <View style={styles.sheet}>
+            <Text style={styles.sheetName}>sort</Text>
+            {DIR_SORTS.map((s) => {
+              const on = order.sort === s.key;
+              return (
+                <Pressable
+                  key={s.key}
+                  style={[styles.pick, on && styles.pickOn]}
+                  onPress={() => saveOrder(nextDirOrder(order, s.key))}
+                  accessibilityLabel={`sort by ${s.label}`}
+                >
+                  <View style={[styles.pickMark, on && styles.pickMarkOn]} />
+                  <Text style={[styles.pickName, on && styles.pickNameOn]}>{s.label}</Text>
+                  {/* the current key flips; others show which way they'd start */}
+                  <Text style={[styles.pickArrow, on && styles.pickNameOn]}>{dirDesc(order, s.key) ? '↓' : '↑'}</Text>
+                </Pressable>
+              );
+            })}
+            <View style={styles.sheetRule} />
+            <Pressable
+              style={styles.pick}
+              onPress={() => saveOrder({ ...order, foldersFirst: !order.foldersFirst })}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: order.foldersFirst }}
+            >
+              <Icon name={order.foldersFirst ? 'check' : 'folder'} size={16} color={order.foldersFirst ? t.colors.accent : t.colors.sub} />
+              <Text style={[styles.pickName, order.foldersFirst && styles.pickNameOn]}>folders first</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -488,13 +518,46 @@ const makeStyles = (t: Tokens) =>
   dirMeta: { ...t.font('ui'), color: t.colors.sub, fontSize: t.sz('ui', 12), fontVariant: ['tabular-nums'] },
   dirHead: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'flex-end',
-    gap: 18,
-    paddingBottom: 8,
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: t.colors.hairline,
   },
+  dirSort: { ...t.font('ui', '600'), color: t.colors.accent, fontSize: t.sz('ui', 12) },
   dirCol: { ...t.font('ui'), color: t.colors.sub, fontSize: t.sz('ui', 12) },
+  sheetRoot: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.55)' },
+  sheet: {
+    margin: 10,
+    marginBottom: 24,
+    paddingVertical: 8,
+    backgroundColor: t.cyber ? alpha(t.colors.surface2, 0.97) : t.colors.surface2,
+    borderRadius: t.radius.md,
+    borderWidth: t.cyber ? 1 : StyleSheet.hairlineWidth,
+    borderColor: t.cyber ? alpha(t.colors.accent, 0.4) : t.colors.hairline,
+    ...t.boxGlow(t.colors.accent, 24, 0.35),
+    overflow: 'hidden',
+  },
+  sheetName: {
+    ...t.font(t.cyber ? 'display' : 'ui', '700'),
+    ...t.hud,
+    fontSize: t.sz('ui', 12),
+    color: t.cyber ? t.colors.red : t.colors.accent,
+    ...(t.cyber ? t.glow(t.colors.red, 8) : {}),
+    paddingHorizontal: 14,
+    paddingTop: 6,
+    paddingBottom: 4,
+  },
+  sheetRule: { height: StyleSheet.hairlineWidth, backgroundColor: t.colors.hairline, marginVertical: 4 },
+  pick: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
+  pickOn: { backgroundColor: alpha(t.colors.accent, 0.1) },
+  pickMark: { ...t.dot(8), backgroundColor: alpha(t.colors.sub, 0.3) },
+  pickMarkOn: { backgroundColor: t.colors.accent, ...t.boxGlow(t.colors.accent, 8, 0.9) },
+  pickName: { ...t.font('mono', '600'), fontSize: t.sz('ui', 15), color: t.colors.text, flex: 1 },
+  pickNameOn: { color: t.colors.accent, ...t.glow(t.colors.accent, 6) },
+  pickArrow: { ...t.font('mono'), fontSize: t.sz('ui', 15), color: t.colors.sub },
   dirColOn: { color: t.colors.accent },
   meta: {
     color: t.colors.sub,

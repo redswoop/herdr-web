@@ -1348,12 +1348,13 @@ function fsErr(e) {
 const DIR_MAX = 1000;
 const nameCmp = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
 
-// Folders first, then by `sort` (name | size | mtime). Sorting happens before
-// the clip, so the newest 1000 of a 6000-render ComfyUI output folder are the
-// newest 1000, not the alphabetically-first 1000. Only a size/date sort pays
-// for stat-ing every entry; a name sort stats just the rows it sends.
+// Folders first (unless `folders=mix`), then by `sort` (name | kind | size |
+// mtime). Sorting happens before the clip, so the newest 1000 of a
+// 6000-render ComfyUI output folder are the newest 1000, not the
+// alphabetically-first 1000. Only a size/date sort pays for stat-ing every
+// entry; a name or kind sort stats just the rows it sends.
 // `desc` unset → the natural direction: A→Z, biggest first, newest first.
-async function listDir(dir, ents, sort, desc) {
+async function listDir(dir, ents, sort, desc, folders) {
   const statOf = async (name) => {
     const p = path.join(dir, name);
     // a dangling symlink still gets a row, dated by the link itself
@@ -1369,21 +1370,38 @@ async function listDir(dir, ents, sort, desc) {
     }
     return out;
   };
-  const key = sort === 'size' || sort === 'mtime' ? sort : 'name';
+  const key = ['kind', 'size', 'mtime'].includes(sort) ? sort : 'name';
+  const dirsFirst = folders !== 'mix';
   let rows = ents.map((d) => ({ name: d.name, dir: d.isDirectory() }));
-  if (key !== 'name') rows = await statAll(rows);
-  const sign = (desc == null || desc === '' ? key !== 'name' : desc === '1') ? -1 : 1;
-  const cmp = key === 'name' ? nameCmp : (a, b) => a[key] - b[key] || nameCmp(a, b);
-  rows.sort(
-    (a, b) =>
-      Number(b.dir) - Number(a.dir) ||
-      // a folder's size is its inode, not its contents — folders stay A→Z under a size sort
-      (a.dir && key === 'size' ? nameCmp(a, b) : sign * cmp(a, b)),
-  );
+  if (key === 'size' || key === 'mtime') rows = await statAll(rows);
+  const sign = (desc == null || desc === '' ? key === 'size' || key === 'mtime' : desc === '1') ? -1 : 1;
+  const cmp = {
+    name: nameCmp,
+    kind: (a, b) => kindRank(a) - kindRank(b) || extCmp(a, b) || nameCmp(a, b),
+    size: (a, b) => a.size - b.size || nameCmp(a, b),
+    mtime: (a, b) => a.mtime - b.mtime || nameCmp(a, b),
+  }[key];
+  rows.sort((a, b) => {
+    // a folder's size is its inode, not its contents — under a size sort
+    // folders keep to themselves (after the files when mixed), A→Z either way
+    if (a.dir !== b.dir && (dirsFirst || key === 'size')) return (dirsFirst ? 1 : -1) * (Number(b.dir) - Number(a.dir));
+    if (a.dir && b.dir && key === 'size') return nameCmp(a, b);
+    return sign * cmp(a, b);
+  });
   rows = rows.slice(0, DIR_MAX);
-  if (key === 'name') rows = await statAll(rows);
+  if (key === 'name' || key === 'kind') rows = await statAll(rows);
   return rows;
 }
+
+// kind order: folders, images, video, audio, everything else (by extension,
+// extensionless last)
+const extOf = (r) => (r.dir ? '' : path.extname(r.name).toLowerCase());
+function kindRank(r) {
+  if (r.dir) return 0;
+  const ext = extOf(r);
+  return IMG_MIME[ext] ? 1 : VIDEO_MIME[ext] ? 2 : AUDIO_MIME[ext] ? 3 : ext ? 4 : 5;
+}
+const extCmp = (a, b) => extOf(a).localeCompare(extOf(b));
 
 async function fileInfo(url) {
   const target = resolveUserPath(url);
@@ -1393,7 +1411,8 @@ async function fileInfo(url) {
   if (st.isDirectory()) {
     let ents;
     try { ents = await fsp.readdir(target, { withFileTypes: true }); } catch (e) { throw fsErr(e); }
-    const entries = await listDir(target, ents, url.searchParams.get('sort'), url.searchParams.get('desc'));
+    const q = url.searchParams;
+    const entries = await listDir(target, ents, q.get('sort'), q.get('desc'), q.get('folders'));
     return { ...base, kind: 'dir', entries, clipped: ents.length > DIR_MAX };
   }
   if (!st.isFile()) return { ...base, kind: 'special' };

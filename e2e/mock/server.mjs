@@ -350,6 +350,16 @@ const server = http.createServer(async (req, res) => {
     if (p.endsWith('README.md') || p.includes('README')) {
       return sendJson(res, 200, { ...fileReadme, path: p || fileReadme.path });
     }
+    if (p.endsWith('/renders')) {
+      // long enough to scroll, for the pinned sort header
+      return sendJson(res, 200, {
+        path: p,
+        size: 0,
+        mtime: Date.now(),
+        kind: 'dir',
+        entries: Array.from({ length: 80 }, (_, i) => ({ name: `render_${i}.png`, dir: false, size: 1000 + i, mtime: Date.now() })),
+      });
+    }
     if (p.endsWith('/') || !path.extname(p)) {
       return sendJson(res, 200, {
         path: p || '/home/armen/src/app',

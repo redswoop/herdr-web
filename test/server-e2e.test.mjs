@@ -445,6 +445,29 @@ test('e2e: folder listings sort by name, size or date, folders first', async () 
   const byDate = names(await list('&sort=mtime'));
   assert.deepEqual(byDate.slice(2), ['img_10.png', 'b.txt', 'img_2.png']);
   assert.deepEqual(names(await list('&sort=mtime&desc=0')).slice(2), ['img_2.png', 'b.txt', 'img_10.png']);
+  // kind: images before the rest, extension then name within
+  assert.deepEqual(names(await list('&sort=kind')), ['asub', 'zsub', 'img_2.png', 'img_10.png', 'b.txt']);
+  assert.deepEqual(names(await list('&sort=kind&desc=1')), ['zsub', 'asub', 'b.txt', 'img_10.png', 'img_2.png']);
+});
+
+test('e2e: folders=mix lets folders sort in with the files', async () => {
+  const dir = path.join(home, 'mixme');
+  await fsp.mkdir(path.join(dir, 'm-sub'), { recursive: true });
+  for (const [n, size, t] of [['a.txt', 5, 1000], ['z.mp4', 50, 3000]]) {
+    await fsp.writeFile(path.join(dir, n), Buffer.alloc(size));
+    await fsp.utimes(path.join(dir, n), t, t);
+  }
+  await fsp.utimes(path.join(dir, 'm-sub'), 2000, 2000);
+  const names = async (q) =>
+    (await (await fetch(`${BASE}/api/file?path=${enc(dir)}&cwd=${q}`)).json()).entries.map((e) => e.name);
+  assert.deepEqual(await names('&folders=mix'), ['a.txt', 'm-sub', 'z.mp4']);
+  assert.deepEqual(await names('&sort=mtime&folders=mix'), ['z.mp4', 'm-sub', 'a.txt']);
+  // a folder's size means nothing: mixed or not, folders sit after the files
+  assert.deepEqual(await names('&sort=size&folders=mix'), ['z.mp4', 'a.txt', 'm-sub']);
+  assert.deepEqual(await names('&sort=size&desc=0&folders=mix'), ['a.txt', 'z.mp4', 'm-sub']);
+  // kind keeps folders as the first kind, so mixing only shows when reversed
+  assert.deepEqual(await names('&sort=kind&desc=1&folders=mix'), ['a.txt', 'z.mp4', 'm-sub']);
+  assert.deepEqual(await names('&sort=kind&desc=1'), ['m-sub', 'a.txt', 'z.mp4']);
 });
 
 test('e2e: rename renames the tab verbatim and the agent cleaned', async () => {

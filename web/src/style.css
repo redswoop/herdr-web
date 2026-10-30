@@ -1161,7 +1161,12 @@ textarea::placeholder { color: var(--sub); }
   display: grid; grid-template-columns: minmax(0, 1fr) 8.5ch 11ch;
   align-items: center; column-gap: 12px;
 }
-.dir-head { border-bottom: 1px solid var(--hairline); margin-bottom: 4px; }
+/* pinned while the listing scrolls; -14px = .file-body's top padding */
+.dir-head {
+  position: sticky; top: -14px; z-index: 1;
+  background: var(--bg);
+  border-bottom: 1px solid var(--hairline); margin-bottom: 4px;
+}
 .dir-col {
   padding: 6px 10px;
   font-size: calc(11.5px * var(--fs)); color: var(--sub);
@@ -1173,6 +1178,8 @@ textarea::placeholder { color: var(--sub); }
 .dir-col.dir-name { text-align: left; }
 .dir-col.dir-size, .dir-col.dir-mtime { text-align: right; padding-left: 0; }
 .dir-arrow { margin-left: 4px; }
+.dir-sort { color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dir-mix { color: var(--sub); }
 .file-dir .dir-row {
   text-align: left; padding: 8px 10px;
   border-radius: var(--r-sm);

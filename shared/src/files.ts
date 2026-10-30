@@ -18,33 +18,51 @@ export function fmtStamp(ms: number, now = Date.now()): string {
   return d.getFullYear() === n.getFullYear() ? md : `${md} ${d.getFullYear()}`;
 }
 
-/** the folder sort choices, in strip order; `natural` is the direction a fresh pick starts in */
+/** the folder sort choices, in menu order; `natural` is the direction a fresh pick starts in */
 export const DIR_SORTS: { key: DirSort; label: string; natural: 'asc' | 'desc' }[] = [
   { key: 'name', label: 'name', natural: 'asc' },
+  { key: 'kind', label: 'kind', natural: 'asc' },
   { key: 'size', label: 'size', natural: 'desc' },
   { key: 'mtime', label: 'date', natural: 'desc' },
 ];
 
-/** a sort pick: its key and whether it runs against its natural direction */
+/** a sort pick: its key, whether it runs against its natural direction, and
+ *  whether folders sit on top or mix in with the files */
 export interface DirOrder {
   sort: DirSort;
   reversed: boolean;
+  foldersFirst: boolean;
 }
 
-/** query suffix for /api/file — empty for the server's default (name, A→Z) */
+/** does `key` currently run descending (for its arrow)? an unpicked key shows its natural way */
+export function dirDesc(o: DirOrder, key: DirSort = o.sort): boolean {
+  const nat = DIR_SORTS.find((s) => s.key === key)?.natural ?? 'asc';
+  return (nat === 'desc') !== (o.sort === key && o.reversed);
+}
+
+/** "date ↓" — what the sort button reads */
+export const dirOrderLabel = (o: DirOrder) =>
+  `${DIR_SORTS.find((s) => s.key === o.sort)?.label ?? o.sort} ${dirDesc(o) ? '↓' : '↑'}`;
+
+/** query suffix for /api/file — empty for the server's default (name, A→Z, folders first) */
 export function dirOrderQuery(o: DirOrder): string {
-  if (o.sort === 'name' && !o.reversed) return '';
-  const nat = DIR_SORTS.find((s) => s.key === o.sort)?.natural ?? 'asc';
-  const desc = (nat === 'desc') !== o.reversed;
-  return `&sort=${o.sort}&desc=${desc ? 1 : 0}`;
+  const mix = o.foldersFirst ? '' : '&folders=mix';
+  if (o.sort === 'name' && !o.reversed) return mix;
+  return `&sort=${o.sort}&desc=${dirDesc(o) ? 1 : 0}${mix}`;
 }
 
-/** tapping a sort: a new key starts natural, the current key flips */
+/** picking a sort: a new key starts natural, the current key flips */
 export const nextDirOrder = (o: DirOrder, key: DirSort): DirOrder =>
-  o.sort === key ? { sort: key, reversed: !o.reversed } : { sort: key, reversed: false };
+  o.sort === key ? { ...o, reversed: !o.reversed } : { ...o, sort: key, reversed: false };
 
+/** stored as `mtime`, `mtime:r`, `mtime:r:mix` — older values parse unchanged */
 export function parseDirOrder(s: string | null | undefined): DirOrder {
-  const [sort, r] = (s ?? '').split(':');
-  return DIR_SORTS.some((x) => x.key === sort) ? { sort: sort as DirSort, reversed: r === 'r' } : { sort: 'name', reversed: false };
+  const [sort, ...flags] = (s ?? '').split(':');
+  return {
+    sort: DIR_SORTS.some((x) => x.key === sort) ? (sort as DirSort) : 'name',
+    reversed: flags.includes('r'),
+    foldersFirst: !flags.includes('mix'),
+  };
 }
-export const formatDirOrder = (o: DirOrder) => `${o.sort}${o.reversed ? ':r' : ''}`;
+export const formatDirOrder = (o: DirOrder) =>
+  `${o.sort}${o.reversed ? ':r' : ''}${o.foldersFirst ? '' : ':mix'}`;

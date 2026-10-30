@@ -37,7 +37,8 @@ export type IconName =
   | 'rewind'
   | 'down'
   | 'pause'
-  | 'playArrow';
+  | 'playArrow'
+  | 'sort';
 
 const MAP: Record<IconName, keyof typeof Ionicons.glyphMap> = {
   send: 'arrow-up',
@@ -74,6 +75,7 @@ const MAP: Record<IconName, keyof typeof Ionicons.glyphMap> = {
   down: 'arrow-down',
   pause: 'pause',
   playArrow: 'play',
+  sort: 'swap-vertical',
 };
 
 export function Icon({

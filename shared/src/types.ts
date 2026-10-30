@@ -269,8 +269,9 @@ export interface DirEntry {
   mtime: number;
 }
 
-/** GET /api/file?sort= — `desc` unset means the natural direction (A→Z, biggest, newest) */
-export type DirSort = 'name' | 'size' | 'mtime';
+/** GET /api/file?sort= — `desc` unset means the natural direction (A→Z, biggest, newest);
+ *  `kind` groups by type (folders, images, video, audio, then by extension) */
+export type DirSort = 'name' | 'kind' | 'size' | 'mtime';
 
 export interface AskQuestion {
   question: string;

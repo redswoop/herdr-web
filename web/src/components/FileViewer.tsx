@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   DIR_SORTS,
+  dirDesc,
+  dirOrderLabel,
   dirOrderQuery,
   fmtSize,
   fmtStamp,
@@ -12,6 +14,7 @@ import {
 } from '@herdr/shared';
 import { md } from '../md';
 import type { FileInfo } from '../types';
+import { ContextMenu, menuAt, type MenuItem, type MenuState } from './ui/ContextMenu';
 
 const fileUrl = (path: string, cwd: string | null, raw = false) =>
   `/api/file${raw ? '/raw' : ''}?path=${encodeURIComponent(path)}&cwd=${encodeURIComponent(cwd ?? '')}`;
@@ -50,11 +53,27 @@ export function FileViewer({
   const [edit, setEdit] = useState(path);
   const [histOpen, setHistOpen] = useState(false);
   const [order, setOrder] = useState(() => parseDirOrder(getPlatform().kv.get(ORDER_KEY)));
-  const pickOrder = (key: DirOrder['sort']) => {
-    const o = nextDirOrder(order, key);
+  const saveOrder = (o: DirOrder) => {
     setOrder(o);
     getPlatform().kv.set(ORDER_KEY, formatDirOrder(o));
   };
+  const pickOrder = (key: DirOrder['sort']) => saveOrder(nextDirOrder(order, key));
+  const [sortMenu, setSortMenu] = useState<MenuState | null>(null);
+  const closeSortMenu = useCallback(() => setSortMenu(null), []);
+  // the whole sort lives in one menu (a fourth column won't fit a phone);
+  // size/date stay as clickable column captions where the columns are
+  const sortItems = (): MenuItem[] => [
+    ...DIR_SORTS.map((s) => ({
+      label: order.sort === s.key ? `${s.label} ${dirDesc(order) ? '↓' : '↑'}` : s.label,
+      current: order.sort === s.key,
+      run: () => pickOrder(s.key),
+    })),
+    {
+      label: order.foldersFirst ? '✓ folders first' : 'folders first',
+      current: order.foldersFirst,
+      run: () => saveOrder({ ...order, foldersFirst: !order.foldersFirst }),
+    },
+  ];
 
   useEffect(() => {
     let gone = false;
@@ -197,21 +216,26 @@ export function FileViewer({
         {info?.kind === 'dir' && (
           <div className="file-dir">
             <div className="dir-head">
-              {DIR_SORTS.map((s) => {
-                const on = order.sort === s.key;
-                const desc = (s.natural === 'desc') !== (on && order.reversed);
-                return (
-                  <button
-                    key={s.key}
-                    className={`dir-col dir-${s.key} ${on ? 'on' : ''}`}
-                    aria-label={`sort by ${s.label}`}
-                    onClick={() => pickOrder(s.key)}
-                  >
-                    {s.label}
-                    {on && <span className="dir-arrow">{desc ? '↓' : '↑'}</span>}
-                  </button>
-                );
-              })}
+              <button
+                className="dir-col dir-name dir-sort"
+                aria-label="sort"
+                aria-haspopup="menu"
+                onClick={(e) => setSortMenu(menuAt(e, 'sort', sortItems()))}
+              >
+                ⇅ {dirOrderLabel(order)}
+                {!order.foldersFirst && <span className="dir-mix"> · folders mixed</span>}
+              </button>
+              {DIR_SORTS.filter((s) => s.key === 'size' || s.key === 'mtime').map((s) => (
+                <button
+                  key={s.key}
+                  className={`dir-col dir-${s.key} ${order.sort === s.key ? 'on' : ''}`}
+                  aria-label={`sort by ${s.label}`}
+                  onClick={() => pickOrder(s.key)}
+                >
+                  {s.label}
+                  {order.sort === s.key && <span className="dir-arrow">{dirDesc(order) ? '↓' : '↑'}</span>}
+                </button>
+              ))}
             </div>
             {info.path !== '/' && (
               <button className="dir-row" onClick={() => onNavigate(parent(info.path))}>
@@ -242,6 +266,7 @@ export function FileViewer({
           {fmtSize(info.size)} · {new Date(info.mtime).toLocaleString()}
         </footer>
       )}
+      <ContextMenu menu={sortMenu} onClose={closeSortMenu} />
     </div>
   );
 }
