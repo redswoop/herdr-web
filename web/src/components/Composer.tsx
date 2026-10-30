@@ -276,18 +276,38 @@ export function Composer({
         </div>
       )}
       <div className="inputrow">
-        <button className="ghost kbd-toggle" aria-label="toggle key pad" onClick={onToggleKeys}>
-          ⌨
+        {/* kbd + attach: one box, one icon weight (the ⌨ glyph rendered at
+            whatever size the font felt like); send is the only filled thing */}
+        <button
+          className={`tool-btn ${showKeys ? 'on' : ''}`}
+          aria-label="toggle key pad"
+          aria-pressed={showKeys}
+          onClick={onToggleKeys}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="22"
+            height="22"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <rect x="2.5" y="5.5" width="19" height="13" rx="2.5" />
+            <path d="M6.5 9.5h.01M10 9.5h.01M13.5 9.5h.01M17 9.5h.01M6.5 12.5h.01M10 12.5h.01M13.5 12.5h.01M17 12.5h.01" strokeWidth="2.4" />
+            <path d="M8.5 15.5h7" />
+          </svg>
         </button>
         <button
-          className="ghost attach"
+          className="tool-btn"
           aria-label="attach image"
           onClick={() => fileRef.current?.click()}
         >
           <svg
             viewBox="0 0 24 24"
-            width="19"
-            height="19"
+            width="22"
+            height="22"
             fill="none"
             stroke="currentColor"
             strokeWidth="1.8"

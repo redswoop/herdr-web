@@ -912,7 +912,6 @@ textarea.plan-fb { margin-bottom: 8px; }
   background: var(--surface-2); color: var(--text);
   border: 1px solid var(--hairline);
 }
-.attach { display: flex; align-items: center; padding: 10px 4px; }
 .keysrow { display: flex; gap: 6px; margin-bottom: 10px; overflow-x: auto; }
 .keysrow button {
   flex: 1; min-width: 44px; min-height: 40px; font-size: calc(15px * var(--fs));
@@ -923,7 +922,18 @@ textarea.plan-fb { margin-bottom: 8px; }
 }
 .keysrow button:active { background: var(--accent); color: var(--accent-ink); }
 .inputrow { display: flex; gap: 8px; align-items: flex-end; }
-.kbd-toggle { font-size: calc(19px * var(--fs)); padding: 8px 6px; }
+/* the secondary buttons (key pad, attach): one hit box, the send button's
+   height, muted like Capra's; send is the only filled control */
+.tool-btn {
+  width: 36px; height: 42px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r-sm); color: var(--sub);
+  transition: color 0.12s, background 0.12s;
+}
+.tool-btn + .tool-btn { margin-left: -6px; } /* a pair, not two islands */
+.tool-btn.on { color: var(--accent); }
+@media (hover: hover) { .tool-btn:hover { color: var(--accent); } }
+.tool-btn.on { background: color-mix(in srgb, var(--accent) 16%, transparent); }
 /* min-width 0: a textarea's intrinsic cols width must not shove send off-screen */
 .ta-wrap { position: relative; flex: 1; display: flex; min-width: 0; }
 .ta-wrap textarea { min-width: 0; }
