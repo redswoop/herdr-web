@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import {
   DIR_SORTS,
   dirDesc,
@@ -10,6 +11,7 @@ import {
   nextDirOrder,
   parseDirOrder,
   getPlatform,
+  mediaSiblings,
   type DirOrder,
 } from '@herdr/shared';
 import { md } from '../md';
@@ -33,6 +35,7 @@ export function FileViewer({
   history,
   onClose,
   onNavigate,
+  onStep,
   onLoaded,
   onRemoveHist,
 }: {
@@ -44,6 +47,9 @@ export function FileViewer({
   history: string[];
   onClose: () => void;
   onNavigate: (path: string) => void;
+  /** a sideways step to a sibling image/video: replaces the route instead of
+   *  stacking it, so back still leaves the viewer in one go */
+  onStep?: (path: string) => void;
   onLoaded: (resolvedPath: string) => void;
   onRemoveHist: (path: string) => void;
 }) {
@@ -75,11 +81,18 @@ export function FileViewer({
     },
   ];
 
+  // a step through siblings keeps the current picture up until the next one's
+  // meta lands (no "loading…" flash), and isn't a recent-files entry
+  const steppingRef = useRef(false);
   useEffect(() => {
     let gone = false;
-    setInfo(null);
-    setErr(null);
-    setRaw(false);
+    const stepping = steppingRef.current;
+    steppingRef.current = false;
+    if (!stepping) {
+      setInfo(null);
+      setErr(null);
+      setRaw(false);
+    }
     setEdit(path);
     fetch(fileUrl(path, cwd) + dirOrderQuery(order))
       .then(async (r) => {
@@ -89,7 +102,7 @@ export function FileViewer({
         else {
           setInfo(j);
           setEdit(j.path);
-          onLoaded(j.path);
+          if (!stepping) onLoaded(j.path);
         }
       })
       .catch((e) => {
@@ -103,6 +116,144 @@ export function FileViewer({
   const isMd = /\.(md|markdown)$/i.test(info?.path ?? path);
   const parent = (p: string) => p.replace(/\/[^/]+\/?$/, '') || '/';
   const join = (dir: string, name: string) => `${dir === '/' ? '' : dir}/${name}`;
+
+  // ---- images + videos: page sideways through the folder, blow up to the window
+  const media = info?.kind === 'image' || info?.kind === 'video' ? info.kind : null;
+  const [sibs, setSibs] = useState<{ dir: string; kind: string; items: string[] } | null>(null);
+  const sibDir = media && info ? parent(info.path) : null;
+  useEffect(() => {
+    if (!sibDir || !media) return;
+    if (sibs?.dir === sibDir && sibs.kind === media) return;
+    let gone = false;
+    fetch(fileUrl(sibDir, null) + dirOrderQuery(order))
+      .then(async (r) => {
+        const j = (await r.json()) as FileInfo;
+        if (gone || !r.ok) return;
+        setSibs({ dir: sibDir, kind: media, items: mediaSiblings(sibDir, j.entries ?? [], media) });
+      })
+      .catch(() => {});
+    return () => {
+      gone = true;
+    };
+  }, [sibDir, media, order]);
+  const idx = media && sibs && sibs.dir === sibDir && sibs.kind === media ? sibs.items.indexOf(info!.path) : -1;
+  const count = idx >= 0 ? sibs!.items.length : 0;
+  const prevPath = idx > 0 ? sibs!.items[idx - 1] : null;
+  const nextPath = idx >= 0 && idx < count - 1 ? sibs!.items[idx + 1] : null;
+  const step = (to: string | null) => {
+    if (!to) return;
+    steppingRef.current = true;
+    (onStep ?? onNavigate)(to);
+  };
+  // the next picture is likely next: warm it
+  useEffect(() => {
+    if (media === 'image' && nextPath) new Image().src = fileUrl(nextPath, null, true);
+  }, [media, nextPath]);
+
+  const [lightbox, setLightbox] = useState(false);
+  useEffect(() => {
+    if (info && !media) setLightbox(false);
+  }, [info, media]);
+  // a video keeps its playhead (and play state) across the move in or out
+  const handoff = useRef<{ t: number; playing: boolean } | null>(null);
+  const vidRef = useRef<HTMLVideoElement>(null);
+  const toggleLightbox = (on: boolean) => {
+    const v = vidRef.current;
+    handoff.current = v ? { t: v.currentTime, playing: !v.paused } : null;
+    setLightbox(on);
+  };
+
+  const keyRef = useRef({ prevPath, nextPath, lightbox, step, toggleLightbox });
+  keyRef.current = { prevPath, nextPath, lightbox, step, toggleLightbox };
+  useEffect(() => {
+    if (!media) return;
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement;
+      if (el.closest('input, textarea, select, [contenteditable="true"]')) return;
+      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      const k = keyRef.current;
+      const to = e.key === 'ArrowLeft' ? k.prevPath : e.key === 'ArrowRight' ? k.nextPath : undefined;
+      if (to !== undefined) {
+        e.preventDefault(); // a focused <video> would seek instead
+        k.step(to);
+      } else if (e.key === 'Escape' && k.lightbox) {
+        e.stopPropagation(); // capture phase on window: nothing else hears this Esc
+        k.toggleLightbox(false);
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [media]);
+
+  // touch: a horizontal flick steps; a drag along a video's control strip
+  // (the bottom quarter) is scrubbing, not a swipe
+  const swipe = useRef<{ x: number; y: number } | null>(null);
+  const swipedAt = useRef(0); // the click that ends a swipe isn't a tap
+  const tap = (fn: () => void) => () => {
+    if (Date.now() - swipedAt.current > 300) fn();
+  };
+  const swipeHandlers = {
+    onPointerDown: (e: PointerEvent<HTMLElement>) => {
+      if (e.pointerType === 'mouse') return;
+      const r = e.currentTarget.getBoundingClientRect();
+      const onVideo = (e.target as HTMLElement).tagName === 'VIDEO';
+      swipe.current = onVideo && e.clientY > r.bottom - r.height / 4 ? null : { x: e.clientX, y: e.clientY };
+    },
+    onPointerUp: (e: PointerEvent<HTMLElement>) => {
+      const s = swipe.current;
+      swipe.current = null;
+      if (!s) return;
+      const dx = e.clientX - s.x;
+      const dy = e.clientY - s.y;
+      if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        swipedAt.current = Date.now();
+        step(dx < 0 ? nextPath : prevPath);
+      }
+    },
+  };
+
+  const mediaEl = (where: 'inline' | 'lightbox') => {
+    if (!info || !media) return null;
+    const src = fileUrl(info.path, null, true);
+    return media === 'image' ? (
+      <img
+        className={where === 'inline' ? 'file-img' : 'lb-media'}
+        src={src}
+        alt={info.path}
+        onClick={tap(() => toggleLightbox(where === 'inline'))}
+      />
+    ) : (
+      // playsInline: iOS otherwise hijacks into its fullscreen player on tap
+      <video
+        key={info.path}
+        ref={vidRef}
+        className={where === 'inline' ? 'file-video' : 'lb-media'}
+        src={src}
+        controls
+        playsInline
+        preload="metadata"
+        onLoadedMetadata={(e) => {
+          const h = handoff.current;
+          handoff.current = null;
+          if (!h) return;
+          e.currentTarget.currentTime = h.t;
+          if (h.playing) void e.currentTarget.play().catch(() => {});
+        }}
+      />
+    );
+  };
+  const stepper = (): ReactNode =>
+    count > 1 && (
+      <>
+        <button className="media-step prev" aria-label="previous" disabled={!prevPath} onClick={() => step(prevPath)}>
+          ‹
+        </button>
+        <button className="media-step next" aria-label="next" disabled={!nextPath} onClick={() => step(nextPath)}>
+          ›
+        </button>
+      </>
+    );
+  const counter = count > 1 ? `${idx + 1} / ${count}` : '';
 
   return (
     <div className={`file-viewer ${docked ? 'docked' : ''}`}>
@@ -123,6 +274,11 @@ export function FileViewer({
         {info?.kind === 'text' && isMd && (
           <button className="ghost file-toggle" onClick={() => setRaw((r) => !r)}>
             {raw ? 'pretty' : 'raw'}
+          </button>
+        )}
+        {media && (
+          <button className="ghost file-toggle" aria-label="full window" onClick={() => toggleLightbox(true)}>
+            ⤢
           </button>
         )}
         {(info?.kind === 'binary' || info?.kind === 'image' || info?.kind === 'video' || info?.kind === 'audio') && (
@@ -190,19 +346,15 @@ export function FileViewer({
           <div className="file-note">showing first 512 KB of {fmtSize(info.size)}</div>
         )}
 
-        {info?.kind === 'image' && (
-          <img className="file-img" src={fileUrl(info.path, null, true)} alt={info.path} />
-        )}
-
-        {info?.kind === 'video' && (
-          // playsInline: iOS otherwise hijacks into its fullscreen player on tap
-          <video
-            className="file-video"
-            src={fileUrl(info.path, null, true)}
-            controls
-            playsInline
-            preload="metadata"
-          />
+        {media && (
+          <div className="media-stage" {...swipeHandlers}>
+            {lightbox && media === 'video' ? (
+              <div className="empty">playing full window</div>
+            ) : (
+              mediaEl('inline')
+            )}
+            {!lightbox && stepper()}
+          </div>
         )}
         {info?.kind === 'audio' && (
           <audio className="file-audio" src={fileUrl(info.path, null, true)} controls preload="metadata" />
@@ -263,9 +415,33 @@ export function FileViewer({
 
       {info && info.kind !== 'dir' && (
         <footer className="file-meta">
+          {counter && <span className="media-count">{counter} · </span>}
           {fmtSize(info.size)} · {new Date(info.mtime).toLocaleString()}
         </footer>
       )}
+      {lightbox &&
+        media &&
+        info &&
+        // under one wrapper, like ContextMenu: skins restyle body's children
+        createPortal(
+          <div className="ctx-layer">
+            <div className="lightbox" role="dialog" aria-label="full window" {...swipeHandlers}>
+              <div className="lb-backdrop" onClick={tap(() => toggleLightbox(false))} />
+              {mediaEl('lightbox')}
+              <div className="lb-top">
+                <span className="lb-name" title={info.path}>
+                  {info.path.split('/').pop()}
+                  {counter && <span className="lb-count"> · {counter}</span>}
+                </span>
+                <button className="lb-close" aria-label="close full window" onClick={() => toggleLightbox(false)}>
+                  ✕
+                </button>
+              </div>
+              {stepper()}
+            </div>
+          </div>,
+          document.body,
+        )}
       <ContextMenu menu={sortMenu} onClose={closeSortMenu} />
     </div>
   );

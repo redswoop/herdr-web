@@ -1164,6 +1164,56 @@ textarea::placeholder { color: var(--sub); }
 .file-md pre code { background: none; padding: 0; }
 .file-img { max-width: 100%; height: auto; border-radius: var(--r-sm); }
 .file-video { max-width: 100%; max-height: 70vh; border-radius: var(--r-sm); background: #000; display: block; }
+/* image/video + its ‹ › siblings; on touch a flick does the same */
+.media-stage { position: relative; touch-action: pan-y pinch-zoom; }
+.file-img { cursor: zoom-in; }
+.media-step {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 40px; height: 56px; border-radius: var(--r-sm);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 30px; line-height: 1; color: #fff;
+  background: rgba(0, 0, 0, 0.45);
+  transition: opacity 0.15s;
+}
+.media-step.prev { left: 6px; }
+.media-step.next { right: 6px; }
+.media-step:disabled { opacity: 0 !important; pointer-events: none; }
+@media (hover: hover) {
+  .media-stage .media-step { opacity: 0; }
+  .media-stage:hover .media-step { opacity: 0.85; }
+  .media-step:hover { opacity: 1 !important; }
+}
+.media-count { color: var(--sub); }
+
+/* full-window view (images + video) */
+.lightbox {
+  position: fixed; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  touch-action: pan-y pinch-zoom;
+}
+.lb-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.9); }
+.lb-media {
+  position: relative; display: block;
+  max-width: 100vw; max-height: 100dvh; object-fit: contain;
+  cursor: zoom-out;
+}
+video.lb-media { cursor: auto; background: #000; }
+.lb-top {
+  position: absolute; top: 0; left: 0; right: 0;
+  display: flex; align-items: center; gap: 12px;
+  padding: calc(env(safe-area-inset-top) + 8px) 12px 8px 16px;
+  background: linear-gradient(rgba(0, 0, 0, 0.6), transparent);
+  color: #fff; pointer-events: none;
+}
+.lb-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.lb-count { opacity: 0.7; }
+.lb-close {
+  pointer-events: auto; color: #fff; font-size: 20px;
+  width: 40px; height: 40px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, 0.1);
+}
+.lightbox .media-step { opacity: 0.85; }
 .file-audio { width: 100%; display: block; }
 .file-dir { display: flex; flex-direction: column; gap: 1px; max-width: 720px; }
 /* name | size | date — the header and every row share the grid so columns line up */

@@ -74,12 +74,13 @@ export function AgentView({
   const [keysPinned, setKeysPinned] = useState(false);
   const [keysForced, setKeysForced] = useState(false); // 409 fallback
 
-  const openFile = useCallback(
-    (p: string) => {
-      location.hash = `#/agent/${encodeURIComponent(paneId)}/file/${encodeURIComponent(p)}`;
-    },
+  const fileHash = useCallback(
+    (p: string) => `#/agent/${encodeURIComponent(paneId)}/file/${encodeURIComponent(p)}`,
     [paneId],
   );
+  const openFile = useCallback((p: string) => void (location.hash = fileHash(p)), [fileHash]);
+  // paging sideways through a folder's pictures: one history entry, not forty
+  const stepFile = useCallback((p: string) => location.replace(fileHash(p)), [fileHash]);
 
   // per-pane stack of viewed files (resolved paths), newest first, persisted
   // so it survives reloads; x-ing an entry only forgets it, never closes
@@ -570,6 +571,7 @@ export function AgentView({
         location.hash = `#/agent/${encodeURIComponent(paneId)}`;
       }}
       onNavigate={openFile}
+      onStep={stepFile}
       onLoaded={onFileLoaded}
       onRemoveHist={forgetFile}
     />

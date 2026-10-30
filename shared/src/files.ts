@@ -7,6 +7,17 @@ export function fmtSize(n: number): string {
   return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
+// what the viewer pages through sideways (server.js IMG_MIME / VIDEO_MIME)
+export const IMG_RE = /\.(png|jpe?g|gif|webp|svg|avif|ico|bmp)$/i;
+export const VIDEO_RE = /\.(mp4|m4v|mov|webm)$/i;
+
+/** an image's or video's neighbours of the same kind, from a folder listing
+ *  (already in the folder's sort order) */
+export function mediaSiblings(dir: string, names: { name: string; dir?: boolean }[], kind: 'image' | 'video') {
+  const re = kind === 'image' ? IMG_RE : VIDEO_RE;
+  return names.filter((e) => !e.dir && re.test(e.name)).map((e) => `${dir === '/' ? '' : dir}/${e.name}`);
+}
+
 /** a folder row's date: "14:32" today, "Oct 3" this year, "Oct 3 2024" before */
 export function fmtStamp(ms: number, now = Date.now()): string {
   if (!ms) return '';

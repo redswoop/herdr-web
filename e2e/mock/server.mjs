@@ -334,6 +334,27 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && seg[1] === 'file' && seg[2] === 'raw') {
     // a scratchpad file a reboot wiped
     if ((url.searchParams.get('path') || '').includes('/gone/')) return sendJson(res, 404, { error: 'no such file' });
+    if (/\/gallery\/.*\.(png|jpe?g)$/.test(url.searchParams.get('path') || '')) {
+      res.writeHead(200, { 'content-type': 'image/jpeg' });
+      res.end(fs.readFileSync(path.join(FIX, 'pic.jpg')));
+      return;
+    }
+    if ((url.searchParams.get('path') || '').endsWith('.webm')) {
+      // a real 3 s clip, so playhead handover is testable; ranges like the
+      // real server (Chrome won't seek a file served whole)
+      const buf = fs.readFileSync(path.join(FIX, 'clip.webm'));
+      const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
+      const start = m?.[1] ? +m[1] : 0;
+      const end = m?.[2] ? +m[2] : buf.length - 1;
+      res.writeHead(m ? 206 : 200, {
+        'content-type': 'video/webm',
+        'accept-ranges': 'bytes',
+        'content-length': end - start + 1,
+        ...(m ? { 'content-range': `bytes ${start}-${end}/${buf.length}` } : {}),
+      });
+      res.end(buf.subarray(start, end + 1));
+      return;
+    }
     res.writeHead(200, { 'content-type': 'image/png', 'access-control-allow-origin': '*' });
     // 1x1 png
     res.end(
@@ -349,6 +370,25 @@ const server = http.createServer(async (req, res) => {
     const p = url.searchParams.get('path') || '';
     if (p.endsWith('README.md') || p.includes('README')) {
       return sendJson(res, 200, { ...fileReadme, path: p || fileReadme.path });
+    }
+    if (p.endsWith('/gallery')) {
+      // pictures and clips mixed with a text file: each kind pages on its own
+      const names = ['a.png', 'clip1.webm', 'b.jpg', 'notes.txt', 'c.png', 'clip2.webm'];
+      return sendJson(res, 200, {
+        path: p,
+        size: 0,
+        mtime: Date.now(),
+        kind: 'dir',
+        entries: names.map((name) => ({ name, dir: false, size: 1000, mtime: Date.now() })),
+      });
+    }
+    if (/\.(png|jpe?g|gif|webp)$/i.test(p) || /\.(mp4|webm|mov)$/i.test(p)) {
+      return sendJson(res, 200, {
+        path: p,
+        size: 1000,
+        mtime: Date.now(),
+        kind: /\.(mp4|webm|mov)$/i.test(p) ? 'video' : 'image',
+      });
     }
     if (p.endsWith('/renders')) {
       // long enough to scroll, for the pinned sort header
