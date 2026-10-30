@@ -140,6 +140,28 @@ async function sessionMeta(adapter, file) {
   return entry;
 }
 
+// Slash commands that can stop on a confirm menu herdr doesn't report as
+// blocked. Verified claude 2.1.312: `/model <alias>` mid-conversation asks
+// "Switch model?" (cache warning; 1. Yes / 2. No) while herdr says idle, so
+// no card ever showed — only the raw dialog mirror. The prompt route arms a
+// watch on the pane; the roster refresh reads the screen of watched panes and
+// promotes a menu to `blocked`, so card, push and key pad fire as for any
+// prompt. The watch lapses once the screen has no menu past the grace window.
+const CONFIRMING_COMMANDS = { claude: /^\/model\s+\S/ };
+const DIALOG_GRACE_MS = 4000;
+const dialogWatch = new Map(); // paneId -> armedAt
+
+async function watchedDialog(paneId, kind, status) {
+  const armedAt = dialogWatch.get(paneId);
+  if (armedAt == null) return null;
+  if (status === 'idle' || status === 'done') {
+    const menu = parseMenuFor(kind, await readScreen(paneId).catch(() => ''));
+    if (menu) return menu;
+  }
+  if (Date.now() - armedAt > DIALOG_GRACE_MS) dialogWatch.delete(paneId);
+  return null;
+}
+
 // Coalesce concurrent callers (interval + event debounce) — overlapping runs
 // could double-fire coordinator.onTransition for the same status change.
 let refreshInFlight = null;
@@ -176,6 +198,7 @@ async function doRefreshRoster() {
           status = 'blocked';
         }
       }
+      if (await watchedDialog(a.pane_id, a.agent, status)) status = 'blocked';
       const since = statusSince.get(a.pane_id);
       if (!since) statusSince.set(a.pane_id, { status, at: 0 });
       else if (since.status !== status) statusSince.set(a.pane_id, { status, at: Date.now() });
@@ -728,7 +751,8 @@ async function blockedContext(paneId) {
         }
       } catch {}
     }
-    return { kind: 'none' };
+    // a confirm a slash command drew (see CONFIRMING_COMMANDS)
+    return (await watchedDialog(paneId, agent?.agent, live.agent?.agent_status)) ?? { kind: 'none' };
   }
   // no session file yet (fresh session) → straight to the screen parser
   const { events } = session ? await readEvents(adapter, session.file, 0) : { events: [] };
@@ -1897,6 +1921,9 @@ const server = http.createServer(async (req, res) => {
           const kind = roster.agents.find((x) => x.paneId === paneId)?.agent;
           const ok = await answerByNav(paneId, { option, feedback, kind });
           if (!ok) return sendJson(res, 409, { error: 'screen changed', screen: await readScreen(paneId) });
+          // herdr never saw a watched confirm as blocked, so no event will
+          // say it's gone — re-read now instead of at the next poll
+          if (dialogWatch.has(paneId)) setTimeout(() => refreshRoster(), 400);
           return sendJson(res, 200, { ok: true });
         }
         if (!Array.isArray(keys) || !keys.length) throw httpErr(400, 'keys: string[]');
@@ -1917,6 +1944,7 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 200, { ok: true });
         }
         await agentRpc('agent.send_keys', { target: paneId, keys });
+        if (dialogWatch.has(paneId)) setTimeout(() => refreshRoster(), 400);
         return sendJson(res, 200, { ok: true });
       }
 
@@ -1956,6 +1984,11 @@ const server = http.createServer(async (req, res) => {
         // so open streams reset in ~1s instead of at the next roster poll
         if (/^\/(new|clear)$/.test(text.trim())) {
           for (const ms of [600, 1500, 3000]) setTimeout(() => refreshRoster(), ms);
+        }
+        const kind = roster.agents.find((x) => x.paneId === paneId)?.agent;
+        if (CONFIRMING_COMMANDS[kind]?.test(text.trim())) {
+          dialogWatch.set(paneId, Date.now());
+          for (const ms of [700, 1500, 3000, DIALOG_GRACE_MS + 500]) setTimeout(() => refreshRoster(), ms);
         }
         return sendJson(res, 200, { ok: true });
       }

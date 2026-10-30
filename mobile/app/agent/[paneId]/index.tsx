@@ -410,7 +410,8 @@ export default function AgentScreen() {
         />
       )}
       {working && !dialog && !blocked && <LiveTail paneId={paneId} online={online} onMode={acceptMode} />}
-      {(dialog || mirror) && (
+      {/* a confirm the server promoted to a card (/model) needs no raw mirror */}
+      {((dialog && !showBlockedCard) || mirror) && (
         <ScreenMirror
           paneId={paneId}
           poke={poke}

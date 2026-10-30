@@ -490,8 +490,9 @@ export function AgentView({
       {working && !dialog && !blocked && <LiveTail paneId={paneId} onMode={acceptMode} />}
 
       {/* a slash-command dialog outranks the hand-opened mirror — same widget,
-          but that one self-dismisses and salvages the command's output */}
-      {(dialog || mirror) && (
+          but that one self-dismisses and salvages the command's output. A
+          confirm the server promoted to a card (/model) needs no raw mirror */}
+      {((dialog && !showBlockedCard) || mirror) && (
         <ScreenMirror
           paneId={paneId}
           poke={poke}

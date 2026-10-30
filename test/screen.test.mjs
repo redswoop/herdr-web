@@ -39,6 +39,35 @@ test('claude permission menu parses options, question, detail', () => {
   assert.match(m.detail, /touch claude-probe\.txt/);
 });
 
+// Verbatim pane capture, claude v2.1.312 (2026-10): `/model sonnet` mid-
+// conversation. Dialogs here are topped by a ▔ rule, not ─ — missing it
+// leaked the whole screen above into `detail`.
+const CLAUDE_SWITCH_MODEL = `
+❯ say just: hi
+
+● hi
+
+✻ Cogitated for 1s · done 8:38 PM
+
+▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+   Switch model?
+
+   Your next response will be slower and use more tokens
+
+   This conversation is cached for the current model. Switching to Sonnet 5.5 means the full history gets re-read.
+
+   ❯ 1. Yes, switch to Sonnet 5.5
+     2. No, go back
+`;
+
+test('claude /model confirm parses, detail stops at the ▔ rule', () => {
+  const m = parseMenuScreen(CLAUDE_SWITCH_MODEL);
+  assert.ok(m);
+  assert.deepEqual(m.options.map((o) => o.label), ['Yes, switch to Sonnet 5.5', 'No, go back']);
+  assert.match(m.question, /full history gets re-read/);
+  assert.equal(m.detail, 'Switch model?\nYour next response will be slower and use more tokens');
+});
+
 test('claude plan prompt free-text row is flagged input', () => {
   const screen = `
  Would you like to proceed?
