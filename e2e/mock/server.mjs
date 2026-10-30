@@ -69,6 +69,8 @@ const log = {
   chats: /** @type {object[]} */ ([]),
   uploads: /** @type {object[]} */ ([]),
   push: /** @type {object[]} */ ([]),
+  /** rename / close of agents and workspaces */
+  manage: /** @type {object[]} */ ([]),
   refreshes: 0,
 };
 
@@ -192,6 +194,7 @@ function resetState() {
   log.chats.length = 0;
   log.uploads.length = 0;
   log.push.length = 0;
+  log.manage.length = 0;
   log.refreshes = 0;
   chatSeq = 0;
   pushSubscribed = false;
@@ -393,9 +396,38 @@ const server = http.createServer(async (req, res) => {
   }
 
   // agent/*
+  if (seg[1] === 'workspace' && seg[2] && req.method === 'POST') {
+    const workspaceId = decodeURIComponent(seg[2]);
+    const action = seg[3];
+    const body = await readBody(req);
+    log.manage.push({ workspaceId, action, ...body });
+    if (action === 'rename') {
+      const w = roster.workspaces.find((x) => x.workspaceId === workspaceId);
+      if (w) w.label = body.name;
+    } else if (action === 'close') {
+      roster.workspaces = roster.workspaces.filter((x) => x.workspaceId !== workspaceId);
+      roster.agents = roster.agents.filter((x) => x.workspaceId !== workspaceId);
+    } else return sendJson(res, 404, { error: `unknown workspace action ${action}` });
+    broadcastRoster();
+    return sendJson(res, 200, { ok: true });
+  }
+
   if (seg[1] === 'agent' && seg[2]) {
     const paneId = decodeURIComponent(seg[2]);
     const action = seg[3];
+
+    if (req.method === 'POST' && (action === 'rename' || action === 'close')) {
+      const body = await readBody(req);
+      log.manage.push({ paneId, action, ...body });
+      if (action === 'rename') {
+        const a = roster.agents.find((x) => x.paneId === paneId);
+        if (a) a.label = body.name;
+      } else {
+        roster.agents = roster.agents.filter((x) => x.paneId !== paneId);
+      }
+      broadcastRoster();
+      return sendJson(res, 200, { ok: true });
+    }
 
     if (req.method === 'GET' && action === 'transcript') {
       const events = transcripts[paneId] ?? [];

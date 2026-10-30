@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import {
   GROUP_MODES,
   groupModesFor,
@@ -21,6 +21,8 @@ import { ThemeToggle } from './ui/ThemeToggle';
 import { CyberTicker } from './ui/CyberTicker';
 import { useTheme } from '../theme';
 import { PrefsDialog } from './PrefsDialog';
+import { ContextMenu, menuAt, type MenuState } from './ui/ContextMenu';
+import { agentMenuItems, workspaceMenuItems } from '../manage';
 
 const GROUPBY_KEY = 'herdr.groupBy';
 const CLOSED_KEY = 'herdr.groupsClosed';
@@ -90,10 +92,13 @@ export function Sidebar({
 
   const [modesOpen, setModesOpen] = useState(false);
   const [prefsOpen, setPrefsOpen] = useState(false);
+  const [menu, setMenu] = useState<MenuState | null>(null);
   const theme = useTheme();
   const scroller = useRef<HTMLDivElement>(null);
   const pulled = usePullToRefresh(scroller, sync.onRefresh);
   const now = useNow(30_000);
+
+  const closeMenu = useCallback(() => setMenu(null), []);
 
   const pick = (mode: GroupBy) => {
     setGroupBy(mode);
@@ -131,11 +136,17 @@ export function Sidebar({
   const head = (g: Group) => {
     const closed = isClosed(g);
     const blocked = g.agents.filter((a) => a.status === 'blocked').length;
+    // only a workspace header names something herdr can rename/close
+    const wsId = groupBy === 'workspace' ? g.spawn?.workspaceId : undefined;
+    const openMenu = wsId
+      ? (e: MouseEvent<HTMLElement>) => setMenu(menuAt(e, g.title, workspaceMenuItems(wsId, g.title, g.agents.length)))
+      : undefined;
     return (
       <div className={`group-row ${closed ? 'closed' : ''}`}>
         <button
           className={`group-head ${closed ? 'closed' : ''}`}
           onClick={() => toggleGroup(`${groupBy}:${g.key}`)}
+          onContextMenu={openMenu}
         >
           <svg className="chev" viewBox="0 0 24 24" width="12" height="12" fill="none"
             stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -155,6 +166,11 @@ export function Sidebar({
         {g.spawn && (
           <button className="ghost group-spawn" title="new session here" onClick={() => onNewChat(g.spawn)}>
             ＋
+          </button>
+        )}
+        {openMenu && (
+          <button className="ghost group-spawn group-more" title="rename / close space" aria-label="space menu" onClick={openMenu}>
+            ⋯
           </button>
         )}
       </div>
@@ -183,6 +199,15 @@ export function Sidebar({
         now={now}
         active={a.paneId === selected}
         onSelect={onSelect}
+        onMenu={(e) =>
+          setMenu(
+            menuAt(e, chipName(a), agentMenuItems(a, {
+              onClosed: () => {
+                if (a.paneId === selected) location.hash = '';
+              },
+            })),
+          )
+        }
       />
     );
   };
@@ -306,6 +331,7 @@ export function Sidebar({
         </button>
       </footer>
       {prefsOpen && <PrefsDialog onClose={() => setPrefsOpen(false)} />}
+      <ContextMenu menu={menu} onClose={closeMenu} />
     </nav>
   );
 }
@@ -325,12 +351,15 @@ function SessionChip({
   now,
   active,
   onSelect,
+  onMenu,
 }: {
   agent: Agent;
   meta: string;
   now: number;
   active: boolean;
   onSelect: (paneId: string) => void;
+  /** rename / close — the ⋯ button or a right-click */
+  onMenu: (e: MouseEvent<HTMLElement>) => void;
 }) {
   const labels = Object.entries(a.stateLabels ?? {});
   // launchPending can linger minutes after the agent is up — only call it
@@ -339,36 +368,42 @@ function SessionChip({
   const fresh = !a.hasTranscript && a.status !== 'unknown';
   const loud = a.status === 'blocked' || a.status === 'working';
   return (
-    <button
-      className={`session ${a.status} ${active ? 'active' : ''} ${fresh ? 'fresh' : ''}`}
-      onClick={() => onSelect(a.paneId)}
-      title={[a.cwd, fresh ? 'no messages yet' : null].filter(Boolean).join(' — ') || undefined}
-    >
-      <span className={`status-dot ${a.status}`} />
-      <span className="info">
-        <span className="title">
-          {chipName(a)}
-          {a.focused && <span className="focus-mark" title="focused in the TUI"> ⌖</span>}
-        </span>
-        {meta && <span className="sub">{meta}</span>}
-        {(starting || labels.length > 0) && (
-          <span className="tags">
-            {starting && <span className="tag warn">starting…</span>}
-            {labels.map(([k, v]) => (
-              <span key={k} className="tag" title={k}>
-                {v}
-              </span>
-            ))}
+    <div className={`row-wrap ${active ? 'active' : ''}`}>
+      <button
+        className={`session ${a.status} ${active ? 'active' : ''} ${fresh ? 'fresh' : ''}`}
+        onClick={() => onSelect(a.paneId)}
+        onContextMenu={onMenu}
+        title={[a.cwd, fresh ? 'no messages yet' : null].filter(Boolean).join(' — ') || undefined}
+      >
+        <span className={`status-dot ${a.status}`} />
+        <span className="info">
+          <span className="title">
+            {chipName(a)}
+            {a.focused && <span className="focus-mark" title="focused in the TUI"> ⌖</span>}
           </span>
-        )}
-      </span>
-      {loud ? (
-        <span className={`state-word ${a.status}`}>{STATUS_WORD[a.status]}</span>
-      ) : a.lastActiveAt ? (
-        <span className="age" title={new Date(a.lastActiveAt).toLocaleString()}>
-          {agoShort(a.lastActiveAt, now)}
+          {meta && <span className="sub">{meta}</span>}
+          {(starting || labels.length > 0) && (
+            <span className="tags">
+              {starting && <span className="tag warn">starting…</span>}
+              {labels.map(([k, v]) => (
+                <span key={k} className="tag" title={k}>
+                  {v}
+                </span>
+              ))}
+            </span>
+          )}
         </span>
-      ) : null}
-    </button>
+        {loud ? (
+          <span className={`state-word ${a.status}`}>{STATUS_WORD[a.status]}</span>
+        ) : a.lastActiveAt ? (
+          <span className="age" title={new Date(a.lastActiveAt).toLocaleString()}>
+            {agoShort(a.lastActiveAt, now)}
+          </span>
+        ) : null}
+      </button>
+      <button className="row-more" title="rename / close" aria-label="session menu" onClick={onMenu}>
+        ⋯
+      </button>
+    </div>
   );
 }

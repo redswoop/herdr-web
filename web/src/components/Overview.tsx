@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useCallback, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { byAttention, byGroupRank, chipName } from '@herdr/shared';
 import { ThemeToggle } from './ui/ThemeToggle';
 import { HomeToggle } from './ui/HomeToggle';
@@ -9,6 +9,8 @@ import type { Sync } from '../sync';
 import type { SpawnTarget } from '../spawn';
 import type { Agent, Roster, Workspace } from '../types';
 import { STATUS_WORD, basename, shortPath } from '../util';
+import { ContextMenu, menuAt, type MenuState } from './ui/ContextMenu';
+import { agentMenuItems } from '../manage';
 
 interface Card {
   key: string;
@@ -77,6 +79,8 @@ export function Overview({
   const scroller = useRef<HTMLDivElement>(null);
   const pulled = usePullToRefresh(scroller, sync.onRefresh);
   const cards = useMemo(() => buildCards(roster), [roster]);
+  const [menu, setMenu] = useState<MenuState | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
 
   const blocked = roster.agents.filter((a) => a.status === 'blocked').length;
   const working = roster.agents.filter((a) => a.status === 'working').length;
@@ -141,25 +145,41 @@ export function Overview({
                   .join(' · ')}
               </div>
             )}
-            {c.agents.map((a) => (
-              <button
-                key={a.paneId}
-                className={`ov-row ${a.status} ${a.paneId === selected ? 'active' : ''}`}
-                onClick={() => onSelect(a.paneId)}
-              >
-                <span className={`status-dot ${a.status}`} />
-                <span className="ov-row-name">{chipName(a)}</span>
-                <span className="ov-row-agent sub">{a.displayAgent ?? a.agent}</span>
-                <span className={`state-word ${a.status}`}>
-                  {STATUS_WORD[a.status] ?? a.status}
-                </span>
-              </button>
-            ))}
+            {c.agents.map((a) => {
+              const openMenu = (e: MouseEvent<HTMLElement>) =>
+                setMenu(
+                  menuAt(e, chipName(a), agentMenuItems(a, {
+                    onClosed: () => {
+                      if (a.paneId === selected) location.hash = '';
+                    },
+                  })),
+                );
+              return (
+                <div key={a.paneId} className={`row-wrap ${a.paneId === selected ? 'active' : ''}`}>
+                  <button
+                    className={`ov-row ${a.status} ${a.paneId === selected ? 'active' : ''}`}
+                    onClick={() => onSelect(a.paneId)}
+                    onContextMenu={openMenu}
+                  >
+                    <span className={`status-dot ${a.status}`} />
+                    <span className="ov-row-name">{chipName(a)}</span>
+                    <span className="ov-row-agent sub">{a.displayAgent ?? a.agent}</span>
+                    <span className={`state-word ${a.status}`}>
+                      {STATUS_WORD[a.status] ?? a.status}
+                    </span>
+                  </button>
+                  <button className="row-more" title="rename / close" aria-label="session menu" onClick={openMenu}>
+                    ⋯
+                  </button>
+                </div>
+              );
+            })}
           </section>
         ))}
 
       </div>
     </div>
+    <ContextMenu menu={menu} onClose={closeMenu} />
     </>
   );
 }

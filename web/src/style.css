@@ -448,6 +448,48 @@ button.mode-chip.busy { opacity: 0.5; }
 .mode-row .mode-name { font-weight: 600; font-size: calc(13.5px * var(--fs)); }
 .mode-row .mode-desc { font-size: calc(12px * var(--fs)); color: var(--sub); }
 
+/* row / workspace menus (ui/ContextMenu): a .mode-pop pinned to the viewport */
+/* over the full-screen file viewer (z 30) too */
+.ctx-layer { position: relative; z-index: 50; }
+.ctx-menu { position: fixed; right: auto; min-width: 180px; max-width: min(320px, calc(100vw - 16px)); }
+.ctx-title {
+  padding: 6px 10px 4px; font-size: calc(11.5px * var(--fs)); color: var(--sub);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mode-row:hover { background: var(--surface-2); }
+.mode-row.danger .mode-name { color: var(--blocked); }
+
+/* ⋯ on a sidebar / overview row: a sibling of the row button (no nesting),
+   laid over its right edge and revealed on hover. Touch has no hover, so
+   there it takes its own column, dimmed, on every row. */
+.row-wrap { position: relative; }
+.row-more {
+  position: absolute; top: 4px; right: 4px;
+  font-size: calc(15px * var(--fs)); line-height: 1; color: var(--sub);
+  padding: 5px 7px; border-radius: var(--r-sm);
+  background: var(--surface-2);
+  opacity: 0; pointer-events: none; transition: opacity 0.12s;
+}
+.row-wrap:hover .row-more, .row-more:focus-visible { opacity: 1; pointer-events: auto; }
+.row-more:hover { color: var(--accent); background: var(--surface-3); }
+@media (hover: none) {
+  .row-wrap { display: flex; align-items: center; }
+  .row-wrap > .session, .row-wrap > .ov-row { flex: 1; min-width: 0; }
+  .row-more { position: static; flex: none; opacity: 0.55; pointer-events: auto; background: none; }
+}
+.group-more { opacity: 0; }
+.group-row:hover .group-more { opacity: 1; }
+@media (hover: none) { .group-more { opacity: 0.55; } }
+
+/* header name: click to rename in place */
+.agent-name.renamable { cursor: text; }
+.agent-name.renamable:hover { text-decoration: underline dotted var(--sub); text-underline-offset: 3px; }
+.name-edit {
+  font: inherit; color: var(--text); width: 100%;
+  background: var(--surface-2); border: 1px solid var(--accent); border-radius: var(--r-sm);
+  padding: 1px 6px; margin: -2px 0 -2px -7px;
+}
+
 /* segmented row (spawn-time permission mode) */
 .seg-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .seg {

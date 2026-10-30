@@ -26,6 +26,7 @@ import { LiveTail } from './LiveTail';
 import { ScreenMirror } from './ScreenMirror';
 import { Transcript } from './Transcript';
 import { Split, SplitHandle, SplitPane } from './ui/Split';
+import { renameAgentTo } from '../manage';
 
 export function AgentView({
   paneId,
@@ -53,6 +54,9 @@ export function AgentView({
     accept: acceptMode,
   } = useAgentMode(paneId, agent?.agent, status);
   const [modeOpen, setModeOpen] = useState(false);
+  // header name → inline rename; Esc flags a cancel before the blur commits
+  const [naming, setNaming] = useState(false);
+  const nameCancel = useRef(false);
   const commands = useKindCommands(agent?.agent, agent?.host);
   // model · effort · context, off the newest assistant record
   const readout = useMemo(() => sessionReadout(items), [items]);
@@ -387,9 +391,36 @@ export function AgentView({
           ←
         </button>
         <div className="who">
-          <div className="agent-name">
-            {agent ? chipName(agent) : paneId}
-          </div>
+          {naming && agent ? (
+            <input
+              className="agent-name name-edit"
+              aria-label="session name"
+              autoFocus
+              defaultValue={chipName(agent)}
+              onFocus={(e) => e.currentTarget.select()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur();
+                else if (e.key === 'Escape') {
+                  e.stopPropagation();
+                  nameCancel.current = true;
+                  e.currentTarget.blur();
+                }
+              }}
+              onBlur={(e) => {
+                if (!nameCancel.current) void renameAgentTo(agent, e.currentTarget.value);
+                nameCancel.current = false;
+                setNaming(false);
+              }}
+            />
+          ) : (
+            <div
+              className={`agent-name ${agent ? 'renamable' : ''}`}
+              title={agent ? 'click to rename' : undefined}
+              onClick={agent ? () => setNaming(true) : undefined}
+            >
+              {agent ? chipName(agent) : paneId}
+            </div>
+          )}
           <div className="sub">
             {agent
               ? [

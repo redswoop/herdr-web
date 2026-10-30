@@ -28,6 +28,7 @@ export async function mockLog() {
     chats: unknown[];
     uploads: unknown[];
     push: unknown[];
+    manage: Record<string, unknown>[];
     refreshes: number;
   }>;
 }
