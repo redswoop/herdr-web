@@ -153,6 +153,7 @@ All under `/api`, JSON in/out. `:pane` is a herdr pane id like `w1:p2`.
 | route | what |
 |---|---|
 | `GET /api/roster` | agent cards; `stream` variant is SSE; `host` = this server's short name |
+| `POST /api/roster/refresh` | re-read herdr now (pull-to-refresh) and return the roster |
 | `GET /api/whoami` · `GET /api/link` · `GET /link` | server identity for multi-host clients; the `capra://` enrolment link for this host, and `/link?token=` as a clickable https page that bounces into the app (see PLAN-MULTIHOST.md) |
 | `GET /api/agent/:pane/transcript` | full translated transcript |
 | `GET /api/agent/:pane/stream` | SSE tail: new events, status changes, session-rebind resets |
@@ -161,12 +162,21 @@ All under `/api`, JSON in/out. `:pane` is a herdr pane id like `w1:p2`.
 | `POST /api/agent/:pane/prompt` | `{text}` → `agent.prompt` |
 | `POST /api/agent/:pane/answer` | `{keys, expect}` → send keys only if `expect` is still on screen (409 if not) |
 | `POST /api/agent/:pane/keys` | `{keys}` → raw `agent.send_keys` |
+| `POST /api/agent/:pane/interrupt` | `{prompt?}` → Esc the agent; returns `salvage`, what was on screen below that prompt when it stopped (partial output, chrome trimmed) |
+| `GET`/`POST /api/agent/:pane/mode` | claude permission mode: GET reads it off the screen, POST `{mode}` cycles to it (409 + current `mode` if it won't land) |
+| `POST /api/agent/:pane/rename` · `…/close` | `{name}` renames the agent and its tab; close shuts the pane |
+| `POST /api/workspace/:id/rename` · `…/close` | same for a workspace (close takes its agents with it) |
 | `GET`/`POST /api/agent/:pane/rewind` | drive claude's /rewind panel: POST `{op: open\|select\|confirm\|cancel, index?, option?}`; confirm returns the rewound message as `draft` after clearing it off the TUI composer |
 | `GET /api/kinds` | startable agent kinds from herdr's manifests + installed probe |
 | `GET /api/projects` | places to start a session: live cwds + workspace checkouts + dirs decoded from `~/.claude/projects`, collapsed by git repo |
 | `GET /api/worktrees?cwd=` | a repo's checkouts (herdr `worktree.list`) with open-workspace links |
 | `GET /api/sessions?cwd=&kind=` | resumable sessions for a dir (kind: `claude` default, `grok`, `codex`, or `pi`): id, title, first prompt, mtime, `livePaneId` when already bound to a pane |
 | `POST /api/chats` | start an agent: `{kind, cwd?, workspaceId?, name?, args?, worktree?, resume?}` — `worktree: {repoCwd, branch}` creates a checkout, `{repoCwd, path}` opens one; `resume: <session-uuid>` (claude, grok, codex, or pi — `codex resume <id>`, `pi --session <id>`) spawns with `--resume` and pins the transcript binding |
+| `GET /api/file?path=&cwd=` | file viewer: `{kind: text\|image\|video\|audio\|binary\|dir\|special, …}`; relative paths resolve against `cwd`; text clipped at 512 KB; dirs take `sort=name\|kind\|size\|mtime&desc=0\|1&folders=mix` |
+| `GET /api/file/raw?path=` | the bytes, single byte range honoured (video seeking) |
+| `POST /api/upload` | body = an image (`content-type` png/jpeg/webp/gif) → `{path}` of the saved copy, for attaching to a prompt |
+| `GET /api/places?cwd=` · `PUT /api/places` | viewer jumps: `home` = git toplevel of `cwd` (else `cwd`), `pins` = this host's pinned folders; PUT `{pins}` replaces the list (stored `~/`-relative) |
+| `GET`/`PUT /api/prefs` | appearance prefs that follow you across devices (theme, palette, colors) |
 | `GET /api/push/pubkey` · `POST /api/push/subscribe` · `…/unsubscribe` · `…/test` | Web Push plumbing |
 
 ## Security model
