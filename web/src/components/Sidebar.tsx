@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { Pop } from './ui/Pop';
 import {
   GROUP_MODES,
   groupModesFor,
@@ -91,6 +92,8 @@ export function Sidebar({
   const [collapsed, setCollapsed] = useState<Set<string>>(loadClosed);
 
   const [modesOpen, setModesOpen] = useState(false);
+  const closeModes = useCallback(() => setModesOpen(false), []);
+  const groupRef = useRef<HTMLButtonElement>(null);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const theme = useTheme();
@@ -232,6 +235,7 @@ export function Sidebar({
         {onShowCards && <HomeToggle view="list" onPick={onShowCards} />}
         <span className="bar-spacer" />
         <button
+          ref={groupRef}
           className={`ghost group-trigger ${groupBy !== 'recent' ? 'on' : ''}`}
           onClick={() => setModesOpen((o) => !o)}
           title="sort / group"
@@ -255,28 +259,23 @@ export function Sidebar({
         <button className="ghost side-collapse" aria-label="hide session list" onClick={onCollapse}>
           <Chevrons dir="left" />
         </button>
-        {modesOpen && (
-          <>
-            <div className="pop-backdrop" onClick={() => setModesOpen(false)} />
-            <div className="mode-pop" role="menu">
-              {groupModesFor(roster.hosts?.length ?? 1).map((m) => (
-                <button
-                  key={m.key}
-                  role="menuitemradio"
-                  aria-checked={groupBy === m.key}
-                  className={`mode-row ${groupBy === m.key ? 'current' : ''}`}
-                  onClick={() => pick(m.key)}
-                >
-                  <span className="mode-name">
-                    {groupBy === m.key ? '❯ ' : ''}
-                    {m.key === 'recent' ? 'recent' : `by ${m.label}`}
-                  </span>
-                  <span className="mode-desc">{MODE_DESC[m.key]}</span>
-                </button>
-              ))}
-            </div>
-          </>
-        )}
+        <Pop open={modesOpen} onClose={closeModes} anchor={groupRef} align="right" role="menu">
+          {groupModesFor(roster.hosts?.length ?? 1).map((m) => (
+            <button
+              key={m.key}
+              role="menuitemradio"
+              aria-checked={groupBy === m.key}
+              className={`mode-row ${groupBy === m.key ? 'current' : ''}`}
+              onClick={() => pick(m.key)}
+            >
+              <span className="mode-name">
+                {groupBy === m.key ? '❯ ' : ''}
+                {m.key === 'recent' ? 'recent' : `by ${m.label}`}
+              </span>
+              <span className="mode-desc">{MODE_DESC[m.key]}</span>
+            </button>
+          ))}
+        </Pop>
       </header>
 
       <div className="scroll sessions" ref={scroller}>

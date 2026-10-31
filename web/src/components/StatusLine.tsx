@@ -3,7 +3,7 @@ import { commandText, ctxHeat, currentValue, fmtTokens, shortModel } from '@herd
 import type { AgentStatus, KindCommand, SessionReadout } from '@herdr/shared';
 import type { Agent } from '../types';
 import { shortPath } from '../util';
-import { useDismiss } from '../hooks/useDismiss';
+import { Pop } from './ui/Pop';
 
 /** The header's `model · effort · ctx · cwd` line, where each readout is
  *  also the control that changes it: model and effort open their pick
@@ -33,13 +33,11 @@ export function StatusLine({
   const [arg, setArg] = useState('');
   const [busy, setBusy] = useState(false);
   const lineRef = useRef<HTMLDivElement>(null);
-  const popRef = useRef<HTMLDivElement>(null);
   const byVerb = new Map(commands.map((c) => [c.verb, c]));
   const close = useCallback(() => {
     setPop(null);
     setArg('');
   }, []);
-  useDismiss(pop != null, close, lineRef, popRef);
 
   // an agent that starts working closes any half-made pick — and drops its
   // half-typed focus line, or the next compact opens pre-filled with it
@@ -142,75 +140,74 @@ export function StatusLine({
           </span>
         ))}
       </div>
-      {pop && (
-        <div className="status-pop" ref={popRef}>
-          {picker && (
-            <>
-              <div className="status-pop-head">
-                <span className="status-pop-name">{picker.label}</span>
-                {picker.desc && <span className="status-pop-desc">{picker.desc}</span>}
-              </div>
-              {picker.values?.map((v) => (
-                <button key={v} className={`mode-row ${v === cur ? 'current' : ''}`} onClick={() => (v === cur ? close() : fire(picker, v))}>
-                  <span className="mode-name">
-                    {v === cur ? '❯ ' : ''}
-                    {v}
-                  </span>
-                </button>
-              ))}
-            </>
-          )}
-          {pop === 'ctx' && (
-            <>
-              <div className="status-pop-head">
-                <span className="status-pop-name">context</span>
-                <span className="status-pop-desc">
-                  {readout.ctx != null ? `${fmtTokens(readout.ctx)} tokens` : 'size unknown'}
-                  {readout.window ? ` of ${fmtTokens(readout.window)}` : ''}
+      <Pop open={pop != null} onClose={close} anchor={lineRef} className="status-pop">
+        {picker && (
+          <>
+            <div className="status-pop-head">
+              <span className="status-pop-name">{picker.label}</span>
+              {picker.desc && <span className="status-pop-desc">{picker.desc}</span>}
+            </div>
+            {picker.values?.map((v) => (
+              <button key={v} className={`mode-row ${v === cur ? 'current' : ''}`} onClick={() => (v === cur ? close() : fire(picker, v))}>
+                <span className="mode-name">
+                  {v === cur ? '❯ ' : ''}
+                  {v}
                 </span>
-              </div>
-              {context && (
-                <button className="mode-row" onClick={() => fire(context)}>
-                  <span className="mode-name">breakdown</span>
-                  <span className="mode-desc">{context.desc}</span>
-                </button>
-              )}
-              {compact && (
-                <button className="mode-row" onClick={() => setPop('compact')}>
-                  <span className="mode-name">compact now…</span>
-                  <span className="mode-desc">{compact.desc}</span>
-                </button>
-              )}
-            </>
-          )}
-          {pop === 'compact' && compact && (
-            <>
-              <div className="status-pop-head">
-                <span className="status-pop-name">{compact.label}</span>
-                {compact.desc && <span className="status-pop-desc">{compact.desc}</span>}
-              </div>
-              <form
-                className="status-arg"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void fire(compact, arg);
-                }}
-              >
-                <input
-                  autoFocus
-                  value={arg}
-                  placeholder={compact.arg}
-                  onChange={(e) => setArg(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Escape' && close()}
-                />
-                <button type="submit" className="status-go">
-                  {compact.label}
-                </button>
-              </form>
-            </>
-          )}
-        </div>
-      )}
+              </button>
+            ))}
+          </>
+        )}
+        {pop === 'ctx' && (
+          <>
+            <div className="status-pop-head">
+              <span className="status-pop-name">context</span>
+              <span className="status-pop-desc">
+                {readout.ctx != null ? `${fmtTokens(readout.ctx)} tokens` : 'size unknown'}
+                {readout.window ? ` of ${fmtTokens(readout.window)}` : ''}
+              </span>
+            </div>
+            {context && (
+              <button className="mode-row" onClick={() => fire(context)}>
+                <span className="mode-name">breakdown</span>
+                <span className="mode-desc">{context.desc}</span>
+              </button>
+            )}
+            {compact && (
+              <button className="mode-row" onClick={() => setPop('compact')}>
+                <span className="mode-name">compact now…</span>
+                <span className="mode-desc">{compact.desc}</span>
+              </button>
+            )}
+          </>
+        )}
+        {pop === 'compact' && compact && (
+          <>
+            <div className="status-pop-head">
+              <span className="status-pop-name">{compact.label}</span>
+              {compact.desc && <span className="status-pop-desc">{compact.desc}</span>}
+            </div>
+            <form
+              className="status-arg"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void fire(compact, arg);
+              }}
+            >
+              <input
+                autoFocus
+                data-autofocus=""
+                value={arg}
+                placeholder={compact.arg}
+                onChange={(e) => setArg(e.target.value)}
+                onKeyDown={(e) => e.key === 'Escape' && close()}
+              />
+              <button type="submit" className="status-go">
+                {compact.label}
+              </button>
+            </form>
+          </>
+        )}
+      </Pop>
     </>
   );
 }
@@ -236,13 +233,11 @@ export function SessionChip({
   // first tap arms the row, the second fires — no browser dialog
   const [armed, setArmed] = useState<string | null>(null);
   const chipRef = useRef<HTMLButtonElement>(null);
-  const popRef = useRef<HTMLDivElement>(null);
   const verbs = commands.filter((c) => ['new', 'rewind', 'resume'].includes(c.verb));
   const close = useCallback(() => {
     setOpen(false);
     setArmed(null);
   }, []);
-  useDismiss(open, close, chipRef, popRef);
   useEffect(() => {
     if (disabled) close();
   }, [disabled, close]);
@@ -272,30 +267,28 @@ export function SessionChip({
       >
         {status ?? '—'}
       </button>
-      {open && (
-        <div className="mode-pop session-pop" ref={popRef}>
-          {verbs.map((c) =>
-            armed === c.verb ? (
-              <div key={c.verb} className="mode-row armed">
-                <span className="mode-name">{c.desc ?? `${c.label}?`}</span>
-                <span className="arm-row">
-                  <button className="arm-go" onClick={() => void run(c)}>
-                    {c.label}
-                  </button>
-                  <button className="arm-keep" onClick={() => setArmed(null)}>
-                    keep
-                  </button>
-                </span>
-              </div>
-            ) : (
-              <button key={c.verb} className="mode-row" onClick={() => void run(c)}>
-                <span className="mode-name">{c.label}</span>
-                {c.desc && <span className="mode-desc">{c.desc}</span>}
-              </button>
-            ),
-          )}
-        </div>
-      )}
+      <Pop open={open} onClose={close} anchor={chipRef} align="right" className="session-pop">
+        {verbs.map((c) =>
+          armed === c.verb ? (
+            <div key={c.verb} className="mode-row armed">
+              <span className="mode-name">{c.desc ?? `${c.label}?`}</span>
+              <span className="arm-row">
+                <button className="arm-go" onClick={() => void run(c)}>
+                  {c.label}
+                </button>
+                <button className="arm-keep" onClick={() => setArmed(null)}>
+                  keep
+                </button>
+              </span>
+            </div>
+          ) : (
+            <button key={c.verb} className="mode-row" onClick={() => void run(c)}>
+              <span className="mode-name">{c.label}</span>
+              {c.desc && <span className="mode-desc">{c.desc}</span>}
+            </button>
+          ),
+        )}
+      </Pop>
     </>
   );
 }

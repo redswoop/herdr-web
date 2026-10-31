@@ -136,7 +136,7 @@ button:disabled { cursor: default; }
   border-bottom: 1px solid var(--hairline);
   flex: none;
   z-index: 2;
-  position: relative; /* anchors .mode-pop */
+  position: relative;
   /* one height for every pane's header so side-by-side panes line up: sized
      for the tallest (the agent bar's name + sub line), scaling with the text */
   --fs: var(--fs-ui); /* chrome, even inside the file viewer's chat-sized region */
@@ -432,10 +432,12 @@ button.mode-chip.busy { opacity: 0.5; }
 .chip.mode-auto { background: color-mix(in srgb, var(--done) 20%, transparent); color: var(--done); }
 .chip.mode-bypassPermissions { background: color-mix(in srgb, var(--blocked) 22%, transparent); color: var(--blocked); }
 .mode-pop {
-  position: absolute; top: calc(100% + 6px); right: 10px; z-index: 10;
-  background: var(--surface); border: 1px solid var(--hairline);
+  /* ui/Pop: a top-layer popover placed by script, so reset the UA's
+     centred [popover] box (inset/margin) and dress it ourselves */
+  position: fixed; inset: auto; margin: 0; overflow: visible;
+  color: inherit; background: var(--surface); border: 1px solid var(--hairline);
   border-radius: var(--r-sm); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
-  padding: 6px; min-width: 240px;
+  padding: 6px; min-width: 240px; max-width: calc(100vw - 16px);
   animation: rise 0.14s ease both;
 }
 .mode-row {
@@ -448,10 +450,10 @@ button.mode-chip.busy { opacity: 0.5; }
 .mode-row .mode-name { font-weight: 600; font-size: calc(13.5px * var(--fs)); }
 .mode-row .mode-desc { font-size: calc(12px * var(--fs)); color: var(--sub); }
 
-/* row / workspace menus (ui/ContextMenu): a .mode-pop pinned to the viewport */
-/* over the full-screen file viewer (z 30) too */
+/* row / workspace menus (ui/ContextMenu): a Pop at the pointer */
+.ctx-menu { min-width: 180px; max-width: min(320px, calc(100vw - 16px)); }
+/* the lightbox portal: one wrapper under <body> (skins restyle body's children) */
 .ctx-layer { position: relative; z-index: 50; }
-.ctx-menu { position: fixed; right: auto; min-width: 180px; max-width: min(320px, calc(100vw - 16px)); }
 .ctx-title {
   padding: 6px 10px 4px; font-size: calc(11.5px * var(--fs)); color: var(--sub);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -867,13 +869,6 @@ button.session-chip:disabled { cursor: default; }
 .arm-go, .arm-keep { padding: 5px 12px; border-radius: 6px; font-weight: 600; font-size: calc(12.5px * var(--fs)); }
 .arm-go { background: var(--blocked); color: #fff; }
 .arm-keep { background: var(--surface-2); color: var(--text); }
-.status-pop {
-  position: absolute; top: calc(100% + 6px); left: 16px; z-index: 10;
-  background: var(--surface); border: 1px solid var(--hairline);
-  border-radius: var(--r-sm); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
-  padding: 6px; min-width: 220px; max-width: calc(100vw - 20px);
-  animation: rise 0.14s ease both;
-}
 .status-pop-head { display: flex; flex-direction: column; gap: 1px; padding: 6px 10px 8px; }
 .status-pop-name { font: 600 calc(13px * var(--fs)) var(--mono); color: var(--accent); }
 .status-pop-desc { font-size: calc(12px * var(--fs)); color: var(--sub); }
@@ -1100,18 +1095,7 @@ textarea::placeholder { color: var(--sub); }
 .file-bar { gap: 10px; position: relative; }
 .file-close { font-size: calc(18px * var(--fs)); flex: none; }
 .file-toggle.on { background: var(--surface-2); border-radius: var(--r-sm); }
-.pop-backdrop { position: fixed; inset: 0; z-index: 9; }
-.file-hist {
-  position: absolute; top: calc(100% + 6px); right: 10px; z-index: 10;
-  width: min(420px, calc(100% - 20px));
-  max-height: 50dvh; overflow-y: auto;
-  background: var(--surface);
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
-  padding: 4px;
-  animation: rise 0.14s ease both;
-}
+.file-hist { width: min(420px, calc(100vw - 20px)); max-height: 50dvh; overflow-y: auto; padding: 4px; }
 .hist-row { display: flex; align-items: center; gap: 2px; border-radius: 6px; }
 .hist-row:hover { background: var(--surface-2); }
 .hist-row.cur .hist-path { color: var(--accent); }

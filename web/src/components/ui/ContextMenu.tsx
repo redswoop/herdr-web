@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from 'react';
-import { createPortal } from 'react-dom';
+import { useMemo, type MouseEvent } from 'react';
+import { Pop } from './Pop';
 
 export interface MenuItem {
   label: string;
@@ -28,64 +28,26 @@ export function menuAt(e: MouseEvent<HTMLElement>, title: string, items: MenuIte
   return { x: r.right, y: r.bottom + 4, alignRight: true, title, items };
 }
 
-/** A small popover menu (the .mode-pop look, so skins dress it for free),
- *  portalled to <body> and kept inside the viewport. Esc or a click outside
- *  closes it. */
+/** A row / workspace menu at a point (right-click) or under its ⋯ button:
+ *  a Pop anchored by coordinates. Esc or a click outside closes it. */
 export function ContextMenu({ menu, onClose }: { menu: MenuState | null; onClose: () => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
-
-  useLayoutEffect(() => {
-    if (!menu || !ref.current) return setPos(null);
-    const { width, height } = ref.current.getBoundingClientRect();
-    const left = Math.max(8, Math.min(menu.alignRight ? menu.x - width : menu.x, innerWidth - width - 8));
-    const top = menu.y + height > innerHeight - 8 ? Math.max(8, menu.y - height) : menu.y;
-    setPos({ left, top });
-  }, [menu]);
-
-  useEffect(() => {
-    if (!menu) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [menu, onClose]);
-
-  if (!menu) return null;
-  // one wrapper under <body>: skins may restyle body's direct children
-  // (CyberDOS lifts them over its rain with position: relative), which would
-  // un-fix the menu itself
-  return createPortal(
-    <div className="ctx-layer">
-      <div
-        className="pop-backdrop"
-        onClick={onClose}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          onClose();
-        }}
-      />
-      <div
-        ref={ref}
-        className="mode-pop ctx-menu"
-        role="menu"
-        style={pos ?? { left: menu.x, top: menu.y, visibility: 'hidden' }}
-      >
-        {menu.title && <div className="ctx-title">{menu.title}</div>}
-        {menu.items.map((it) => (
-          <button
-            key={it.label}
-            role="menuitem"
-            className={`mode-row ${it.danger ? 'danger' : ''} ${it.current ? 'current' : ''}`}
-            onClick={() => {
-              onClose();
-              it.run();
-            }}
-          >
-            <span className="mode-name">{it.label}</span>
-          </button>
-        ))}
-      </div>
-    </div>,
-    document.body,
+  const anchor = useMemo(() => (menu ? { x: menu.x, y: menu.y } : { x: 0, y: 0 }), [menu]);
+  return (
+    <Pop open={!!menu} onClose={onClose} anchor={anchor} align={menu?.alignRight ? 'right' : 'left'} className="ctx-menu" role="menu">
+      {menu?.title && <div className="ctx-title">{menu.title}</div>}
+      {menu?.items.map((it) => (
+        <button
+          key={it.label}
+          role="menuitem"
+          className={`mode-row ${it.danger ? 'danger' : ''} ${it.current ? 'current' : ''}`}
+          onClick={() => {
+            onClose();
+            it.run();
+          }}
+        >
+          <span className="mode-name">{it.label}</span>
+        </button>
+      ))}
+    </Pop>
   );
 }

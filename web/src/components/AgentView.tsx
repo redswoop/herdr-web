@@ -11,7 +11,6 @@ import {
 } from '@herdr/shared';
 import { agentPath, errorOf, post } from '../api';
 import { useAgentSession } from '../hooks/useAgentSession';
-import { useDismiss } from '../hooks/useDismiss';
 import { useBlockedContext } from '../hooks/useBlockedContext';
 import { WIDE, useMediaQuery } from '../hooks/useMediaQuery';
 import type { Agent, AnswerBody, RestoredDraft, RewindState, SessionEntry } from '../types';
@@ -24,6 +23,7 @@ import { FileViewer } from './FileViewer';
 import { LiveTail } from './LiveTail';
 import { ScreenMirror } from './ScreenMirror';
 import { Transcript } from './Transcript';
+import { Pop } from './ui/Pop';
 import { Split, SplitHandle, SplitPane } from './ui/Split';
 import { renameAgentTo } from '../manage';
 
@@ -54,9 +54,7 @@ export function AgentView({
   } = useAgentMode(paneId, agent?.agent, status);
   const [modeOpen, setModeOpen] = useState(false);
   const modeChipRef = useRef<HTMLButtonElement>(null);
-  const modePopRef = useRef<HTMLDivElement>(null);
   const closeMode = useCallback(() => setModeOpen(false), []);
-  useDismiss(modeOpen, closeMode, modeChipRef, modePopRef);
   // header name → inline rename; Esc flags a cancel before the blur commits
   const [naming, setNaming] = useState(false);
   const nameCancel = useRef(false);
@@ -458,27 +456,25 @@ export function AgentView({
             else if (ui === 'resume') setResumeOpen(true);
           }}
         />
-        {modeOpen && (
-          <div className="mode-pop" ref={modePopRef}>
-            {MODE_ORDER.map((m) => (
-              <button
-                key={m}
-                className={`mode-row ${m === mode ? 'current' : ''}`}
-                disabled={modeBusy}
-                onClick={async () => {
-                  setModeOpen(false);
-                  if (m !== mode) await setMode(m);
-                }}
-              >
-                <span className="mode-name">
-                  {m === mode ? '❯ ' : ''}
-                  {MODE_LABEL[m]}
-                </span>
-                <span className="mode-desc">{MODE_DESC[m]}</span>
-              </button>
-            ))}
-          </div>
-        )}
+        <Pop open={modeOpen} onClose={closeMode} anchor={modeChipRef} align="right">
+          {MODE_ORDER.map((m) => (
+            <button
+              key={m}
+              className={`mode-row ${m === mode ? 'current' : ''}`}
+              disabled={modeBusy}
+              onClick={async () => {
+                setModeOpen(false);
+                if (m !== mode) await setMode(m);
+              }}
+            >
+              <span className="mode-name">
+                {m === mode ? '❯ ' : ''}
+                {MODE_LABEL[m]}
+              </span>
+              <span className="mode-desc">{MODE_DESC[m]}</span>
+            </button>
+          ))}
+        </Pop>
       </header>
 
       {blocked && (

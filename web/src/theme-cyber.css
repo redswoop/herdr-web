@@ -129,17 +129,12 @@
   }
   & .palette-tag { font-family: var(--mono); }
   & .palette-swatches i { border-radius: 0; transform: skewX(-12deg); }
-  & .mode-pop, & .file-hist {
+  & .mode-pop {
     border-color: color-mix(in srgb, var(--live) 40%, transparent);
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 12px 40px rgba(0, 0, 0, 0.7), 0 0 24px -8px var(--live);
     clip-path: var(--chamfer);
   }
   & .mode-row.current .mode-name { text-shadow: var(--glow); }
-  & .status-pop {
-    border-color: color-mix(in srgb, var(--live) 40%, transparent);
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 12px 40px rgba(0, 0, 0, 0.7), 0 0 24px -8px var(--live);
-    clip-path: var(--chamfer);
-  }
   & .status-pop-name { font-family: var(--display); letter-spacing: 0.12em; text-transform: uppercase; color: var(--chrome); text-shadow: var(--glow); }
   & .status-arg input, & .status-go { border-radius: 0; clip-path: var(--slant); }
   & .status-arg input { border-color: color-mix(in srgb, var(--live) 30%, transparent); font-family: var(--mono); }

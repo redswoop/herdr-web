@@ -20,6 +20,7 @@ import {
 import { md } from '../md';
 import type { FileInfo } from '../types';
 import { ContextMenu, menuAt, type MenuItem, type MenuState } from './ui/ContextMenu';
+import { Pop } from './ui/Pop';
 
 const fileUrl = (path: string, cwd: string | null, raw = false) =>
   `/api/file${raw ? '/raw' : ''}?path=${encodeURIComponent(path)}&cwd=${encodeURIComponent(cwd ?? '')}`;
@@ -61,6 +62,8 @@ export function FileViewer({
   const [raw, setRaw] = useState(false);
   const [edit, setEdit] = useState(path);
   const [histOpen, setHistOpen] = useState(false);
+  const closeHist = useCallback(() => setHistOpen(false), []);
+  const histRef = useRef<HTMLButtonElement>(null);
   const [order, setOrder] = useState(() => parseDirOrder(getPlatform().kv.get(ORDER_KEY)));
   const saveOrder = (o: DirOrder) => {
     setOrder(o);
@@ -320,6 +323,7 @@ export function FileViewer({
         )}
         {history.length > 0 && (
           <button
+            ref={histRef}
             className={`ghost file-toggle ${histOpen ? 'on' : ''}`}
             aria-label="recently viewed"
             onClick={() => setHistOpen((o) => !o)}
@@ -327,30 +331,25 @@ export function FileViewer({
             🕘
           </button>
         )}
-        {histOpen && history.length > 0 && (
-          <>
-            <div className="pop-backdrop" onClick={() => setHistOpen(false)} />
-            <div className="file-hist">
-              {history.map((p) => (
-                <div key={p} className={`hist-row ${p === (info?.path ?? '') ? 'cur' : ''}`}>
-                  <button
-                    className="hist-path"
-                    title={p}
-                    onClick={() => {
-                      setHistOpen(false);
-                      onNavigate(p);
-                    }}
-                  >
-                    {p}
-                  </button>
-                  <button className="hist-x" aria-label={`forget ${p}`} onClick={() => onRemoveHist(p)}>
-                    ✕
-                  </button>
-                </div>
-              ))}
+        <Pop open={histOpen && history.length > 0} onClose={closeHist} anchor={histRef} align="right" className="file-hist">
+          {history.map((p) => (
+            <div key={p} className={`hist-row ${p === (info?.path ?? '') ? 'cur' : ''}`}>
+              <button
+                className="hist-path"
+                title={p}
+                onClick={() => {
+                  setHistOpen(false);
+                  onNavigate(p);
+                }}
+              >
+                {p}
+              </button>
+              <button className="hist-x" aria-label={`forget ${p}`} onClick={() => onRemoveHist(p)}>
+                ✕
+              </button>
             </div>
-          </>
-        )}
+          ))}
+        </Pop>
       </header>
 
       <div className="scroll file-body">
