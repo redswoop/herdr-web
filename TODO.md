@@ -431,7 +431,7 @@ the 20 MB+ sessions.
 
 ---
 
-## 21. Web: a way back to the overview `[shaped]` — tiny
+## 21. Web: a way back to the overview `[done]` — the HERD mark goes home; `g h` waits on #2
 
 **Problem.** The overview shown on first load (no chat open) has no way back
 once a chat is open, short of editing the URL or reloading to `#`.

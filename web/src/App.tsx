@@ -89,6 +89,9 @@ export default function App() {
       onCollapse={toggleSide}
       onNewChat={openNewChat}
       onShowCards={!wide ? () => pickHomeView('cards') : undefined}
+      onHome={() => {
+        location.hash = '';
+      }}
     />
   );
 

@@ -144,6 +144,8 @@ button:disabled { cursor: default; }
   box-sizing: border-box;
 }
 .bar h1 { font-size: calc(17px * var(--fs)); font-weight: 700; letter-spacing: 0.01em; margin: 0; flex: 1; }
+/* the mark is the way back to the overview; it inherits the h1's look */
+.bar h1 .home-link { font: inherit; letter-spacing: inherit; color: inherit; text-shadow: inherit; }
 /* headers with a spacer keep the title tight so what follows it stays put */
 .bar:has(.bar-spacer) h1 { flex: none; }
 .bar-spacer { flex: 1; }

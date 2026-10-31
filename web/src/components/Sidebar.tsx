@@ -71,6 +71,7 @@ export function Sidebar({
   onCollapse,
   onNewChat,
   onShowCards,
+  onHome,
 }: {
   roster: Roster;
   connected: boolean;
@@ -87,6 +88,8 @@ export function Sidebar({
   /** one-click spawn with defaults; resolves when the pane is live */
   /** phone only: swap the home surface to the project-card overview */
   onShowCards?: () => void;
+  /** the HERD mark goes back to the overview (TODO #21) */
+  onHome: () => void;
 }) {
   const [groupBy, setGroupBy] = useState<GroupBy>(loadGroupBy);
   const [collapsed, setCollapsed] = useState<Set<string>>(loadClosed);
@@ -231,7 +234,11 @@ export function Sidebar({
   return (
     <nav className="sidebar">
       <header className="bar home-bar">
-        <h1>🐑 herd</h1>
+        <h1>
+          <button className="home-link" onClick={onHome} title="overview" aria-label="overview">
+            🐑 herd
+          </button>
+        </h1>
         {onShowCards && <HomeToggle view="list" onPick={onShowCards} />}
         <span className="bar-spacer" />
         <button
