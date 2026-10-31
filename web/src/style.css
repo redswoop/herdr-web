@@ -1146,6 +1146,11 @@ textarea::placeholder { color: var(--sub); }
   font-size: calc(0.88em * var(--fs-code)); font-family: var(--mono);
 }
 .file-md pre code { background: none; padding: 0; }
+.file-md .md-img { margin: 8px 0; }
+.file-md .md-img img {
+  display: block; max-width: 100%; max-height: 70vh; height: auto;
+  border-radius: var(--r-sm); cursor: zoom-in;
+}
 .file-img { max-width: 100%; height: auto; border-radius: var(--r-sm); }
 .file-video { max-width: 100%; max-height: 70vh; border-radius: var(--r-sm); background: #000; display: block; }
 /* image/video + its ‹ › siblings; on touch a flick does the same */

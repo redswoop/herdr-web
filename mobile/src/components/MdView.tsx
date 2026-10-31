@@ -1,5 +1,5 @@
-import { createContext, memo, useContext, useMemo } from 'react';
-import { Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { createContext, memo, useContext, useMemo, useState, type ReactElement } from 'react';
+import { FlatList, Image, Linking, Platform, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { fenceRuns, parseMd, type Block, type Inline } from '@herdr/shared';
 import { tick, toast } from '../toast';
@@ -148,15 +148,65 @@ function InlineSeg({
   );
 }
 
-function BlockView({
+/** `![alt](src)` on its own line. Shown as a picture only where the caller
+ *  can serve it (the file viewer, off the document's folder); in a transcript
+ *  it is a chip to the file, like the web — an agent's output never makes
+ *  the app fetch an image by itself. */
+function MdImage({
   block,
   onOpenFile,
+  imageUrl,
+}: {
+  block: Extract<Block, { type: 'image' }>;
+  onOpenFile?: (path: string) => void;
+  imageUrl?: (src: string) => string | null;
+}) {
+  const styles = useStyles(makeStyles);
+  const [aspect, setAspect] = useState(4 / 3);
+  const remote = /^https?:\/\//.test(block.src);
+  const uri = imageUrl ? (remote ? block.src : imageUrl(block.src)) : null;
+  const open = remote
+    ? () => Linking.openURL(block.src).catch(() => {})
+    : onOpenFile
+      ? () => onOpenFile(block.src)
+      : undefined;
+  if (!uri) {
+    return (
+      <Text style={styles.base} allowFontScaling={false}>
+        <Text style={styles.link} onPress={open}>
+          {block.alt || block.src}
+        </Text>
+      </Text>
+    );
+  }
+  return (
+    <Pressable onPress={open} style={({ pressed }) => pressed && styles.pressed} unstable_pressDelay={130}>
+      <Image
+        source={{ uri }}
+        style={[styles.img, { aspectRatio: aspect }]}
+        resizeMode="contain"
+        accessibilityLabel={block.alt}
+        onLoad={(e) => {
+          const s = e.nativeEvent.source;
+          if (s?.width && s?.height) setAspect(s.width / s.height);
+        }}
+      />
+    </Pressable>
+  );
+}
+
+const BlockView = memo(function BlockView({
+  block,
+  onOpenFile,
+  imageUrl,
 }: {
   block: Block;
   onOpenFile?: (path: string) => void;
+  imageUrl?: (src: string) => string | null;
 }) {
   const t = useTheme();
   const styles = useStyles(makeStyles);
+  if (block.type === 'image') return <MdImage block={block} onOpenFile={onOpenFile} imageUrl={imageUrl} />;
   // NO ScrollView in here, ever. Code blocks and tables used to sit in a
   // horizontal ScrollView; under Fabric (RN 0.86) a ScrollView nested in a
   // FlatList cell makes every ancestor View's Yoga height grow on each
@@ -231,7 +281,7 @@ function BlockView({
     );
   }
   return <Inlines nodes={block.inlines} onOpenFile={onOpenFile} />;
-}
+});
 
 // memo + useMemo are load-bearing here: every SSE batch re-renders the whole
 // mounted list, and re-running parseMd on every visible bubble several times
@@ -240,9 +290,12 @@ function BlockView({
 export const MdView = memo(function MdView({
   src,
   onOpenFile,
+  imageUrl,
 }: {
   src: string;
   onOpenFile?: (path: string) => void;
+  /** serves a document-relative image src; absent = image refs are chips */
+  imageUrl?: (src: string) => string | null;
 }) {
   const styles = useStyles(makeStyles);
   const blocks = useMemo(() => parseMd(src), [src]);
@@ -253,12 +306,47 @@ export const MdView = memo(function MdView({
     >
       {blocks.map((b, i) => (
         <View key={i} style={styles.block}>
-          <BlockView block={b} onOpenFile={onOpenFile} />
+          <BlockView block={b} onOpenFile={onOpenFile} imageUrl={imageUrl} />
         </View>
       ))}
     </View>
   );
 });
+
+const BlockGap = () => <View style={{ height: 6 }} />;
+
+/** A whole document, for the file viewer: the same blocks as MdView but in a
+ *  FlatList, so only the stretch near the viewport is mounted. A 400 KB forum
+ *  dump is ~3000 paragraphs and 300 pictures; all of them in one ScrollView
+ *  took Capra down. */
+export function MdList({
+  src,
+  onOpenFile,
+  imageUrl,
+  contentStyle,
+  footer,
+}: {
+  src: string;
+  onOpenFile?: (path: string) => void;
+  imageUrl?: (src: string) => string | null;
+  contentStyle?: StyleProp<ViewStyle>;
+  footer?: ReactElement | null;
+}) {
+  const blocks = useMemo(() => parseMd(src), [src]);
+  return (
+    <FlatList
+      data={blocks}
+      keyExtractor={(_, i) => String(i)}
+      renderItem={({ item }) => <BlockView block={item} onOpenFile={onOpenFile} imageUrl={imageUrl} />}
+      ItemSeparatorComponent={BlockGap}
+      contentContainerStyle={contentStyle}
+      ListFooterComponent={footer}
+      initialNumToRender={24}
+      maxToRenderPerBatch={16}
+      windowSize={9}
+    />
+  );
+}
 
 const makeStyles = (t: Tokens) =>
   StyleSheet.create({
@@ -294,6 +382,7 @@ const makeStyles = (t: Tokens) =>
   },
   codeLink: { color: t.colors.accent, textDecorationLine: 'underline', ...t.glow(t.colors.accent, 6) },
   pressed: { opacity: 0.6 },
+  img: { width: '100%', maxHeight: 420, borderRadius: t.r(10), backgroundColor: t.cyber ? alpha('#000000', 0.4) : t.colors.surface2 },
   copyHint: { ...t.font(t.cyber ? 'mono' : 'ui'), ...t.hud, color: t.colors.sub, fontSize: t.sz('ui', 9), marginTop: 6, opacity: 0.7 },
   tableWrap: { marginVertical: 4 },
   tableRow: { flexDirection: 'row' },

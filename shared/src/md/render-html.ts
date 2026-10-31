@@ -48,11 +48,25 @@ function cellTag(tag: 'th' | 'td', content: string, align: Align): string {
   return `<${tag}${a}>${content}</${tag}>`;
 }
 
-export function mdToHtml(blocks: Block[]): string {
+export interface MdOpts {
+  /** Where an `![alt](src)` block is shown as a picture, the URL that serves
+   *  `src` (relative to the document) — the file viewer's raw route. Without
+   *  it the ref renders as a tappable file chip, which is what a transcript
+   *  wants: nothing an agent prints should make the page fetch an image. */
+  image?: (src: string) => string | null;
+}
+
+export function mdToHtml(blocks: Block[], opts: MdOpts = {}): string {
   return blocks
     .map((b) => {
       if (b.type === 'code') {
         return `<pre><code>${linkifyFence(b.text)}</code></pre>`;
+      }
+      if (b.type === 'image') {
+        const url = opts.image ? (/^https?:\/\//.test(b.src) ? b.src : opts.image(b.src)) : null;
+        // data-file on the <img> too: a tap opens the picture in the viewer
+        if (url) return `<figure class="md-img"><img src="${esc(url)}" alt="${esc(b.alt)}" loading="lazy" data-file="${esc(b.src)}"></figure>`;
+        return /^https?:\/\//.test(b.src) ? anchor(b.src, b.alt || b.src) : fileAnchor(b.src, b.alt || b.src);
       }
       if (b.type === 'table') {
         const thead = `<thead><tr>${b.header
@@ -79,8 +93,8 @@ export function mdToHtml(blocks: Block[]): string {
 }
 
 /** Drop-in replacement for the original md() helper. */
-export function md(src: string): string {
-  return mdToHtml(parseMd(src));
+export function md(src: string, opts?: MdOpts): string {
+  return mdToHtml(parseMd(src), opts);
 }
 
 export { pathish } from './parse';

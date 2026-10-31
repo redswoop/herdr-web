@@ -15,7 +15,13 @@ export type Inline =
 export type Block =
   | { type: 'code'; lang: string; text: string }
   | { type: 'table'; header: Inline[][]; aligns: Align[]; rows: Inline[][][] }
-  | { type: 'para'; inlines: Inline[] };
+  | { type: 'para'; inlines: Inline[] }
+  /** `![alt](src)` on a line of its own; `src` is as written (relative to
+   *  the document, or a URL) — the renderer decides whether to show it */
+  | { type: 'image'; src: string; alt: string };
+
+const IMAGE = /!\[([^\]\n]*)\]\(([^\s)]+)\)/g;
+const IMAGE_LINE = /^\s*(?:!\[[^\]\n]*\]\([^\s)]+\)\s*)+$/;
 
 const TRAIL = /(?:[.,:;!?'"*_~\]])+$/;
 
@@ -94,39 +100,44 @@ function parseAligns(sepLine: string): Align[] {
 
 /** Parse inline markup in a single line/cell of raw text. */
 export function parseInlines(src: string): Inline[] {
-  // Tokenize: **bold**, `code`, [text](url), bare urls, bare paths
+  // Tokenize: ![alt](src), **bold**, `code`, [text](url), bare urls, bare paths
   const out: Inline[] = [];
   const re =
-    /\*\*([^*\n]+)\*\*|`([^`\n]+)`|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<`]+)|((?:~|\/(?:home|mnt|tmp|etc|var|usr|opt|srv|proc))\/[^\s<`]+)/g;
+    /!\[([^\]\n]*)\]\(([^\s)]+)\)|\*\*([^*\n]+)\*\*|`([^`\n]+)`|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<`]+)|((?:~|\/(?:home|mnt|tmp|etc|var|usr|opt|srv|proc))\/[^\s<`]+)/g;
   let last = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(src))) {
     if (m.index > last) out.push({ type: 'text', text: src.slice(last, m.index) });
-    if (m[1] != null) {
-      out.push({ type: 'strong', text: m[1] });
-    } else if (m[2] != null) {
+    if (m[2] != null) {
+      // an image ref mid-paragraph (an image on its own line is a block):
+      // inline it can only be a link to the picture
+      const alt = m[1] || m[2];
+      out.push(/^https?:\/\//.test(m[2]) ? { type: 'link', href: m[2], text: alt } : { type: 'file', path: m[2], text: alt });
+    } else if (m[3] != null) {
+      out.push({ type: 'strong', text: m[3] });
+    } else if (m[4] != null) {
       // models wrap URLs in backticks constantly (`http://host:port/`) — keep
       // the chip styling but make it a real link, not a copy-only run of text
-      const href = /^https?:\/\/\S+$/.test(m[2]) ? m[2] : null;
-      const p = href ? null : pathish(m[2]);
+      const href = /^https?:\/\/\S+$/.test(m[4]) ? m[4] : null;
+      const p = href ? null : pathish(m[4]);
       out.push(
         href
-          ? { type: 'code', text: m[2], href }
+          ? { type: 'code', text: m[4], href }
           : p
-            ? { type: 'code', text: m[2], file: p }
-            : { type: 'code', text: m[2] },
+            ? { type: 'code', text: m[4], file: p }
+            : { type: 'code', text: m[4] },
       );
-    } else if (m[3] != null && m[4] != null) {
-      out.push({ type: 'link', href: m[4], text: m[3] });
-    } else if (m[5] != null) {
-      const url = shed(m[5]);
+    } else if (m[5] != null && m[6] != null) {
+      out.push({ type: 'link', href: m[6], text: m[5] });
+    } else if (m[7] != null) {
+      const url = shed(m[7]);
       out.push({ type: 'link', href: url, text: url });
-      const trail = m[5].slice(url.length);
+      const trail = m[7].slice(url.length);
       if (trail) out.push({ type: 'text', text: trail });
-    } else if (m[6] != null) {
-      const p = shed(m[6]);
+    } else if (m[8] != null) {
+      const p = shed(m[8]);
       out.push({ type: 'file', path: p, text: p });
-      const trail = m[6].slice(p.length);
+      const trail = m[8].slice(p.length);
       if (trail) out.push({ type: 'text', text: trail });
     }
     last = m.index + m[0].length;
@@ -182,6 +193,12 @@ function parseTextSegment(src: string): Block[] {
         aligns,
         rows: body.map((row) => pad(row).map((c) => parseInlines(c))),
       });
+      continue;
+    }
+    if (IMAGE_LINE.test(lines[i])) {
+      flushPara();
+      for (const m of lines[i].matchAll(IMAGE)) blocks.push({ type: 'image', src: m[2], alt: m[1] });
+      i += 1;
       continue;
     }
     buf.push(lines[i]);

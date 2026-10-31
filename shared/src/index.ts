@@ -33,6 +33,7 @@ export { parseMd, parseInlines, pathish, shed, fenceRuns } from './md/parse';
 export type { FenceRun } from './md/parse';
 export type { Block, Inline, Align } from './md/parse';
 export { md, mdToHtml, esc } from './md/render-html';
+export type { MdOpts } from './md/render-html';
 export { useRoster, hostUp } from './hooks/useRoster';
 export { useAgentSession, clearPaneMemory } from './hooks/useAgentSession';
 export { useBlockedContext } from './hooks/useBlockedContext';

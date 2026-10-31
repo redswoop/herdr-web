@@ -13,6 +13,17 @@ test.describe('file viewer', () => {
     await expect(viewer.locator('.file-md, .file-pre, .file-body').first()).toBeVisible();
     await viewer.getByRole('button', { name: /raw|pretty/i }).click();
   });
+
+  test('a markdown image ref is served off the document folder; a tap opens the picture', async ({ page }) => {
+    await openApp(page, {
+      hash: `/agent/${encodeURIComponent('w1:p1')}/file/${encodeURIComponent('/home/armen/src/app/README.md')}`,
+    });
+    const img = page.locator('.file-viewer .file-md .md-img img');
+    await expect(img).toHaveAttribute('src', /\/api\/file\/raw\?path=%2Fhome%2Farmen%2Fsrc%2Fapp%2Fout%2Fplot\.png/);
+    await expect(img).toHaveAttribute('alt', 'the plot');
+    await img.click();
+    await expect(page).toHaveURL(/\/file\/%2Fhome%2Farmen%2Fsrc%2Fapp%2Fout%2Fplot\.png$/);
+  });
 });
 
 test.describe('folder sort', () => {

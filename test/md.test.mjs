@@ -91,6 +91,29 @@ t('pathish edge cases', () => {
   assert.equal(pathish('~/notes.md'), '~/notes.md');
 });
 
+t('image on its own line: a chip by default, a picture with a resolver', () => {
+  const src = 'look\n![shot one](images/1.webp)\nnext';
+  const plain = md(src);
+  assert.match(plain, /<a data-file="images\/1.webp">shot one<\/a>/);
+  assert.ok(!plain.includes('<img'));
+  const shown = md(src, { image: (s) => `/raw?p=${s}` });
+  assert.match(shown, /<figure class="md-img"><img src="\/raw\?p=images\/1.webp" alt="shot one" loading="lazy" data-file="images\/1.webp"><\/figure>/);
+  assert.match(shown, /look/);
+  assert.match(shown, /next/);
+  // a remote picture is shown only where a resolver was given at all
+  assert.match(md('![](https://x.test/a.png)'), /<a href="https:\/\/x.test\/a.png"[^>]*>https:\/\/x.test\/a.png<\/a>/);
+  assert.match(md('![](https://x.test/a.png)', { image: () => null }), /<img src="https:\/\/x.test\/a.png"/);
+  // several on one line: one picture each
+  assert.equal((md('![a](1.png) ![b](2.png)', { image: (s) => s }).match(/<img /g) ?? []).length, 2);
+});
+
+t('image ref mid-sentence is a link to the file, never a picture', () => {
+  const html = md('see ![the plot](out/plot.png) here', { image: (s) => s });
+  assert.ok(!html.includes('<img'));
+  assert.match(html, /see <a data-file="out\/plot.png">the plot<\/a> here/);
+  assert.ok(!md('a ![x](images/1.webp)').includes('!['));
+});
+
 t('gfm table renders with alignment', () => {
   const html = md('| a | b |\n|---|--:|\n| 1 | 2 |');
   assert.match(html, /<table>/);

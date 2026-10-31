@@ -360,9 +360,14 @@ export function FileViewer({
           (isMd && !raw ? (
             <div
               className="file-md"
-              dangerouslySetInnerHTML={{ __html: md(info.content ?? '') }}
+              dangerouslySetInnerHTML={{
+                __html: md(info.content ?? '', {
+                  // a picture the document refers to is served off its folder
+                  image: (s) => fileUrl(/^[~/]/.test(s) ? s : join(parent(info.path), s), null, true),
+                }),
+              }}
               onClick={(e) => {
-                const a = (e.target as HTMLElement).closest('a[data-file]') as HTMLElement | null;
+                const a = (e.target as HTMLElement).closest('[data-file]') as HTMLElement | null;
                 if (!a?.dataset.file) return;
                 e.preventDefault();
                 // relative links in a document resolve against ITS directory

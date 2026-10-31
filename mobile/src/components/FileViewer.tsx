@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -12,6 +12,9 @@ import {
   TextInput,
   View,
   useWindowDimensions,
+  type StyleProp,
+  type TextStyle,
+  type ViewStyle,
 } from 'react-native';
 import * as Sharing from 'expo-sharing';
 import { Directory, File, Paths } from 'expo-file-system';
@@ -37,10 +40,41 @@ import {
 import { fileInfoUrl, fileRawUrl } from '../api-urls';
 import { alpha, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
-import { MdView } from './MdView';
+import { MdList } from './MdView';
 import { AudioPlayer, VideoPlayer } from './MediaPlayer';
-import { SegText } from './SegText';
+import { splitPlain } from './segment';
 import { ZoomImage } from './ZoomImage';
+
+/** A text file as a list of SegText-sized runs, so a long one is never one
+ *  mounted Text tree (see MdList for the markdown side of the same rule). */
+function RawList({
+  text,
+  style,
+  contentStyle,
+  footer,
+}: {
+  text: string;
+  style: StyleProp<TextStyle>;
+  contentStyle?: StyleProp<ViewStyle>;
+  footer?: ReactElement | null;
+}) {
+  const segs = useMemo(() => splitPlain(text), [text]);
+  return (
+    <FlatList
+      data={segs}
+      keyExtractor={(_, i) => String(i)}
+      renderItem={({ item }) => (
+        <Text style={style} selectable allowFontScaling={false}>
+          {item}
+        </Text>
+      )}
+      contentContainerStyle={contentStyle}
+      ListFooterComponent={footer}
+      initialNumToRender={12}
+      windowSize={9}
+    />
+  );
+}
 
 // folder sort is a per-device habit; same key as the web client
 const ORDER_KEY = 'herdr.dirSort';
@@ -179,6 +213,9 @@ export function FileViewer({
   const leaf = (p: string) => p.split('/').filter(Boolean).pop() || p;
 
   const isMd = /\.(md|markdown)$/i.test(info?.path ?? path);
+  // a relative path inside a document is relative to the document
+  const docPath = (p: string) => (/^[~/]/.test(p) ? p : join(parent(info?.path ?? cur), p));
+  const truncNote = info?.truncated ? <Text style={styles.note}>showing first 512 KB of {fmtSize(info.size)}</Text> : null;
   // the folder above: a file's own folder, a folder's parent; nothing at /
   const shown = info?.path ?? path;
   const upPath = shown && shown !== '/' && /^[~/]/.test(shown) ? parent(shown) : null;
@@ -400,28 +437,28 @@ export function FileViewer({
           </Pressable>
         </View>
       )}
+      {info?.kind === 'text' ? (
+        // a document rides its own virtualized list: a 30-page thread is
+        // thousands of blocks, and all of them in one ScrollView crashed the
+        // app. Relative refs (links, pictures) resolve against ITS folder.
+        isMd && !raw ? (
+          <MdList
+            src={info.content ?? ''}
+            onOpenFile={(p) => onNavigate(docPath(p))}
+            imageUrl={(s) => fileRawUrl(docPath(s), null, host)}
+            contentStyle={styles.bodyContent}
+            footer={truncNote}
+          />
+        ) : (
+          <RawList text={info.content ?? ''} style={styles.pre} contentStyle={styles.bodyContent} footer={truncNote} />
+        )
+      ) : (
       <ScrollView style={[styles.body, galleryActive && styles.hidden]} contentContainerStyle={styles.bodyContent}>
         {err && <Text style={styles.empty}>{err}</Text>}
         {!err && !info && (
           <View style={styles.loading}>
             <ActivityIndicator color={t.colors.accent} />
           </View>
-        )}
-
-        {info?.kind === 'text' &&
-          (isMd && !raw ? (
-            <MdView
-              src={info.content ?? ''}
-              onOpenFile={(p) =>
-                onNavigate(/^[~/]/.test(p) ? p : join(parent(info.path), p))
-              }
-            />
-          ) : (
-            <SegText style={styles.pre} selectable allowFontScaling={false} text={info.content ?? ''} />
-          ))}
-
-        {info?.truncated && (
-          <Text style={styles.note}>showing first 512 KB of {fmtSize(info.size)}</Text>
         )}
 
         {info?.kind === 'image' && !galleryActive && (
@@ -487,6 +524,7 @@ export function FileViewer({
           </View>
         )}
       </ScrollView>
+      )}
 
       {info && info.kind !== 'dir' && (
         <Text style={styles.meta}>

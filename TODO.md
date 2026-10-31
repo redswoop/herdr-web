@@ -8,7 +8,7 @@ Status tags: `[idea]` not yet shaped · `[shaped]` ready to build · `[wip]` · 
 
 ---
 
-## 1. Command deck → status bar `[done]` — header sub line is the status bar; deck row + Alt+digit gone (#2 revives chords)
+## 1. Command deck → status bar `[done 9e3bdb0 + 65c5044]` — header sub line is the status bar; deck row + Alt+digit gone (#2 revives chords)
 
 **Problem.** The F-key deck (`1new 2rewind 3resume 4compact 5effort 6perms
 7model 8context`) is a full row of buttons parked above the composer on every
