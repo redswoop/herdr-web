@@ -1,7 +1,9 @@
-/* The agent screen's own header: back, who/where (+ model · effort ·
-   context readout), and the live controls (permission mode, status). Session
-   verbs — rewind, compact, effort … — live on the CommandDeck strip. Replaces the native stack header, whose
-   centred title lost to the back circle and the status chip on a phone. */
+/* The agent screen's own header: back, who/where, and the live controls.
+   The sub line is the StatusLine — model · effort · ctx · cwd, each readout
+   the control that changes it — and the status pill opens the session's
+   lifecycle verbs (new · rewind · resume). Replaces the native stack header,
+   whose centred title lost to the back circle and the status chip on a phone. */
+import { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -10,13 +12,12 @@ import {
   MODE_LABEL,
   MODE_ORDER,
   chipName,
-  fmtTokens,
   getServers,
   hostColor,
   hostName,
-  shortModel,
   type Agent,
   type AgentStatus,
+  type KindCommand,
   type ModeState,
   type PermissionMode,
   type SessionReadout,
@@ -25,8 +26,7 @@ import { NeonRail } from '../cyber';
 import { FlickerIn, Glitch, RailPacket, Scramble, StatusDot } from '../cyber-fx';
 import { alpha, useStyles, useTheme, type Tokens } from '../theme';
 import { Icon } from './Icon';
-
-const shortPath = (p: string) => p.replace(/^\/(?:home|Users)\/[^/]+/, '~');
+import { StatusLine } from './StatusLine';
 
 export function AgentHeader({
   paneId,
@@ -39,9 +39,14 @@ export function AgentHeader({
   modeOpen,
   onModeOpen,
   readout,
+  commands,
+  disabled,
   onBack,
   onSetMode,
   onMenu,
+  onSend,
+  onPanel,
+  onOpenDir,
 }: {
   paneId: string;
   agent: Agent | undefined;
@@ -51,14 +56,20 @@ export function AgentHeader({
   online?: boolean;
   mode: ModeState;
   modeBusy: boolean;
-  /** mode picker open — lifted so the deck's perms slot can open it too */
   modeOpen: boolean;
   onModeOpen: (open: boolean) => void;
   readout: SessionReadout;
+  /** the kind's manifest — which readouts are live, which verbs the pill has */
+  commands: KindCommand[];
+  /** agent working/blocked — readouts and the pill are plain text */
+  disabled: boolean;
   onBack: () => void;
   onSetMode: (m: PermissionMode) => Promise<boolean>;
   /** tap or long-press on the name: rename / close */
   onMenu?: () => void;
+  onSend: (text: string) => Promise<void> | void;
+  onPanel: (ui: NonNullable<KindCommand['ui']>) => void;
+  onOpenDir: (path: string) => void;
 }) {
   const t = useTheme();
   const styles = useStyles(makeStyles);
@@ -68,6 +79,10 @@ export function AgentHeader({
   const liveMode = !!kind && LIVE_MODE_KINDS.includes(kind) && mode !== 'unknown';
   const sColor = online ? t.status(status) : t.colors.blocked; // the skin's attention colour
   const mColor = modeColor(t, mode);
+  // the status pill's sheet (new · rewind · resume) lives in the StatusLine
+  const [sessionOpen, setSessionOpen] = useState(false);
+  const hasLifecycle = commands.some((c) => ['new', 'rewind', 'resume'].includes(c.verb));
+  const pillTap = online && !disabled && hasLifecycle ? () => setSessionOpen(true) : undefined;
 
   return (
     <View style={[styles.wrap, { paddingTop: insets.top }]}>
@@ -77,29 +92,31 @@ export function AgentHeader({
         </Pressable>
         <FlickerIn style={styles.who}>
           <Pressable onPress={onMenu} onLongPress={onMenu} disabled={!onMenu} accessibilityLabel="agent menu">
-          <Glitch>
-            <Scramble style={styles.title} numberOfLines={1}>
-              {agent ? chipName(agent) : paneId}
-            </Scramble>
-          </Glitch>
-          {!!agent && (
-            <Text style={styles.sub} numberOfLines={1}>
-              {getServers().length > 1 && (
-                <Text style={{ color: hostColor(agent.host), fontWeight: '700' }}>{hostName(agent.host)}</Text>
-              )}
-              {getServers().length > 1 && ' · '}
-              {[
-                // the model names the agent well enough — the row is narrow
-                readout.model ? shortModel(readout.model) : (agent.displayAgent ?? agent.agent),
-                readout.effort,
-                readout.ctx != null ? `${fmtTokens(readout.ctx)} ctx` : null,
-                agent.cwd ? shortPath(agent.cwd) : null,
-              ]
-                .filter(Boolean)
-                .join(' · ')}
-            </Text>
-          )}
+            <Glitch>
+              <Scramble style={styles.title} numberOfLines={1}>
+                {agent ? chipName(agent) : paneId}
+              </Scramble>
+            </Glitch>
           </Pressable>
+          {!!agent && (
+            <View style={styles.subRow}>
+              {getServers().length > 1 && (
+                <Text style={[styles.sub, { color: hostColor(agent.host), fontWeight: '700' }]}>{hostName(agent.host)} · </Text>
+              )}
+              <StatusLine
+                agent={agent}
+                readout={readout}
+                commands={commands}
+                disabled={disabled}
+                style={[styles.sub, { flexShrink: 1 }]}
+                session={sessionOpen}
+                onSessionClose={() => setSessionOpen(false)}
+                onSend={onSend}
+                onPanel={onPanel}
+                onOpenDir={onOpenDir}
+              />
+            </View>
+          )}
         </FlickerIn>
         {liveMode && (
           <Pressable
@@ -112,12 +129,19 @@ export function AgentHeader({
             <Text style={[styles.chipText, { color: mColor }, t.glow(mColor, 6)]}>{MODE_LABEL[mode]}</Text>
           </Pressable>
         )}
-        <View style={styles.status} accessibilityLabel={online ? `status ${status ?? 'unknown'}` : 'link lost, reconnecting'}>
+        <Pressable
+          style={styles.status}
+          onPress={pillTap}
+          disabled={!pillTap}
+          hitSlop={8}
+          accessibilityLabel={online ? `status ${status ?? 'unknown'}` : 'link lost, reconnecting'}
+          accessibilityHint={pillTap ? 'new, rewind or resume the session' : undefined}
+        >
           <StatusDot status={online ? status : 'blocked'} color={sColor} size={8} />
           <Text style={[styles.statusText, { color: sColor }, t.glow(sColor, 6)]}>
             {online ? status ?? '—' : 'link lost'}
           </Text>
-        </View>
+        </Pressable>
       </View>
       {t.cyber ? (
         <View>
@@ -183,6 +207,7 @@ const makeStyles = (t: Tokens) =>
     title: t.cyber
       ? { ...t.font('display', '700'), color: t.colors.red, fontSize: t.sz('ui', 13), letterSpacing: 1.2, textTransform: 'uppercase', ...t.glow(t.colors.red, 10) }
       : { ...t.font('ui', '700'), color: t.colors.text, fontSize: t.sz('ui', 16) },
+    subRow: { flexDirection: 'row', alignItems: 'baseline', minWidth: 0 },
     sub: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: t.sz('ui', 11) },
     ctlOff: { opacity: 0.35 },
     chip: {

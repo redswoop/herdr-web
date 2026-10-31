@@ -1,65 +1,120 @@
 import { test, expect } from '@playwright/test';
 import { mockLog, mockState, openAgent } from '../helpers/app';
 
-test('deck lays out fixed slots from the kind manifest; unsupported verbs stay dimmed', async ({ page }) => {
-  await openAgent(page, 'w1:p1');
-  const keys = page.locator('.deck-key');
-  await expect(keys).toHaveCount(8);
-  await expect(keys.nth(3)).toHaveText('4compact');
-  await expect(keys.nth(3)).toBeEnabled();
-  await expect(keys.nth(6)).toBeEnabled();
-  // claude's fixture manifest has no context — it keeps its slot, off
-  await expect(keys.nth(7)).toBeDisabled();
+// The header status line: model · effort · ctx · cwd, each readout the control
+// that changes it (per the kind manifest), and the lifecycle verbs behind the
+// status chip. Mock only — never test effort/model picks against real claude,
+// it saves a default to settings.json.
+
+const turn = (extra: Record<string, unknown> = {}) => ({
+  kind: 'assistant',
+  text: 'done',
+  ts: '2024-06-01T12:00:09.000Z',
+  model: 'claude-opus-5-5',
+  effort: 'high',
+  msgId: 'm9',
+  usage: { out: 5, ctx: 98_038 },
+  ...extra,
 });
 
-test('no manifest, no deck (grok)', async ({ page }) => {
-  await openAgent(page, 'w2:p1');
-  await expect(page.locator('.bar .agent-name')).toBeVisible();
+test('readouts are controls where the manifest has a verb; cwd opens the browser', async ({ page }) => {
+  await openAgent(page, 'w1:p1');
+  await mockState({ appendEvents: { 'w1:p1': [turn()] } });
+  await page.reload();
+  const line = page.locator('.bar .status-line');
+  await expect(line).toHaveText('opus 5.5 · high · 98k ctx · ~/src/app');
+  await expect(line.locator('button.ro')).toHaveCount(4);
   await expect(page.locator('.deck')).toHaveCount(0);
+  await line.locator('button.ro', { hasText: '~/src/app' }).click();
+  await expect(page).toHaveURL(/\/file\/%2Fhome%2Farmen%2Fsrc%2Fapp$/);
 });
 
-test('working agent: every slot is off', async ({ page }) => {
+test('no manifest (grok): plain text, plain status chip', async ({ page }) => {
+  await openAgent(page, 'w2:p1');
+  await expect(page.locator('.bar .status-line')).toBeVisible();
+  await expect(page.locator('.bar .status-line button.ro')).toHaveCount(1); // cwd only
+  await expect(page.locator('.bar button.session-chip')).toHaveCount(0);
+});
+
+test('working agent: every readout is off', async ({ page }) => {
   await openAgent(page, 'w1:p2');
-  await expect(page.locator('.deck-key').first()).toBeDisabled();
+  await expect(page.locator('.bar .status-line button.ro').first()).toBeDisabled();
+  await expect(page.locator('.bar button.session-chip')).toBeDisabled();
 });
 
-test('Alt+4 opens compact; Enter fires it with the focus line', async ({ page }) => {
+test('ctx → compact now; Enter fires it with the focus line', async ({ page }) => {
   await openAgent(page, 'w1:p1');
-  // the manifest loads async — the hotkey binds once the deck is up
-  await expect(page.locator('.deck-key', { hasText: 'compact' })).toBeEnabled();
-  await page.keyboard.press('Alt+Digit4');
-  const input = page.locator('.deck-arg input');
+  await mockState({ appendEvents: { 'w1:p1': [turn()] } });
+  await page.reload();
+  await page.locator('.bar button.ro', { hasText: 'ctx' }).click();
+  await page.locator('.status-pop .mode-row', { hasText: 'compact now' }).click();
+  const input = page.locator('.status-arg input');
   await expect(input).toBeFocused();
   await input.fill('keep the auth notes');
   await input.press('Enter');
-  await expect(page.locator('.deck-pop')).toHaveCount(0);
+  await expect(page.locator('.status-pop')).toHaveCount(0);
   await expect
     .poll(async () => (await mockLog()).prompts)
     .toContainEqual(expect.objectContaining({ paneId: 'w1:p1', text: '/compact keep the auth notes' }));
 });
 
-test('effort picker marks the current level and fires the pick; readout follows the transcript', async ({ page }) => {
+test('a click outside a pop (even deep in the transcript) closes it; so does Escape', async ({ page }) => {
+  await openAgent(page, 'w1:p1');
+  await mockState({ appendEvents: { 'w1:p1': [turn()] } });
+  await page.reload();
+  const ctx = page.locator('.bar button.ro', { hasText: 'ctx' });
+  await ctx.click();
+  await expect(page.locator('.status-pop')).toBeVisible();
+  await page.locator('.transcript').click({ position: { x: 20, y: 320 } });
+  await expect(page.locator('.status-pop')).toHaveCount(0);
+  // the trigger itself toggles rather than closing-then-reopening
+  await ctx.click();
+  await expect(page.locator('.status-pop')).toBeVisible();
+  await ctx.click();
+  await expect(page.locator('.status-pop')).toHaveCount(0);
+  await ctx.click();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.status-pop')).toHaveCount(0);
+  // the session chip's pop, the same way
+  await page.locator('.bar button.session-chip').click();
+  await expect(page.locator('.session-pop')).toBeVisible();
+  await page.locator('.transcript').click({ position: { x: 20, y: 320 } });
+  await expect(page.locator('.session-pop')).toHaveCount(0);
+  expect((await mockLog()).prompts.some((p: { text: string }) => p.text.startsWith('/'))).toBe(false);
+});
+
+test('right-click on ctx goes straight to the compact focus line', async ({ page }) => {
+  await openAgent(page, 'w1:p1');
+  await mockState({ appendEvents: { 'w1:p1': [turn()] } });
+  await page.reload();
+  await page.locator('.bar button.ro', { hasText: 'ctx' }).click({ button: 'right' });
+  await expect(page.locator('.status-arg input')).toBeFocused();
+});
+
+test('ctx tints as the window fills, once /context has named the window', async ({ page }) => {
   await openAgent(page, 'w1:p1');
   await mockState({
     appendEvents: {
       'w1:p1': [
-        {
-          kind: 'assistant',
-          text: 'done',
-          ts: '2024-06-01T12:00:09.000Z',
-          model: 'claude-opus-5-5',
-          effort: 'high',
-          msgId: 'm9',
-          usage: { out: 5, ctx: 98_038 },
-        },
+        { kind: 'command', text: '/context', ts: '2024-06-01T12:00:08.000Z' },
+        { kind: 'command_out', text: 'Context Usage\n  33.5k/100k tokens (33%)\n', ts: '2024-06-01T12:00:08.500Z' },
+        turn({ usage: { out: 5, ctx: 90_000 } }),
       ],
     },
   });
   await page.reload();
-  await expect(page.locator('.bar .sub')).toContainText('opus 5.5 · high · 98k ctx');
-  await page.locator('.deck-key', { hasText: 'effort' }).click();
-  await expect(page.locator('.deck-pop .mode-row.current')).toContainText('high');
-  await page.locator('.deck-pop .mode-row', { hasText: 'low' }).click();
+  await expect(page.locator('.bar button.ro.hot')).toHaveText('90k ctx');
+  await page.locator('.bar button.ro.hot').click();
+  await expect(page.locator('.status-pop-desc')).toContainText('90k tokens of 100k');
+});
+
+test('effort picker marks the current level and fires the pick', async ({ page }) => {
+  await openAgent(page, 'w1:p1');
+  await mockState({ appendEvents: { 'w1:p1': [turn()] } });
+  await page.reload();
+  await page.locator('.bar button.ro', { hasText: 'high' }).click();
+  await expect(page.locator('.status-pop .mode-row.current')).toContainText('high');
+  await page.locator('.status-pop .mode-row', { hasText: 'low' }).click();
   await expect
     .poll(async () => (await mockLog()).prompts)
     .toContainEqual(expect.objectContaining({ paneId: 'w1:p1', text: '/effort low' }));
@@ -67,18 +122,33 @@ test('effort picker marks the current level and fires the pick; readout follows 
 
 test('model picker lists the aliases, marks the family, and fires /model <alias>', async ({ page }) => {
   await openAgent(page, 'w1:p1');
-  await mockState({
-    appendEvents: {
-      'w1:p1': [
-        { kind: 'assistant', text: 'done', ts: '2024-06-01T12:00:09.000Z', model: 'claude-opus-5-5', effort: 'high', msgId: 'm9' },
-      ],
-    },
-  });
+  await mockState({ appendEvents: { 'w1:p1': [turn({ usage: undefined })] } });
   await page.reload();
-  await page.locator('.deck-key', { hasText: 'model' }).click();
-  await expect(page.locator('.deck-pop .mode-row')).toHaveText(['fable', '❯ opus', 'sonnet', 'haiku']);
-  await page.locator('.deck-pop .mode-row', { hasText: 'sonnet' }).click();
+  await page.locator('.bar button.ro', { hasText: 'opus 5.5' }).click();
+  await expect(page.locator('.status-pop .mode-row')).toHaveText(['fable', '❯ opus', 'sonnet', 'haiku']);
+  await page.locator('.status-pop .mode-row', { hasText: 'sonnet' }).click();
   await expect
     .poll(async () => (await mockLog()).prompts)
     .toContainEqual(expect.objectContaining({ paneId: 'w1:p1', text: '/model sonnet' }));
+});
+
+test('status chip: new · rewind · resume; new arms first (keep backs out), second tap sends /clear', async ({ page }) => {
+  await openAgent(page, 'w1:p1');
+  const chip = page.locator('.bar button.session-chip');
+  await expect(chip).toBeEnabled();
+  await chip.click();
+  await expect(page.locator('.session-pop .mode-row .mode-name')).toHaveText(['new', 'rewind', 'resume']);
+  await page.locator('.session-pop .mode-row', { hasText: 'new' }).click();
+  const armed = page.locator('.session-pop .mode-row.armed');
+  await expect(armed).toBeVisible();
+  await armed.locator('.arm-keep').click();
+  await expect(page.locator('.session-pop .mode-row.armed')).toHaveCount(0);
+  await expect(page.locator('.session-pop')).toBeVisible();
+  expect((await mockLog()).prompts.some((p: { text: string }) => p.text === '/clear')).toBe(false);
+  await page.locator('.session-pop .mode-row', { hasText: 'new' }).click();
+  await page.locator('.session-pop .mode-row.armed .arm-go').click();
+  await expect(page.locator('.session-pop')).toHaveCount(0);
+  await expect
+    .poll(async () => (await mockLog()).prompts)
+    .toContainEqual(expect.objectContaining({ paneId: 'w1:p1', text: '/clear' }));
 });

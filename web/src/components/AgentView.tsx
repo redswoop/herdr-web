@@ -4,21 +4,20 @@ import {
   MODE_LABEL,
   MODE_ORDER,
   chipName,
-  fmtTokens,
   isTuiChrome,
   sessionReadout,
-  shortModel,
   useAgentMode,
   useKindCommands,
 } from '@herdr/shared';
 import { agentPath, errorOf, post } from '../api';
 import { useAgentSession } from '../hooks/useAgentSession';
+import { useDismiss } from '../hooks/useDismiss';
 import { useBlockedContext } from '../hooks/useBlockedContext';
 import { WIDE, useMediaQuery } from '../hooks/useMediaQuery';
 import type { Agent, AnswerBody, RestoredDraft, RewindState, SessionEntry } from '../types';
 import { BlockedCard } from './BlockedCard';
-import { CommandDeck } from './CommandDeck';
 import { ResumeCard } from './ResumeCard';
+import { SessionChip, StatusLine } from './StatusLine';
 import { RewindCard } from './RewindCard';
 import { Composer } from './Composer';
 import { FileViewer } from './FileViewer';
@@ -54,6 +53,10 @@ export function AgentView({
     accept: acceptMode,
   } = useAgentMode(paneId, agent?.agent, status);
   const [modeOpen, setModeOpen] = useState(false);
+  const modeChipRef = useRef<HTMLButtonElement>(null);
+  const modePopRef = useRef<HTMLDivElement>(null);
+  const closeMode = useCallback(() => setModeOpen(false), []);
+  useDismiss(modeOpen, closeMode, modeChipRef, modePopRef);
   // header name → inline rename; Esc flags a cancel before the blur commits
   const [naming, setNaming] = useState(false);
   const nameCancel = useRef(false);
@@ -422,22 +425,22 @@ export function AgentView({
               {agent ? chipName(agent) : paneId}
             </div>
           )}
-          <div className="sub">
-            {agent
-              ? [
-                  // the model names the agent well enough — phone width is tight
-                  readout.model ? shortModel(readout.model) : (agent.displayAgent ?? agent.agent),
-                  readout.effort,
-                  readout.ctx != null ? `${fmtTokens(readout.ctx)} ctx` : null,
-                  agent.cwd,
-                ]
-                  .filter(Boolean)
-                  .join(' · ')
-              : ''}
-          </div>
+          {agent ? (
+            <StatusLine
+              agent={agent}
+              readout={readout}
+              commands={commands}
+              disabled={working || blocked || rewindBusy}
+              onSend={(text) => sendFromComposer(text)}
+              onOpenDir={openFile}
+            />
+          ) : (
+            <div className="sub" />
+          )}
         </div>
         {agent?.agent === 'claude' && mode !== 'unknown' && (
           <button
+            ref={modeChipRef}
             className={`chip mode-chip mode-${mode} ${modeBusy ? 'busy' : ''}`}
             disabled={modeBusy}
             onClick={() => setModeOpen((o) => !o)}
@@ -445,30 +448,36 @@ export function AgentView({
             {MODE_LABEL[mode]}
           </button>
         )}
-        <span className={`chip ${status ?? ''}`}>{status ?? '—'}</span>
+        <SessionChip
+          status={status}
+          commands={commands}
+          disabled={working || blocked || rewindBusy}
+          onSend={(text) => sendFromComposer(text)}
+          onPanel={(ui) => {
+            if (ui === 'rewind') void openRewind();
+            else if (ui === 'resume') setResumeOpen(true);
+          }}
+        />
         {modeOpen && (
-          <>
-            <div className="pop-backdrop" onClick={() => setModeOpen(false)} />
-            <div className="mode-pop">
-              {MODE_ORDER.map((m) => (
-                <button
-                  key={m}
-                  className={`mode-row ${m === mode ? 'current' : ''}`}
-                  disabled={modeBusy}
-                  onClick={async () => {
-                    setModeOpen(false);
-                    if (m !== mode) await setMode(m);
-                  }}
-                >
-                  <span className="mode-name">
-                    {m === mode ? '❯ ' : ''}
-                    {MODE_LABEL[m]}
-                  </span>
-                  <span className="mode-desc">{MODE_DESC[m]}</span>
-                </button>
-              ))}
-            </div>
-          </>
+          <div className="mode-pop" ref={modePopRef}>
+            {MODE_ORDER.map((m) => (
+              <button
+                key={m}
+                className={`mode-row ${m === mode ? 'current' : ''}`}
+                disabled={modeBusy}
+                onClick={async () => {
+                  setModeOpen(false);
+                  if (m !== mode) await setMode(m);
+                }}
+              >
+                <span className="mode-name">
+                  {m === mode ? '❯ ' : ''}
+                  {MODE_LABEL[m]}
+                </span>
+                <span className="mode-desc">{MODE_DESC[m]}</span>
+              </button>
+            ))}
+          </div>
         )}
       </header>
 
@@ -533,18 +542,6 @@ export function AgentView({
           onGone={onDialogGone}
         />
       )}
-
-      <CommandDeck
-        commands={commands}
-        disabled={working || blocked || rewindBusy}
-        readout={readout}
-        onSend={(text) => sendFromComposer(text)}
-        onPanel={(ui) => {
-          if (ui === 'rewind') void openRewind();
-          else if (ui === 'resume') setResumeOpen(true);
-          else if (ui === 'mode') setModeOpen(true);
-        }}
-      />
 
       <Composer
         paneId={paneId}

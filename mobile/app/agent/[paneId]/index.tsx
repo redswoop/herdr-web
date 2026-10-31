@@ -28,7 +28,6 @@ import { AgentHeader } from '../../../src/components/AgentHeader';
 import { agentMenu } from '../../../src/manage';
 import { fileScreenFor } from '../../../src/file-routes';
 import { BlockedCard } from '../../../src/components/BlockedCard';
-import { CommandDeck } from '../../../src/components/CommandDeck';
 import { RewindCard, ResumeCard } from '../../../src/components/Cards';
 import { Composer } from '../../../src/components/Composer';
 import { LiveTail } from '../../../src/components/LiveTail';
@@ -363,9 +362,17 @@ export default function AgentScreen() {
         modeOpen={modeOpen}
         onModeOpen={setModeOpen}
         readout={readout}
+        commands={commands}
+        disabled={working || blocked || rewindBusy}
         onBack={goBack}
         onSetMode={setMode}
         onMenu={agent ? () => agentMenu(agent, { onClosed: goBack, onFiles: () => onOpenFile(agent.cwd ?? '~') }) : undefined}
+        onSend={(text) => sendFromComposer(text)}
+        onPanel={(ui) => {
+          if (ui === 'rewind') void openRewind();
+          else if (ui === 'resume') setResumeOpen(true);
+        }}
+        onOpenDir={onOpenFile}
       />
       {blocked && (
         <View style={styles.blockedBanner}>
@@ -420,17 +427,6 @@ export default function AgentScreen() {
           onGone={onDialogGone}
         />
       )}
-      <CommandDeck
-        commands={commands}
-        disabled={working || blocked || rewindBusy}
-        readout={readout}
-        onSend={(text) => sendFromComposer(text)}
-        onPanel={(ui) => {
-          if (ui === 'rewind') void openRewind();
-          else if (ui === 'resume') setResumeOpen(true);
-          else if (ui === 'mode') setModeOpen(true);
-        }}
-      />
       <Composer
         paneId={paneId}
         working={working}

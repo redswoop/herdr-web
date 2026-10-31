@@ -3,7 +3,16 @@
    Native sheets and prompts: they're quick, keyboard-correct and the user
    already knows them. */
 import { ActionSheetIOS, Alert, Platform } from 'react-native';
-import { chipName, closeAgent, closeWorkspace, describeError, errorOf, renameAgent, renameWorkspace, type Agent } from '@herdr/shared';
+import {
+  chipName,
+  closeAgent,
+  closeWorkspace,
+  describeError,
+  errorOf,
+  renameAgent,
+  renameWorkspace,
+  type Agent,
+} from '@herdr/shared';
 import { tick, toast } from './toast';
 
 function sheet(title: string, options: { label: string; destructive?: boolean; run: () => void }[]) {
@@ -19,10 +28,17 @@ function sheet(title: string, options: { label: string; destructive?: boolean; r
       (i) => options[i]?.run(),
     );
   } else {
-    Alert.alert(title, undefined, [
-      ...options.map((o) => ({ text: o.label, style: o.destructive ? ('destructive' as const) : undefined, onPress: o.run })),
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+    // Android's Alert shows at most three buttons, so a 3-verb sheet would
+    // lose its Cancel: let a tap outside / back dismiss it instead
+    Alert.alert(
+      title,
+      undefined,
+      [
+        ...options.map((o) => ({ text: o.label, style: o.destructive ? ('destructive' as const) : undefined, onPress: o.run })),
+        ...(options.length < 3 ? [{ text: 'Cancel', style: 'cancel' as const }] : []),
+      ],
+      { cancelable: true },
+    );
   }
 }
 

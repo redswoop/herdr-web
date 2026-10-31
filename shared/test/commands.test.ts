@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { commandText, currentValue, fmtTokens, sessionReadout, shortModel } from '../src/commands';
+import { commandText, ctxFill, ctxHeat, currentValue, fmtTokens, sessionReadout, shortModel } from '../src/commands';
 import type { Item, TEvent } from '../src/types';
 
 let key = 0;
@@ -14,7 +14,7 @@ describe('sessionReadout', () => {
       ev({ kind: 'assistant', model: 'claude-opus-5-5', effort: 'high', usage: { out: 1, ctx: 98_038 } }),
       ev({ kind: 'tool_result', text: 'ok' }),
     ];
-    expect(sessionReadout(items)).toEqual({ model: 'claude-opus-5-5', effort: 'high', ctx: 98_038 });
+    expect(sessionReadout(items)).toEqual({ model: 'claude-opus-5-5', effort: 'high', ctx: 98_038, window: null });
   });
 
   it('an /effort stdout newer than the last turn wins', () => {
@@ -31,7 +31,7 @@ describe('sessionReadout', () => {
       ev({ kind: 'assistant', model: 'claude-opus-5-5', effort: 'high', usage: { out: 1, ctx: 150_000 } }),
       ev({ kind: 'note', name: 'compact', text: 'context compacted' }),
     ];
-    expect(sessionReadout(items)).toEqual({ model: 'claude-opus-5-5', effort: 'high', ctx: null });
+    expect(sessionReadout(items)).toEqual({ model: 'claude-opus-5-5', effort: 'high', ctx: null, window: null });
   });
 
   it('a /model switch newer than the last turn sets the model and blanks effort', () => {
@@ -40,19 +40,38 @@ describe('sessionReadout', () => {
       ev({ kind: 'command', name: '/model', text: 'sonnet' }),
       ev({ kind: 'command_out', text: 'Set model to `Sonnet 5.5` and saved as your default for new sessions' }),
     ];
-    expect(sessionReadout(items)).toEqual({ model: 'claude-sonnet-5-5', effort: null, ctx: 5 });
+    expect(sessionReadout(items)).toEqual({ model: 'claude-sonnet-5-5', effort: null, ctx: 5, window: null });
     // an /effort after the switch is the real level again
     items.push(ev({ kind: 'command_out', text: 'Set effort level to low (saved as your default for new sessions)' }));
     expect(sessionReadout(items).effort).toBe('low');
   });
 
   it('is all-null on an empty session', () => {
-    expect(sessionReadout([])).toEqual({ model: null, effort: null, ctx: null });
+    expect(sessionReadout([])).toEqual({ model: null, effort: null, ctx: null, window: null });
+  });
+
+  it('takes the window from a /context stdout, however old, and heats as it fills', () => {
+    const items = [
+      ev({ kind: 'command', name: '/context', text: '' }),
+      ev({ kind: 'command_out', text: 'Context Usage\n⛁ ⛁ ⛶   33.5k/1m tokens (3%)\n' }),
+      ev({ kind: 'assistant', model: 'claude-opus-5-5', effort: 'high', usage: { out: 1, ctx: 50_000 } }),
+      ev({ kind: 'user', text: 'more' }),
+      ev({ kind: 'assistant', model: 'claude-opus-5-5', effort: 'high', usage: { out: 1, ctx: 700_000 } }),
+    ];
+    const r = sessionReadout(items);
+    expect(r.window).toBe(1_000_000);
+    expect(ctxFill(r)).toBeCloseTo(0.7);
+    expect(ctxHeat(r)).toBe('warm');
+    expect(ctxHeat({ ...r, ctx: 900_000 })).toBe('hot');
+    expect(ctxHeat({ ...r, ctx: 100_000 })).toBe('');
+    // no /context yet: no window, no tint
+    expect(ctxHeat({ ...r, window: null })).toBe('');
+    expect(ctxFill({ ...r, window: null })).toBeNull();
   });
 });
 
 describe('currentValue', () => {
-  const r = { model: 'claude-opus-5-5', effort: 'xhigh', ctx: null };
+  const r = { model: 'claude-opus-5-5', effort: 'xhigh', ctx: null, window: null };
   it('marks the effort level and the model family', () => {
     expect(currentValue({ verb: 'effort', label: 'effort', values: ['high', 'xhigh'] }, r)).toBe('xhigh');
     expect(currentValue({ verb: 'model', label: 'model', values: ['fable', 'opus', 'sonnet'] }, r)).toBe('opus');
