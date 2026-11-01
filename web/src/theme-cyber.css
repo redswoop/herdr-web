@@ -46,7 +46,6 @@
   & .bar h1 { font-size: calc(15px * var(--fs)); animation: cy-glitch 7s steps(1) infinite; }
   & .agent-name {
     font-weight: 700; font-size: calc(15px * var(--fs)); letter-spacing: 0.03em; color: var(--text);
-    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
   }
   & .sub, & .build, & .age, & .freshness-age, & .turn-meta, & .sent-status, & .act-dur { font-family: var(--mono); }
   & .ghost { text-shadow: var(--glow); }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildGroups, byAttention, byGroupRank, chipName, cleanAgentName, dominant, isGenericTitle } from '../src/roster-groups';
+import { buildGroups, byAttention, byGroupRank, chipName, cleanAgentName, dominant, isGenericTitle, workspaceTabs } from '../src/roster-groups';
 import type { Agent } from '../src/types';
 
 const agent = (partial: Partial<Agent> & { paneId: string }): Agent => ({
@@ -177,5 +177,30 @@ describe('recency ordering', () => {
       now,
     );
     expect(groups.map((g) => g.badge).sort()).toEqual(['#6', '#8']);
+  });
+});
+
+describe('workspaceTabs', () => {
+  const tabs = [
+    { tabId: 't2', workspaceId: 'ws1', number: 2, label: '2', focused: false, paneCount: 1, status: 'idle' as const },
+    { tabId: 't1', workspaceId: 'ws1', number: 1, label: '1', focused: true, paneCount: 2, status: 'idle' as const },
+  ];
+  it('orders by herdr tab number, then pane order within a split tab', () => {
+    const agents = [
+      agent({ paneId: 'p3', tabId: 't2' }),
+      agent({ paneId: 'p1', tabId: 't1' }),
+      agent({ paneId: 'p2', tabId: 't1' }),
+      agent({ paneId: 'other', workspaceId: 'ws2', tabId: 'tx' }),
+    ];
+    expect(workspaceTabs(agents, tabs, 'ws1').map((a) => a.paneId)).toEqual(['p1', 'p2', 'p3']);
+  });
+  it('keeps hosts apart — the same workspace id on another box is another space', () => {
+    const agents = [agent({ paneId: 'p1' }), agent({ paneId: 'p1@blackstar', host: 'blackstar' })];
+    expect(workspaceTabs(agents, tabs, 'ws1').map((a) => a.paneId)).toEqual(['p1']);
+    expect(workspaceTabs(agents, tabs, 'ws1', 'blackstar').map((a) => a.paneId)).toEqual(['p1@blackstar']);
+  });
+  it('unknown tabs sort last', () => {
+    const agents = [agent({ paneId: 'p9', tabId: 'gone' }), agent({ paneId: 'p1', tabId: 't1' })];
+    expect(workspaceTabs(agents, tabs, 'ws1').map((a) => a.paneId)).toEqual(['p1', 'p9']);
   });
 });

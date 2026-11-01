@@ -92,6 +92,18 @@ export function splitByTab(agents: Agent[], tabs: Map<string, Tab>): TabSub[] | 
     .map(({ number: _n, ...rest }) => rest);
 }
 
+/** The chats in one workspace, in herdr's tab order (then pane order within
+ *  a split tab) — the browser tab strip mirrors the TUI's. Hosts keep their
+ *  own workspace ids, so the same id on another box is a different space. */
+export function workspaceTabs(agents: Agent[], tabs: Tab[], workspaceId: string, host?: string | null): Agent[] {
+  const number = new Map(tabs.map((t) => [t.tabId, t.number]));
+  return agents
+    .map((a, i) => ({ a, i }))
+    .filter(({ a }) => a.workspaceId === workspaceId && (a.host ?? '') === (host ?? ''))
+    .sort((x, y) => (number.get(x.a.tabId) ?? 999) - (number.get(y.a.tabId) ?? 999) || x.i - y.i)
+    .map(({ a }) => a);
+}
+
 /** Most common value among the agents; spawn targets follow the majority. */
 export function dominant<T>(agents: Agent[], of: (a: Agent) => T | null): T | undefined {
   const counts = new Map<T, number>();

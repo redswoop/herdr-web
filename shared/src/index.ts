@@ -24,6 +24,7 @@ export {
   isStale,
   STALE_MS,
   cleanAgentName,
+  workspaceTabs,
   type GroupBy,
   type TabSub,
   type Group,

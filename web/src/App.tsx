@@ -3,6 +3,7 @@ import { AgentView } from './components/AgentView';
 import { NewChatDialog } from './components/NewChatDialog';
 import { Overview } from './components/Overview';
 import { Sidebar } from './components/Sidebar';
+import { TabStrip } from './components/TabStrip';
 import { TokenGate } from './components/TokenGate';
 import { Chevrons } from './components/ui/Chevrons';
 import { Split, SplitHandle, SplitPane } from './components/ui/Split';
@@ -109,6 +110,10 @@ export default function App() {
 
   const detail = (
     <div className="detail">
+      {/* wide only: herdr's tab bar for this space — pills in its tab order */}
+      {pane && agent && wide && (
+        <TabStrip roster={roster} agent={agent} onSelect={select} onNewChat={openNewChat} />
+      )}
       {pane ? (
         <AgentView
           key={pane}

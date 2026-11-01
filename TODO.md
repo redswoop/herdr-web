@@ -444,6 +444,70 @@ Maybe `g h` or similar once #2 gives us a keymap.
 
 ---
 
+## 22. Web: tabs for the chats in a workspace `[wip — strip landed 2026-10-31; keep-alive + sidebar next]` — big
+
+**Want.** A browser-style tab strip over the chat: every chat in the current
+workspace is one click away, the way it is in the herdr TUI. Armen calls this
+huge for the web client.
+
+**State.** The data's already here: `Agent` carries `workspaceId` + `tabId`,
+the roster carries `tabs` and `workspaces`, and tab create/close/rename events
+already drive it (`server.js` ~L302). The sidebar shows tab sub-rows in `space`
+grouping. What's missing is the strip, and chat views that survive a switch.
+
+**Landed (uncommitted, 2026-10-31).** `web/src/components/TabStrip.tsx` above
+`AgentView` in `App.tsx`, wide only, shaped like herdr's own tab bar: dim
+space name at the left (click: rename/close space), then one pill per chat in
+herdr's tab order (`workspaceTabs()` in `shared/src/roster-groups.ts`,
+host-scoped) — tab number + name cut at 18 chars, the full name/agent/status/
+cwd on hover, the open one lit, blocked ones red. Order never shifts. ＋ aims
+the launcher at the space. Right-click: rename/close; closing the open chat
+lands on its neighbour. No ×. Always shown, even for a one-chat space.
+Two earlier shapes rejected: a fat 34px row (too much room) and the mates
+trailing the title inline (title floats, tabs reflow on switch).
+Alongside: the header's `model · effort · ctx · cwd` line moved behind a
+**details chip** (model + ctx on it, heat-tinted), so the bar is one line
+and the `.bar` height dropped from 60 to 48px. Readouts inside are
+unchanged (nested Pop). e2e: `tabstrip.spec.ts`, `command-deck.spec.ts`.
+No keep-alive yet — switching still remounts.
+
+**Shape.**
+- Strip at the top of `.detail`, wide layout only: status dot, name, blocked
+  marker that's loud enough to catch from another tab. Order = herdr's tab
+  order, so it matches the TUI.
+- `+` = new tab in this space, skipping the place picker (`SpawnTarget` with
+  `workspaceId`). `×` closes, with the confirm from #15. Double-click renames.
+- Sidebar click picks the workspace's last-viewed tab, or that exact chat if
+  the row is a chat (see open question).
+- Each tab keeps its scroll position, composer draft, and docked file.
+
+**Keep-alive.** Today `AgentView` is `key={pane}`, so every switch tears it
+down and refetches. Tabs should stay mounted so switching is instant, which
+also sidesteps most of #20's slow switch. Bound it: LRU of ~4 mounted views,
+and hide the rest off-DOM. Each mounted view holds an SSE stream, and plain
+HTTP/1.1 caps a host at 6 connections (fine over HTTPS/h2 via `tailscale
+serve`, tight on direct :7683). Wants `tail` from #20 as well.
+
+**Where.** New `web/src/components/TabStrip.tsx`, `web/src/App.tsx` (the
+`detail` block, route), `AgentView.tsx`, `Sidebar.tsx`, a pure tab-order helper
+in `shared/src/roster-groups.ts` so Capra can use it later.
+
+**Open.**
+- Does the sidebar change? Either it stays as is, or it becomes a list of
+  workspaces with chats living in the strip. The second is the real payoff
+  and the bigger redesign.
+- A strip entry per chat (agent pane) or per herdr tab? A herdr tab can hold
+  several split panes. Leaning per chat, non-agent panes skipped.
+- `Alt+digit`: #2 gives it to sessions in sidebar order; with tabs it should
+  mean tabs in this workspace.
+- Chats with no workspace mates (a one-chat space) probably hide the strip.
+- Should clicking a tab also focus it in the TUI? Leaning no.
+
+**Depends on / touches.** #15 (rename/close), #2 (keys), #20 (switch speed),
+#21 (overview), #1 (the deck sits right below the strip, so count the rows).
+
+---
+
 ## Harvested from the repo docs `[triage]`
 
 Pulled from `PLAN.md`, `PLAN-MOBILE-REFRESH.md`, `docs/PARITY.md`, the

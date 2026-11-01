@@ -4,7 +4,10 @@ import {
   MODE_LABEL,
   MODE_ORDER,
   chipName,
+  ctxHeat,
+  fmtTokens,
   isTuiChrome,
+  shortModel,
   sessionReadout,
   useAgentMode,
   useKindCommands,
@@ -53,6 +56,9 @@ export function AgentView({
     accept: acceptMode,
   } = useAgentMode(paneId, agent?.agent, status);
   const [modeOpen, setModeOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const detailsRef = useRef<HTMLButtonElement>(null);
+  const closeDetails = useCallback(() => setDetailsOpen(false), []);
   const modeChipRef = useRef<HTMLButtonElement>(null);
   const closeMode = useCallback(() => setModeOpen(false), []);
   // header name → inline rename; Esc flags a cancel before the blur commits
@@ -423,19 +429,50 @@ export function AgentView({
               {agent ? chipName(agent) : paneId}
             </div>
           )}
-          {agent ? (
-            <StatusLine
-              agent={agent}
-              readout={readout}
-              commands={commands}
-              disabled={working || blocked || rewindBusy}
-              onSend={(text) => sendFromComposer(text)}
-              onOpenDir={openFile}
-            />
-          ) : (
-            <div className="sub" />
-          )}
+        {/* model · effort · ctx · cwd: on the phone the line under the name,
+            as always; on wide it lives behind one chip (the glanceable two on
+            it) so the bar is one row. The readouts stay the controls either way */}
+        {agent && !wide && (
+          <StatusLine
+            agent={agent}
+            readout={readout}
+            commands={commands}
+            disabled={working || blocked || rewindBusy}
+            onSend={(text) => sendFromComposer(text)}
+            onOpenDir={openFile}
+          />
+        )}
         </div>
+        {agent && wide && (
+          <>
+            <button
+              ref={detailsRef}
+              className={`chip details-chip ${detailsOpen ? 'on' : ''}`}
+              title="session details: model · effort · context · folder"
+              onClick={() => setDetailsOpen((o) => !o)}
+            >
+              <span className="details-model">
+                {(readout.model ? shortModel(readout.model) : null) ?? agent.displayAgent ?? agent.agent}
+              </span>
+              {readout.ctx != null && (
+                <span className={`details-ctx ${ctxHeat(readout) ?? ''}`}>{fmtTokens(readout.ctx)}</span>
+              )}
+            </button>
+            <Pop open={detailsOpen} onClose={closeDetails} anchor={detailsRef} align="right" className="details-pop">
+              <StatusLine
+                agent={agent}
+                readout={readout}
+                commands={commands}
+                disabled={working || blocked || rewindBusy}
+                onSend={(text) => sendFromComposer(text)}
+                onOpenDir={(p) => {
+                  closeDetails();
+                  openFile(p);
+                }}
+              />
+            </Pop>
+          </>
+        )}
         {agent?.agent === 'claude' && mode !== 'unknown' && (
           <button
             ref={modeChipRef}
