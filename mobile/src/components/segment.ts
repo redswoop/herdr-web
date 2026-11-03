@@ -9,12 +9,28 @@ import type { Inline } from '@herdr/shared';
  * stays unit-testable; SegText.tsx renders it.
  */
 export const SEG_LINES = 20;
-export const SEG_CHARS = 2000;
+// Soft cap: once a segment holds this much, the next newline ends it. It
+// must sit well under HARD_CHARS, or the hard mid-run cut always fires first
+// and a paragraph breaks in the middle of a sentence (the "- **Why / this
+// lowers price**" stray line break, 2026-11-03: both were 2000).
+export const SEG_CHARS = 1200;
 // A single wrapped run this long risks the limit on its own. Calibrated for
 // the WORST consumer — 15pt/22-lineHeight body text at ~45 chars per wrapped
 // line ≈ 44 lines ≈ 970pt ≈ 2900px @3x. (6000 was fine for 12pt monospace
 // but blew past 8192px as body text.)
 export const HARD_CHARS = 2000;
+// A hard cut lands on the last space within this many chars of the limit,
+// so the forced break at least falls between words.
+const CUT_SLACK = 200;
+
+/** where to cut `t` so the piece is at most `take` long: the last space in
+ *  reach (the space stays on the first piece, so the next segment doesn't
+ *  open with one), else exactly `take` */
+export function cutAt(t: string, take: number): number {
+  if (take >= t.length) return t.length;
+  const sp = t.lastIndexOf(' ', take - 1);
+  return sp >= take - CUT_SLACK && sp > 0 ? sp + 1 : take;
+}
 
 // The layer cap applies to WIDTH too: in a non-wrapping context (fenced code
 // inside a horizontal ScrollView) a Text is as wide as its longest line, and
@@ -49,8 +65,9 @@ export function splitPlain(text: string): string[] {
         lines = 0;
       }
     } else if (i - start >= HARD_CHARS) {
-      out.push(text.slice(start, i));
-      start = i;
+      const cut = start + cutAt(text.slice(start), i - start);
+      out.push(text.slice(start, cut));
+      start = cut;
       lines = 0;
     }
   }
@@ -88,7 +105,7 @@ export function splitInlineSegs(nodes: Inline[]): Inline[][] {
     let t = n.text;
     let cut = false;
     while (chars + t.length > HARD_CHARS) {
-      const take = HARD_CHARS - chars;
+      const take = chars < HARD_CHARS ? cutAt(t, HARD_CHARS - chars) : 0;
       cut = true;
       if (take > 0) {
         cur.push(flat(n, t.slice(0, take)));

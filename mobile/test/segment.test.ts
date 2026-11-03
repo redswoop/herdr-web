@@ -36,6 +36,38 @@ describe('splitPlain', () => {
   });
 });
 
+describe('cut placement', () => {
+  it('the soft cap sits under the hard cap, so newlines win', () => {
+    expect(SEG_CHARS).toBeLessThan(HARD_CHARS);
+  });
+
+  it('a long paragraph of newline-separated items splits at a newline, not mid-run', () => {
+    // bullets ~400 chars each, 3000 chars in all: the only cuts are at '\n'
+    const item = `- **Why this lowers price**: ${'word '.repeat(75)}`;
+    const text = Array.from({ length: 8 }, () => item).join('\n');
+    const nodes: Inline[] = [{ type: 'text', text }];
+    const segs = splitInlineSegs(nodes);
+    expect(segs.length).toBeGreaterThan(1);
+    for (const seg of segs) {
+      expect(segChars(seg)).toBeLessThanOrEqual(HARD_CHARS);
+      const last = seg[seg.length - 1].text;
+      expect(last.endsWith('word ') || last.endsWith('word')).toBe(true); // ends at an item end
+    }
+    expect(segs.map((s) => s.map((n) => n.text).join('')).join('\n')).toBe(text);
+  });
+
+  it('a hard cut falls between words and the next piece has no leading space', () => {
+    const text = 'lorem ipsum '.repeat(400); // 4800 chars, one line
+    for (const seg of splitInlineSegs([{ type: 'text', text }])) {
+      const t = seg.map((n) => n.text).join('');
+      expect(t.length).toBeLessThanOrEqual(HARD_CHARS);
+      expect(t.startsWith(' ')).toBe(false);
+      expect(t.endsWith(' ')).toBe(true);
+    }
+    for (const s of splitPlain(text)) expect(s.endsWith(' ')).toBe(true);
+  });
+});
+
 describe('wrapLongLines', () => {
   // WIDTH regression: fenced code renders in a horizontal ScrollView, so a
   // Text is as wide as its longest line — ~380 chars of 12pt mono @3x already

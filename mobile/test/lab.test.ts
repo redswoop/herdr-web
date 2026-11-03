@@ -25,7 +25,13 @@ describe('black-box fixture', () => {
     expect(BLACK_BOX_REPLY).toBe(md);
     const paras = parseMd(BLACK_BOX_REPLY).filter((b) => b.type === 'para');
     const spans = paras.map((p) => splitInlineSegs((p as { inlines: Inline[] }).inlines).map((s) => s.length));
-    // two single-segment paragraphs of 55 and 35 spans — the thing under test
-    expect(spans).toEqual([[55], [35]]);
+    // two span-heavy paragraphs — the thing under test. The segmenter's soft
+    // cap (SEG_CHARS) now ends a segment at the first newline past 1200
+    // chars, so each paragraph is two stacked Texts; the first still holds
+    // 39 / 32 nested spans, plenty to exercise the shape that boxed.
+    expect(spans).toEqual([
+      [39, 15],
+      [32, 2],
+    ]);
   });
 });
