@@ -75,19 +75,29 @@ export function splitInlineSegs(nodes: Inline[]): Inline[][] {
   };
   // hard-split oversized runs of ANY node type (a 10k-char inline code span
   // blows the layer just as hard as plain text); slicing keeps the node's
-  // type/styling and, for link/file nodes, its target on every piece
+  // type/styling and, for link/file nodes, its target on every piece; a
+  // sliced emphasis run shows its plain text (its nested markup can't be cut)
+  const flat = (n: Inline, text: string): Inline => {
+    if (n.type === 'strong' || n.type === 'em') {
+      const { inlines: _drop, ...rest } = n;
+      return { ...rest, text };
+    }
+    return { ...n, text };
+  };
   const push = (n: Inline) => {
     let t = n.text;
+    let cut = false;
     while (chars + t.length > HARD_CHARS) {
       const take = HARD_CHARS - chars;
+      cut = true;
       if (take > 0) {
-        cur.push({ ...n, text: t.slice(0, take) });
+        cur.push(flat(n, t.slice(0, take)));
         t = t.slice(take);
       }
       flush();
     }
     if (t) {
-      cur.push({ ...n, text: t });
+      cur.push(cut ? flat(n, t) : { ...n, text: t });
       chars += t.length;
     }
   };

@@ -93,57 +93,62 @@ function InlineSeg({
   const base = lab.lineHeight ? styles.base : styles.baseNoLh;
   if (lab.flatten) return <Text style={base} allowFontScaling={false}>{nodes.map((n) => n.text).join('')}</Text>;
   const code = [styles.code, !lab.codeBg && styles.codeNoBg, !lab.codeFont && styles.codeNoFont];
+  // emphasis runs nest (`**a *b* c**`); `bold` picks the bold-italic face
+  // for an em inside a strong
+  const render = (n: Inline, i: number, bold = false): ReactElement => {
+    switch (n.type) {
+      case 'text':
+        return <Text key={i}>{n.text}</Text>;
+      case 'strong':
+        return (
+          <Text
+            key={i}
+            style={styles.strong}
+            onPress={n.href ? () => Linking.openURL(n.href!).catch(() => {}) : () => copy(n.text)}
+          >
+            {n.inlines ? n.inlines.map((k, j) => render(k, j, true)) : n.text}
+          </Text>
+        );
+      case 'em':
+        return (
+          <Text key={i} style={bold ? styles.emBold : styles.em}>
+            {n.inlines ? n.inlines.map((k, j) => render(k, j, bold)) : n.text}
+          </Text>
+        );
+      case 'code':
+        // a path or url opens on tap; plain code copies
+        return (
+          <Text
+            key={i}
+            style={code}
+            onPress={
+              n.href
+                ? () => Linking.openURL(n.href!).catch(() => {})
+                : n.file && onOpenFile
+                  ? () => onOpenFile(n.file!)
+                  : () => copy(n.text)
+            }
+          >
+            {n.text}
+          </Text>
+        );
+      case 'link':
+        return (
+          <Text key={i} style={styles.link} onPress={() => Linking.openURL(n.href).catch(() => {})}>
+            {n.text}
+          </Text>
+        );
+      case 'file':
+        return (
+          <Text key={i} style={styles.link} onPress={onOpenFile ? () => onOpenFile(n.path) : undefined}>
+            {n.text}
+          </Text>
+        );
+    }
+  };
   return (
     <Text style={base} allowFontScaling={false}>
-      {nodes.map((n, i) => {
-        switch (n.type) {
-          case 'text':
-            return <Text key={i}>{n.text}</Text>;
-          case 'strong':
-            return (
-              <Text key={i} style={styles.strong} onPress={() => copy(n.text)}>
-                {n.text}
-              </Text>
-            );
-          case 'code':
-            // a path or url opens on tap; plain code copies
-            return (
-              <Text
-                key={i}
-                style={code}
-                onPress={
-                  n.href
-                    ? () => Linking.openURL(n.href!).catch(() => {})
-                    : n.file && onOpenFile
-                      ? () => onOpenFile(n.file!)
-                      : () => copy(n.text)
-                }
-              >
-                {n.text}
-              </Text>
-            );
-          case 'link':
-            return (
-              <Text
-                key={i}
-                style={styles.link}
-                onPress={() => Linking.openURL(n.href).catch(() => {})}
-              >
-                {n.text}
-              </Text>
-            );
-          case 'file':
-            return (
-              <Text
-                key={i}
-                style={styles.link}
-                onPress={onOpenFile ? () => onOpenFile(n.path) : undefined}
-              >
-                {n.text}
-              </Text>
-            );
-        }
-      })}
+      {nodes.map((n, i) => render(n, i))}
     </Text>
   );
 }
@@ -354,6 +359,10 @@ const makeStyles = (t: Tokens) =>
   block: {},
   base: { ...t.font('ui'), color: t.colors.text, fontSize: t.px('chat', 15), lineHeight: t.px('chat', 22) },
   baseNoLh: { ...t.font('ui'), color: t.colors.text, fontSize: t.px('chat', 15) },
+  // the cyber faces carry weight/slant in the name: fontStyle alone would
+  // leave Chakra Petch upright on iOS
+  em: t.cyber ? { fontFamily: 'ChakraPetch_400Regular_Italic' } : { fontStyle: 'italic' },
+  emBold: t.cyber ? { fontFamily: 'ChakraPetch_700Bold_Italic' } : { fontStyle: 'italic' },
   strong: { ...t.font('ui', '700'), color: t.cyber ? mix(t.colors.text, '#ffffff', 0.5) : t.colors.text, ...t.glow(alpha(t.colors.accent, 0.35), 8) },
   code: {
     ...t.font('mono'),

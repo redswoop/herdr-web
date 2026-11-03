@@ -20,7 +20,10 @@ function renderInlines(inlines: Inline[]): string {
         case 'text':
           return esc(n.text);
         case 'strong':
-          return `<strong>${esc(n.text)}</strong>`;
+          if (n.href) return `<strong>${anchor(n.href, n.text)}</strong>`;
+          return `<strong>${n.inlines ? renderInlines(n.inlines) : esc(n.text)}</strong>`;
+        case 'em':
+          return `<em>${n.inlines ? renderInlines(n.inlines) : esc(n.text)}</em>`;
         case 'code':
           if (n.href) return `<code>${anchor(n.href, n.text)}</code>`;
           return n.file

@@ -90,6 +90,9 @@ export const FONT_FILES: Record<string, number> = {
   ChakraPetch_500Medium: require('@expo-google-fonts/chakra-petch/500Medium/ChakraPetch_500Medium.ttf'),
   ChakraPetch_600SemiBold: require('@expo-google-fonts/chakra-petch/600SemiBold/ChakraPetch_600SemiBold.ttf'),
   ChakraPetch_700Bold: require('@expo-google-fonts/chakra-petch/700Bold/ChakraPetch_700Bold.ttf'),
+  // markdown *em* (MdView); not in cyberdos's manifest, Capra-only
+  ChakraPetch_400Regular_Italic: require('@expo-google-fonts/chakra-petch/400Regular_Italic/ChakraPetch_400Regular_Italic.ttf'),
+  ChakraPetch_700Bold_Italic: require('@expo-google-fonts/chakra-petch/700Bold_Italic/ChakraPetch_700Bold_Italic.ttf'),
   ShareTechMono_400Regular: require('@expo-google-fonts/share-tech-mono/400Regular/ShareTechMono_400Regular.ttf'),
 };
 export { NATIVE_FONT_FILES };

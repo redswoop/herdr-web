@@ -48,6 +48,14 @@ describe('parseMd + md()', () => {
     expect(html).toContain('&quot;onmouseover=&quot;');
   });
 
+  it('bold URLs become links inside the strong run', () => {
+    expect(md('**http://stormer.tail93d23c.ts.net:8090/**')).toContain(
+      '<strong><a href="http://stormer.tail93d23c.ts.net:8090/" target="_blank" rel="noopener noreferrer">http://stormer.tail93d23c.ts.net:8090/</a></strong>',
+    );
+    expect(md('**not a url**')).toBe('<strong>not a url</strong>');
+    expect(md('**https://a.com/"onfocus="x**')).not.toContain('"onfocus="');
+  });
+
   it('backticked URLs become links inside the code chip', () => {
     const html = md('Tailnet URL is `http://desk.tailnet.ts.net:8188/`.');
     expect(html).toContain(
@@ -96,5 +104,48 @@ describe('parseMd + md()', () => {
     const blocks = parseMd('**hi**\n\n```\ncode\n```');
     expect(blocks.some((b) => b.type === 'code')).toBe(true);
     expect(blocks.some((b) => b.type === 'para')).toBe(true);
+  });
+});
+
+describe('emphasis', () => {
+  it('renders italics with * and _', () => {
+    expect(md('you are *not* changing supply')).toBe('you are <em>not</em> changing supply');
+    expect(md('get *one* top-3 OEM')).toBe('get <em>one</em> top-3 OEM');
+    expect(md('a _word_ here')).toBe('a <em>word</em> here');
+    expect(md('*lead*')).toBe('<em>lead</em>');
+  });
+
+  it('leaves math, snake_case and dunders alone', () => {
+    expect(md('2 * 3 * 4')).toBe('2 * 3 * 4');
+    expect(md('2 ** 3 ** 4')).toBe('2 ** 3 ** 4');
+    expect(md('a*b*c')).toBe('a*b*c');
+    expect(md('foo_bar_baz and __init__')).toBe('foo_bar_baz and __init__');
+    expect(md('see `a*b*` here')).toBe('see <code>a*b*</code> here');
+  });
+
+  it('nests italics and code inside bold', () => {
+    expect(md('**A physical *inventory* dump**')).toBe('<strong>A physical <em>inventory</em> dump</strong>');
+    expect(md('**use `x` now**')).toBe('<strong>use <code>x</code> now</strong>');
+    expect(md('***both***')).toBe('<strong><em>both</em></strong>');
+    expect(md('**a** and **b**')).toBe('<strong>a</strong> and <strong>b</strong>');
+  });
+
+  it('strong/em nodes carry plain text plus nested inlines', () => {
+    const [b] = parseMd('**A *b* c**');
+    expect(b.type).toBe('para');
+    if (b.type !== 'para') return;
+    const [s] = b.inlines;
+    expect(s).toMatchObject({ type: 'strong', text: 'A b c' });
+    expect(s.type === 'strong' && s.inlines?.map((n) => n.type)).toEqual(['text', 'em', 'text']);
+    expect(md('**plain**')).toBe('<strong>plain</strong>');
+  });
+
+  it('headings go bold even with markup inside', () => {
+    expect(md('## What *raises* prices')).toBe('<strong>What <em>raises</em> prices</strong>');
+    expect(md('### 2. **A physical *inventory* dump (the one)**')).toBe(
+      '<strong>2. A physical <em>inventory</em> dump (the one)</strong>',
+    );
+    expect(md('#### deep')).toBe('<strong>deep</strong>');
+    expect(md('# Title #')).toBe('<strong>Title</strong>');
   });
 });

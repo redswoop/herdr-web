@@ -71,9 +71,11 @@ it is just as good — the user taps it and the viewer opens.
 
 ## Markdown that renders
 
-Fenced code blocks (with language tag), tables, **bold**, inline code, and
-links all render. Headings render as bold lines, so keep them short. URLs
-become links even inside fences. There is no inline image syntax; use a path.
+Fenced code blocks (with language tag), tables, **bold**, *italics*, inline
+code, and links all render; bold may nest italics or code. Headings render
+as bold lines, so keep them short. Lists are shown as the text you wrote (a
+`- ` or `1. ` lead, no indent), so keep items short. URLs become links even
+inside fences. There is no inline image syntax; use a path.
 
 ## Input the user can give you from the phone
 
