@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "build:tx": "vite build -c vite.webview.config.ts"
   },
   "dependencies": {
     "@herdr/shared": "*",
@@ -19,6 +20,7 @@
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "^5.9.0",
-    "vite": "^7.3.7"
+    "vite": "^7.3.7",
+    "vite-plugin-singlefile": "^2.3.4"
   }
 }

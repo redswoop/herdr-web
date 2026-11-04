@@ -62,6 +62,12 @@ function effective(t: Theme): Record<string, string> {
   return p === 'custom' ? { ...fromBase, ...(colors[t] ?? {}) } : fromBase;
 }
 
+/** the colour overrides in force (a preset's roles + custom knobs): what the
+ *  WebView transcript applies through the skin's own applyPalette */
+export function currentOverrides(): Record<string, string> {
+  return effective(theme);
+}
+
 function rebuild() {
   tokens = buildTokens(theme, effective(theme), fonts);
   for (const cb of listeners) cb();

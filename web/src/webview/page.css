@@ -1,0 +1,51 @@
+/* Page chrome for the standalone transcript: the app's .view/.scroll layout
+   without the app. style.css still owns tokens, bubbles and everything the
+   transcript is made of. */
+#root { display: flex; flex-direction: column; height: 100%; }
+#root > .transcript { padding-bottom: calc(14px + var(--inset-bottom, 0px)); }
+/* a WebView has no browser chrome to hide a scrollbar behind */
+:root[data-platform="ios"] .scroll, :root[data-platform="android"] .scroll { scrollbar-width: none; }
+:root[data-platform="ios"] .scroll::-webkit-scrollbar, :root[data-platform="android"] .scroll::-webkit-scrollbar { display: none; }
+/* the native shell draws the rain; keep the page itself solid so nothing
+   bleeds when the WebView's own background is transparent */
+body { background: var(--bg); }
+
+.tx-skew {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 99;
+  padding: 6px 10px; background: var(--blocked); color: #000;
+  font: 600 12px/1.3 var(--mono); text-align: center;
+}
+
+/* ---------- dev harness (browser only) ---------- */
+.tx-harness {
+  position: fixed; top: 8px; right: 8px; z-index: 50;
+  width: min(340px, calc(100vw - 16px));
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  border: 1px solid var(--hairline); border-radius: var(--r-md);
+  font: 12px/1.4 var(--mono); color: var(--text);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  -webkit-user-select: none; user-select: none;
+}
+.tx-harness.closed { width: auto; }
+.tx-harness .hz-head {
+  display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+  cursor: pointer; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--sub);
+}
+.tx-harness .hz-head .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--idle); }
+.tx-harness .hz-head .dot.on { background: var(--working); animation: pulse 1.1s ease-in-out infinite; }
+.tx-harness .hz-body { display: flex; flex-direction: column; gap: 7px; padding: 0 10px 10px; }
+.tx-harness label { display: flex; align-items: center; gap: 8px; }
+.tx-harness label > span:first-child { width: 64px; flex: none; color: var(--sub); }
+.tx-harness select, .tx-harness input[type="number"], .tx-harness input[type="text"] {
+  flex: 1; min-width: 0; font: inherit; color: inherit;
+  background: var(--surface-2); border: 1px solid var(--hairline); border-radius: 6px; padding: 3px 6px;
+}
+.tx-harness input[type="range"] { flex: 1; }
+.tx-harness .hz-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.tx-harness button {
+  padding: 4px 10px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--hairline);
+  font: inherit; color: var(--text);
+}
+.tx-harness button.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.tx-harness .hz-log { max-height: 90px; overflow-y: auto; color: var(--sub); white-space: pre-wrap; word-break: break-all; }
+.tx-harness .hz-status { color: var(--sub); }

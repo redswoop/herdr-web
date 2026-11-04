@@ -19,6 +19,7 @@ import { palettesFor, type Theme } from '@herdr/shared/cyber';
 import { describeError, FONT_AREAS, FONT_MAX, FONT_MIN, FONT_STEP } from '@herdr/shared';
 import { paletteOf, setFont, setPalette, setTheme } from '../src/prefs';
 import { setAutocorrect, useAutocorrect } from '../src/device-prefs';
+import { setTxEngine, useTxEngine } from '../src/tx-engine';
 import { ICON_THUMBS, iconsSupported, setIconChoice, useIconChoice, wantedIcon } from '../src/app-icon';
 import { checkForUpdate, restartForUpdate, updateInfo, updateReady } from '../src/updates';
 import { ServerList } from '../src/components/ServerList';
@@ -40,6 +41,7 @@ export default function SettingsScreen() {
       <AppIcon />
       <TextSize />
       <ComposerPrefs />
+      <TranscriptEngine />
       <Pressable style={styles.labLink} onPress={() => router.push('/lab')}>
         <Text style={styles.labText}>render lab → the empty-bubble diagnostics</Text>
       </Pressable>
@@ -117,6 +119,34 @@ function ComposerPrefs() {
           trackColor={{ true: t.colors.accent, false: t.colors.surface3 }}
           thumbColor={t.cyber ? t.colors.bg : undefined}
           accessibilityLabel="autocorrect in the composer"
+        />
+      </View>
+    </View>
+  );
+}
+
+/** A/B: the web transcript in a WebView vs the native one (PLAN-HTML-TRANSCRIPT.md).
+ *  Two-finger double-tap on any transcript flips it too. */
+function TranscriptEngine() {
+  const t = useTheme();
+  const styles = useStyles(makeStyles);
+  const engine = useTxEngine();
+  return (
+    <View style={styles.section}>
+      <Text style={styles.label}>transcript</Text>
+      <View style={styles.fontRow}>
+        <View style={styles.fontHead}>
+          <Text style={styles.fontName}>html engine</Text>
+          <Text style={styles.fontHint} numberOfLines={2}>
+            the web transcript in a WebView; two-finger double-tap a chat to flip on the fly
+          </Text>
+        </View>
+        <Switch
+          value={engine === 'html'}
+          onValueChange={(v) => setTxEngine(v ? 'html' : 'native')}
+          trackColor={{ true: t.colors.accent, false: t.colors.surface3 }}
+          thumbColor={t.cyber ? t.colors.bg : undefined}
+          accessibilityLabel="html transcript engine"
         />
       </View>
     </View>

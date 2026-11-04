@@ -1,6 +1,7 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import {
   AUX_LABEL,
+  apiUrl,
   EPOCH_MS,
   HERDING,
   MINE_STATUS,
@@ -46,6 +47,9 @@ export function Transcript({
   cancellableKey,
   onInterrupt,
   onOpenFile,
+  onAway,
+  host = null,
+  scrollEndRef,
 }: {
   items: Item[];
   error: string | null;
@@ -54,6 +58,12 @@ export function Transcript({
   cancellableKey: number | null; // mine bubble that gets tap-to-stop
   onInterrupt: () => void;
   onOpenFile: (path: string) => void;
+  /** follow state for a host that shows it elsewhere (Capra's status line) */
+  onAway?: (away: boolean, unseen: boolean) => void;
+  /** the server thumbnails come from (multi-host); null = primary */
+  host?: string | null;
+  /** the host drops a "scroll to the end" function here (composer send) */
+  scrollEndRef?: MutableRefObject<(() => void) | null>;
 }) {
   const ref = useRef<HTMLElement>(null);
   const follow = useRef(true);
@@ -96,7 +106,10 @@ export function Transcript({
     const el = ref.current;
     if (!el) return;
     if (follow.current) el.scrollTop = el.scrollHeight;
-    else setUnseen(true);
+    else {
+      setUnseen(true);
+      onAway?.(true, true);
+    }
   }, [items, working]);
 
   const onScroll = () => {
@@ -105,7 +118,19 @@ export function Transcript({
     follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
     setAway(!follow.current);
     if (follow.current) setUnseen(false);
+    onAway?.(!follow.current, follow.current ? false : unseen);
   };
+
+  // the WebView's viewport shrinks under the keyboard: a pinned tail stays pinned
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      if (follow.current) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // a thumbnail decodes after the layout pass pinned the bottom — its height
   // would shove the tail out of view, so re-pin if we were following
@@ -118,6 +143,7 @@ export function Transcript({
     const el = ref.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   };
+  if (scrollEndRef) scrollEndRef.current = toBottom;
 
   // the SSE tick and the working pill's 3s cycle re-render this constantly —
   // don't re-derive the node list (and re-parse markdown) unless items moved
@@ -164,6 +190,7 @@ export function Transcript({
               files={n.files}
               caption={n.caption}
               attach={n.attach}
+              host={host}
               onOpenFile={onOpenFile}
               onGrow={onGrow}
             />
@@ -425,7 +452,8 @@ const CommandPill = memo(function CommandPill({
 
 /* ---------- sent files ---------- */
 
-const rawUrl = (path: string) => `/api/file/raw?path=${encodeURIComponent(path)}`;
+const rawUrl = (path: string, host: string | null) =>
+  apiUrl(`/api/file/raw?path=${encodeURIComponent(path)}`, host);
 
 /** SendUserFile: thumbnails for images, chips for the rest; tap opens the
  *  file viewer. Most of these live in a /tmp scratchpad that a reboot wipes,
@@ -434,12 +462,14 @@ const SentFiles = memo(function SentFiles({
   files,
   caption,
   attach,
+  host,
   onOpenFile,
   onGrow,
 }: {
   files: string[];
   caption: string;
   attach: boolean;
+  host: string | null;
   onOpenFile: (path: string) => void;
   onGrow: () => void;
 }) {
@@ -454,7 +484,7 @@ const SentFiles = memo(function SentFiles({
           {imgs.map((f) => (
             <button key={f} className="sent-thumb" title={f} onClick={() => onOpenFile(f)}>
               <img
-                src={rawUrl(f)}
+                src={rawUrl(f, host)}
                 alt={baseName(f)}
                 loading="lazy"
                 onLoad={onGrow}

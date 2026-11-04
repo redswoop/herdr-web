@@ -33,6 +33,8 @@ import { Composer } from '../../../src/components/Composer';
 import { LiveTail } from '../../../src/components/LiveTail';
 import { ScreenMirror } from '../../../src/components/ScreenMirror';
 import { Transcript } from '../../../src/components/Transcript';
+import { TxWebView } from '../../../src/components/TxWebView';
+import { flipTxEngine, twoFingerDoubleTap, useTxEngine } from '../../../src/tx-engine';
 import { Screen, StripeFill } from '../../../src/cyber';
 import { AlarmSweep } from '../../../src/cyber-fx';
 import { alpha, useStyles, type Tokens } from '../../../src/theme';
@@ -340,6 +342,11 @@ export default function AgentScreen() {
 
   const toggleMirror = useCallback(() => setMirror((m) => !m), []);
 
+  // A/B: the native FlatList transcript or the web one in a WebView; a
+  // two-finger double-tap on either flips (tx-engine.ts, PLAN-HTML-TRANSCRIPT.md)
+  const engine = useTxEngine();
+  const onFlipTouch = useMemo(() => twoFingerDoubleTap(flipTxEngine), []);
+
   const showBlockedCard = blocked && !keysForced && ctx != null && ctx.kind !== 'none' && ctx.kind !== 'unknown';
   const showKeys = keysPinned || dialog !== null || mirror || (blocked && (keysForced || ctx?.kind === 'unknown'));
   // grok's plan overlay is driven by a/s/q — none of which are on the default
@@ -384,20 +391,37 @@ export default function AgentScreen() {
           </Text>
         </View>
       )}
-      <Transcript
-        items={items}
-        error={error}
-        loaded={loaded}
-        working={working}
-        cancellableKey={cancellableKey}
-        onInterrupt={interrupt}
-        onOpenFile={onOpenFile}
-        host={hostOf(paneId)}
-        paneId={paneId}
-        older={older}
-        loadingOlder={loadingOlder}
-        onLoadOlder={loadOlder}
-      />
+      {engine === 'html' ? (
+        <TxWebView
+          items={items}
+          error={error}
+          loaded={loaded}
+          working={working}
+          cancellableKey={cancellableKey}
+          onInterrupt={interrupt}
+          onOpenFile={onOpenFile}
+          onFlip={flipTxEngine}
+          host={hostOf(paneId)}
+          paneId={paneId}
+        />
+      ) : (
+        <View style={styles.root} onTouchStart={onFlipTouch}>
+          <Transcript
+            items={items}
+            error={error}
+            loaded={loaded}
+            working={working}
+            cancellableKey={cancellableKey}
+            onInterrupt={interrupt}
+            onOpenFile={onOpenFile}
+            host={hostOf(paneId)}
+            paneId={paneId}
+            older={older}
+            loadingOlder={loadingOlder}
+            onLoadOlder={loadOlder}
+          />
+        </View>
+      )}
       {showBlockedCard && ctx && (
         <BlockedCard ctx={ctx} onAnswer={onAnswer} screenLive={mirror} onToggleScreen={toggleMirror} />
       )}

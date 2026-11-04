@@ -18,7 +18,9 @@
     "dev:web": "npm run dev -w herdr-web-ui",
     "dev:mobile": "npm run start -w capra",
     "build:web": "npm run build -w herdr-web-ui",
-    "link": "node scripts/capra-qr.mjs"
+    "link": "node scripts/capra-qr.mjs",
+    "build:tx": "npm run build:tx -w herdr-web-ui && node scripts/tx-bundle.mjs",
+    "postinstall": "npm run build:tx"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",

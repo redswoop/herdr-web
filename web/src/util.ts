@@ -43,6 +43,13 @@ export const STATUS_WORD: Record<string, string> = {
 
 /** User-gesture copy. Clipboard API first; execCommand fallback for older iOS. */
 export async function copyText(text: string): Promise<boolean> {
+  // hosted in Capra's WebView: file:// is no secure context, so hand the text
+  // to the native side (webview/bridge.ts `copy`) instead of the clipboard API
+  const rn = (window as { ReactNativeWebView?: { postMessage(s: string): void } }).ReactNativeWebView;
+  if (rn) {
+    rn.postMessage(JSON.stringify({ type: 'copy', text }));
+    return true;
+  }
   try {
     await navigator.clipboard.writeText(text);
     return true;
