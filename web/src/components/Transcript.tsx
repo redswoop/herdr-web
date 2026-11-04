@@ -102,9 +102,21 @@ export function Transcript({
     });
   };
 
+  // your own send always lands in view, however far up you were reading
+  // (the native transcript's rule); someone else's new content only lights
+  // the pill
+  const lastMine = useRef(-1);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
+    const last = items[items.length - 1];
+    if (last?.type === 'mine' && last.mine.key !== lastMine.current) {
+      lastMine.current = last.mine.key;
+      follow.current = true;
+      setAway(false);
+      setUnseen(false);
+      onAway?.(false, false);
+    }
     if (follow.current) el.scrollTop = el.scrollHeight;
     else {
       setUnseen(true);
