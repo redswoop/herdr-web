@@ -43,6 +43,7 @@ import { SegText } from './SegText';
 
 import { transcriptDebug } from './debug';
 import { fileRawUrl } from '../api-urls';
+import { useScrollOnSend } from '../device-prefs';
 export { transcriptDebug };
 
 export function Transcript({
@@ -78,6 +79,7 @@ export function Transcript({
   const t = useTheme();
   const styles = useStyles(makeStyles);
   const listRef = useRef<FlatList>(null);
+  const scrollOnSend = useScrollOnSend();
   // scrolled up into history: the newest cell is off the bottom. New content
   // then arrives out of sight, so a pill offers the way back (web's jump pill).
   const [away, setAway] = useState(false);
@@ -87,7 +89,7 @@ export function Transcript({
   useEffect(() => {
     // your own send always lands in view, however far up you were reading;
     // someone else's new content only lights the pill
-    if (last?.type === 'mine') {
+    if (last?.type === 'mine' && scrollOnSend) {
       listRef.current?.scrollToOffset({ offset: 0, animated: true });
       setFresh(false);
       return;

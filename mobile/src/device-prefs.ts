@@ -39,3 +39,32 @@ const subscribe = (cb: () => void) => {
 export function useAutocorrect(): boolean {
   return useSyncExternalStore(subscribe, read, read);
 }
+
+/* "Scroll to my send": a prompt you submit always comes into view, however
+   far up you were reading. On by default; off leaves you where you were and
+   lights the jump pill instead. Both transcript engines read it. */
+const SCROLL_ON_SEND_KEY = 'herdr.scrollOnSend';
+let scrollOnSend: boolean | null = null;
+
+function readScrollOnSend(): boolean {
+  if (scrollOnSend === null) {
+    try {
+      scrollOnSend = getPlatform().kv.get(SCROLL_ON_SEND_KEY) !== '0';
+    } catch {
+      scrollOnSend = true;
+    }
+  }
+  return scrollOnSend;
+}
+
+export function setScrollOnSend(v: boolean) {
+  scrollOnSend = v;
+  try {
+    getPlatform().kv.set(SCROLL_ON_SEND_KEY, v ? '1' : '0');
+  } catch {}
+  for (const cb of listeners) cb();
+}
+
+export function useScrollOnSend(): boolean {
+  return useSyncExternalStore(subscribe, readScrollOnSend, readScrollOnSend);
+}

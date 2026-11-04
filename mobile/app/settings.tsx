@@ -18,7 +18,7 @@ import { Screen } from '../src/cyber';
 import { palettesFor, type Theme } from '@herdr/shared/cyber';
 import { describeError, FONT_AREAS, FONT_MAX, FONT_MIN, FONT_STEP } from '@herdr/shared';
 import { paletteOf, setFont, setPalette, setTheme } from '../src/prefs';
-import { setAutocorrect, useAutocorrect } from '../src/device-prefs';
+import { setAutocorrect, setScrollOnSend, useAutocorrect, useScrollOnSend } from '../src/device-prefs';
 import { setTxEngine, useTxEngine } from '../src/tx-engine';
 import { ICON_THUMBS, iconsSupported, setIconChoice, useIconChoice, wantedIcon } from '../src/app-icon';
 import { checkForUpdate, restartForUpdate, updateInfo, updateReady } from '../src/updates';
@@ -131,6 +131,7 @@ function TranscriptEngine() {
   const t = useTheme();
   const styles = useStyles(makeStyles);
   const engine = useTxEngine();
+  const scrollOnSend = useScrollOnSend();
   return (
     <View style={styles.section}>
       <Text style={styles.label}>transcript</Text>
@@ -147,6 +148,21 @@ function TranscriptEngine() {
           trackColor={{ true: t.colors.accent, false: t.colors.surface3 }}
           thumbColor={t.cyber ? t.colors.bg : undefined}
           accessibilityLabel="html transcript engine"
+        />
+      </View>
+      <View style={styles.fontRow}>
+        <View style={styles.fontHead}>
+          <Text style={styles.fontName}>scroll to my send</Text>
+          <Text style={styles.fontHint} numberOfLines={2}>
+            a prompt you submit always comes into view; off stays put and lights the jump pill
+          </Text>
+        </View>
+        <Switch
+          value={scrollOnSend}
+          onValueChange={setScrollOnSend}
+          trackColor={{ true: t.colors.accent, false: t.colors.surface3 }}
+          thumbColor={t.cyber ? t.colors.bg : undefined}
+          accessibilityLabel="scroll to my send"
         />
       </View>
     </View>

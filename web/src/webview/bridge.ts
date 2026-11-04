@@ -30,6 +30,8 @@ export interface InitMsg {
   host: string | null;
   /** px the native shell wants kept clear at the bottom (home indicator) */
   insetBottom: number;
+  /** a prompt you submit scrolls into view even if you were reading up top */
+  scrollOnSend: boolean;
 }
 
 export interface StateMsg {

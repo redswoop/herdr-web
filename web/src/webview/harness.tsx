@@ -89,6 +89,7 @@ function Harness() {
       paneId: pane,
       host: null,
       insetBottom: platform === 'ios' ? 20 : 0,
+      scrollOnSend: true,
     });
   useEffect(init, [theme, fs, fontScale, platform, pane]);
 

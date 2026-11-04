@@ -50,6 +50,7 @@ export function Transcript({
   onAway,
   host = null,
   scrollEndRef,
+  scrollOnSend = true,
 }: {
   items: Item[];
   error: string | null;
@@ -64,6 +65,8 @@ export function Transcript({
   host?: string | null;
   /** the host drops a "scroll to the end" function here (composer send) */
   scrollEndRef?: MutableRefObject<(() => void) | null>;
+  /** a prompt you submit always scrolls into view (off: stay put, light the pill) */
+  scrollOnSend?: boolean;
 }) {
   const ref = useRef<HTMLElement>(null);
   const follow = useRef(true);
@@ -112,10 +115,12 @@ export function Transcript({
     const last = items[items.length - 1];
     if (last?.type === 'mine' && last.mine.key !== lastMine.current) {
       lastMine.current = last.mine.key;
-      follow.current = true;
-      setAway(false);
-      setUnseen(false);
-      onAway?.(false, false);
+      if (scrollOnSend) {
+        follow.current = true;
+        setAway(false);
+        setUnseen(false);
+        onAway?.(false, false);
+      }
     }
     if (follow.current) el.scrollTop = el.scrollHeight;
     else {

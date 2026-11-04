@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { serverFor, type Item } from '@herdr/shared';
 import { fontScale, useStyles, useTheme, type Tokens } from '../theme';
 import { currentOverrides } from '../prefs';
+import { useScrollOnSend } from '../device-prefs';
 import { TX_HTML } from '../tx-bundle';
 import { tick, toast } from '../toast';
 
@@ -54,6 +55,7 @@ export function TxWebView({
   const t = useTheme();
   const styles = useStyles(makeStyles);
   const insets = useSafeAreaInsets();
+  const scrollOnSend = useScrollOnSend();
   const ref = useRef<WebView>(null);
   const [ready, setReady] = useState(false);
 
@@ -77,8 +79,9 @@ export function TxWebView({
       paneId,
       host,
       insetBottom: 0, // the composer sits under the transcript; the inset is its
+      scrollOnSend,
     };
-  }, [t, host, paneId]);
+  }, [t, host, paneId, scrollOnSend]);
 
   useEffect(() => {
     if (ready) push(init);

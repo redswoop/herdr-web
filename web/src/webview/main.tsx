@@ -75,6 +75,7 @@ function Page() {
         onAway={(away, unseen) => send({ type: 'away', away, unseen })}
         host={init?.host ?? null}
         scrollEndRef={scrollEnd}
+        scrollOnSend={init?.scrollOnSend ?? true}
       />
     </>
   );
