@@ -26,6 +26,10 @@ import {
 } from '@herdr/shared';
 import type { Theme } from '@herdr/shared/cyber';
 import { V, type HostMsg, type InitMsg, type PageMsg } from './bridge';
+import { FIXTURE_EVENTS } from './fixture';
+
+/** the synthetic pane: every node type + fixture.md's markup */
+const FIXTURE = 'fixture';
 
 const q = new URLSearchParams(location.search);
 // ?token= as on the app: the daemon's token, via the dev proxy. It rides in
@@ -103,9 +107,12 @@ function Harness() {
     setPlaying(true);
     let events: TEvent[];
     try {
-      const r = await get(agentPath(pane, 'transcript'));
-      if (!r.ok) throw new Error(`${r.status} ${await errorOf(r)}`);
-      events = ((await r.json()) as { events: TEvent[] }).events;
+      if (pane === FIXTURE) events = FIXTURE_EVENTS;
+      else {
+        const r = await get(agentPath(pane, 'transcript'));
+        if (!r.ok) throw new Error(`${r.status} ${await errorOf(r)}`);
+        events = ((await r.json()) as { events: TEvent[] }).events;
+      }
     } catch (e) {
       setStatus(`transcript: ${String(e)}`);
       setPlaying(false);
@@ -166,6 +173,7 @@ function Harness() {
           <span>pane</span>
           <select value={pane} onChange={(e) => setPane(e.target.value)}>
             <option value="">— pick —</option>
+            <option value={FIXTURE}>kitchen sink (fixture.md)</option>
             {agents.map((a) => (
               <option key={a.paneId} value={a.paneId}>
                 {a.paneId} · {a.label || a.sessionTitle || a.title}
