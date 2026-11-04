@@ -211,33 +211,70 @@ Never been on Armen's wrist.
 
 ---
 
-## 13. Out-of-band status: gaffer integration `[idea]` — big
+## 13. Out-of-band status: gaffer integration `[shaped]` — big; gaffer side moved 10-26 → 11-01, herdr-web side not started
 
 **Want.** Long work an agent kicks off (renders, training, copies) lives on
 gaffer's board, not in the transcript. herdr-web should show it next to the
 session that started it.
 
-**What gaffer gives us.** Controller has an HTTP API + SSE, items with a
-folded progress record (`done/total/unit/phase/eta`), states incl. needs-you
-/ stalled / review, and actions (`POST /api/items/ID/do`, e.g. ship). See
-`~/src/gaffer/README.md`.
+**Gaffer as of 2026-11-03.** v0 (10-26), then observers, actions, `gaffer
+wait`, host hold/drain + the shutdown hook, leases with yield, and priority
+preemption (11-01). Lease `--pid` and `kinds/hf` are still uncommitted in
+`~/src/gaffer`. One controller for both boxes, on stormer's tailnet IP
+(`listen = "auto:8097"`). Mospeada's agent reports to it, so herdr-web needs
+one gaffer address, not one per host. The manual is `~/src/gaffer/README.md`.
+- **API:** `GET /api/status`, `GET /api/stream` (SSE), `GET /api/items/{id}`
+  + `/log`, `POST /api/items/{id}/{verb}` (pause, resume, cancel, retry, ack,
+  and actions like ship).
+- **States:** needs-you, review, failed, stalled, running, **yielded** (gave
+  the card to a lease: says to whom, comes back by itself), queued (with a
+  reason), paused, held.
+- **Board header per host:** slots, plus who holds a resource and how long
+  it's been idle (`stormer gpu 1/1 (qwen llm, idle 19m)`). ComfyUI's queue is
+  already a gaffer observer.
+- **Agents already use it:** the global `CLAUDE.md` tells every session to
+  start long work with `gaffer run` and quote the id, then `gaffer wait ID` in
+  the background. So transcripts already carry `#341 queued  <title>` lines
+  from Bash calls.
+- **Gaffer's "Not yet" list wants this:** a web board, plus ntfy action
+  buttons wired to `POST /api/items/ID/do`. Layer 3 below could be that board.
+- **The reverse direction was tried and dropped:** `observers/herdr`
+  (10-26, removed in gaffer-private `b5f66aa` on 11-01) put herdr sessions on
+  gaffer's board. So data flows one way, gaffer → herdr-web.
 
 **Shape, in layers.**
-1. **Chip it.** A gaffer item id in a transcript (`gaffer run` prints it)
-   becomes a chip → item card: state, progress bar, ETA, log tail.
-2. **Badge the session.** Items started from a pane's cwd/session show as a
-   progress badge on its roster row + header ("2 jobs · 43%"). Needs a link
-   from item → session: env var herdr sets (`HERDR_PANE`?) that `gaffer run`
-   records, or match by cwd + time.
-3. **Board panel.** A gaffer pane in herdr-web: needs-you first, same as
-   `gaffer ls`. Actions as buttons (ship, retry, cancel) — ship still only
-   on Armen's tap.
-4. **Push.** Gaffer needs-you / failed through herdr-web's push (it does ntfy
-   today — maybe just leave that).
+1. **Chip it.** Parse item ids only from Bash calls whose command is
+   `gaffer run|submit|wait|show`, and from their `#N queued` / `#N ...`
+   output. A bare `#341` in prose means too many other things (PRs, issues).
+   The chip opens an item card: state, progress bar, ETA, log tail, live over
+   `/api/stream`. Ready to build.
+2. **Badge the session.** Items from a pane show as a badge on its roster row
+   and header ("2 jobs · 43%", or "yielded to qwen"). The link is now a
+   one-liner in gaffer: herdr sets `HERDR_PANE_ID` / `HERDR_TAB_ID` /
+   `HERDR_WORKSPACE_ID` in every pane, and `gaffer run` copies only
+   `PATH VIRTUAL_ENV CONDA_PREFIX` into the item's `Env`
+   (`~/src/gaffer/internal/cli/cli.go:295`). Add the three `HERDR_*` vars
+   there and the item records its pane; items already record `cwd`. Until
+   then, the ids from layer 1 link the items a transcript mentions.
+3. **Board panel.** A gaffer view in herdr-web, in `gaffer ls` order (needs
+   you, review, failed, stalled, running, yielded, queued), with the host
+   header. Actions as buttons; ship only ever on Armen's tap.
+4. **Push.** Gaffer already alerts over ntfy, and herdr-web pushes blocked
+   agents. Leave it, unless ntfy's lack of action buttons gets annoying.
 
-**Open.** Generic "status source" adapter (gaffer first, ComfyUI queue next)
-vs gaffer-specific. Controller auth/address config per host (multi-host
-already fans out).
+**Decided by the gaffer work.** Generic "status source" vs gaffer-specific:
+gaffer has become the aggregation point (ComfyUI arrives as an observer, and
+upq was folded into the `upscale` kind), so herdr-web talks to gaffer only.
+
+**Open.**
+- **Auth:** the controller has a token. Proxy it through herdr-web's
+  `server.js` (a `/api/gaffer/*` pass-through, token server-side) so the
+  browser and Capra never hold it.
+- **Pane ids are per host:** a mospeada item's `HERDR_PANE_ID` has to be
+  matched against mospeada's roster, not stormer's. The item's `host` field
+  carries that.
+- **Capra:** the card for layer 1 and the badge for layer 2 are cheap; the
+  board panel for layer 3 is a web-first job.
 
 ---
 
@@ -288,6 +325,10 @@ close asks first. Maybe F2 = rename the current session (goes with #2).
 
 **Where.** `web/src/components/Sidebar.tsx`, `AgentView.tsx` header,
 `Overview.tsx` cards. Copy the confirm wording from `mobile/src/manage.ts`.
+
+**Capra leftover (uncommitted since 10-31).** Long-press on an agent row in
+Capra's project-card overview (`mobile/src/components/Overview.tsx`) opens
+the same `agentMenu` as the list rows. Wants its own commit.
 
 ---
 
@@ -431,7 +472,7 @@ the 20 MB+ sessions.
 
 ---
 
-## 21. Web: a way back to the overview `[done]` — the HERD mark goes home; `g h` waits on #2
+## 21. Web: a way back to the overview `[done a1ac38f]` — the HERD mark goes home; `g h` waits on #2
 
 **Problem.** The overview shown on first load (no chat open) has no way back
 once a chat is open, short of editing the URL or reloading to `#`.
@@ -441,6 +482,12 @@ once a chat is open, short of editing the URL or reloading to `#`.
 Maybe `g h` or similar once #2 gives us a keymap.
 
 **Where.** `web/src/components/Sidebar.tsx`, `web/src/App.tsx`.
+
+**Fallout (open).** The button's `aria-label="overview"` renamed the h1's
+accessible name from "herd" to "overview", so two phone e2e tests that look
+for the "herd" heading fail every run: `e2e/tests/auth.spec.ts:16` and
+`e2e/tests/roster.spec.ts:41`. Fix: drop the aria-label (the button's text
+already names it) or update the tests; check `home.spec.ts` first.
 
 ---
 
@@ -462,7 +509,7 @@ herdr's tab order (`workspaceTabs()` in `shared/src/roster-groups.ts`,
 host-scoped) — tab number + name cut at 18 chars, the full name/agent/status/
 cwd on hover, the open one lit, blocked ones red. Order never shifts. ＋ aims
 the launcher at the space. Right-click: rename/close; closing the open chat
-lands on its neighbour. No ×. Always shown, even for a one-chat space.
+lands on its neighbour. Always shown, even for a one-chat space.
 Two earlier shapes rejected: a fat 34px row (too much room) and the mates
 trailing the title inline (title floats, tabs reflow on switch).
 Alongside: the header's `model · effort · ctx · cwd` line moved behind a
@@ -470,6 +517,15 @@ Alongside: the header's `model · effort · ctx · cwd` line moved behind a
 and the `.bar` height dropped from 60 to 48px. Readouts inside are
 unchanged (nested Pop). e2e: `tabstrip.spec.ts`, `command-deck.spec.ts`.
 No keep-alive yet — switching still remounts.
+
+**Since `584c991` (uncommitted, live on stormer since the 11-01 08:41
+bounce).** Each pill has a × (shown on hover and on the lit tab; it keeps
+its width so pills don't jump), middle-click closes a pill, and pills take
+keyboard focus (Enter/Space opens). A pill is now a `div role=tab` because
+the × is a button and buttons can't nest. The close flow is one function,
+`confirmCloseAgent()` in `web/src/manage.ts`, shared with the context menu.
+Two new tests in `e2e/tests/tabstrip.spec.ts` (× confirm/decline/neighbour,
+middle-click closes the pill, not the chat you're reading).
 
 **Shape.**
 - Strip at the top of `.detail`, wide layout only: status dot, name, blocked
@@ -505,6 +561,183 @@ in `shared/src/roster-groups.ts` so Capra can use it later.
 
 **Depends on / touches.** #15 (rename/close), #2 (keys), #20 (switch speed),
 #21 (overview), #1 (the deck sits right below the strip, so count the rows).
+
+---
+
+## 23. Select, quote and highlight in the transcript `[idea]` — medium
+
+**Want.** Select part of a message and do something with it: copy it, quote
+it back to the agent, keep it highlighted. Armen: no AI chat client does
+this well, so it's a place herdr-web can be better than the native apps.
+
+**State.**
+- **Web:** native selection works. Bubbles are `user-select: text`, and the
+  click handler in `web/src/components/Transcript.tsx` (~L66) already
+  steps aside when a drag-select ends on a chip, so a drag never opens a file
+  or copies a chip by accident. Nothing acts on a selection beyond the
+  browser's own copy.
+- **Capra:** no partial selection at all. `selectable` is off on transcript
+  text since the iOS black-box bug (`mobile/src/components/MdView.tsx:79`):
+  selectable Text inside FlatList cells renders blank under Fabric. Long-press
+  copies the whole bubble (`CopyBubble`, `mobile/src/components/Transcript.tsx:343`).
+
+**Shape, in layers.**
+1. **Selection bar (web).** A small floating bar over a live selection:
+   Copy · Quote · Highlight. Quote drops `> the selection` plus a blank line
+   into the composer, with the cursor after it, so you write the follow-up
+   right there. Also on a key: `q` quotes the selection (goes with #2).
+2. **Select mode (Capra).** Long-press bubble → "Select text" opens the
+   message on its own screen as selectable text in a plain ScrollView, not
+   in a FlatList cell, so it stays clear of the black-box bug. Native iOS
+   selection handles, with the same Copy · Quote · Highlight on top.
+   Claude's iOS app does roughly this; the quote-to-composer part is ours.
+3. **Highlights that stick.** A marker pass you can come back to: saved
+   server-side per session (session id + event uuid + text offsets, plus the
+   quoted text so it survives a re-render), painted in the transcript, and
+   listed in a "highlights" sheet per chat that jumps to each one. This is
+   the part nobody else does.
+
+**Open.**
+- **Layer 3 anchors:** transcripts window (`tail` / paging), so a highlight
+  in an old turn may point at an event that isn't loaded. The sheet has to
+  page the turn in before it can jump to it.
+- **Quote format:** a plain `>` quote for every agent, or also tell the
+  agent which turn it came from? Plain `>` reads fine to all of them.
+- **Highlights per device or shared?** Shared is the point: mark it on the
+  phone, find it on the desktop. That means storing them on the server, the
+  same call as the #17 pins.
+- **Highlight → agent:** "send all my highlights from this chat as a quote
+  block" might be the real killer feature (a reading pass, then one reply).
+
+**Where.** `web/src/components/Transcript.tsx`, `Composer.tsx` (an insert
+hook), `mobile/src/components/Transcript.tsx` + a new select screen, and
+`server.js` + a small store for layer 3.
+
+---
+
+## 24. Closing a chat isn't scary: no alert, undo instead `[shaped]` — medium
+
+**Want.** Armen: closing a tab should feel like closing a browser tab.
+- No browser `confirm()` popup. It's ugly and blocks the page.
+- A "don't warn me again". With it on, a close just closes.
+- After a close, a notice with **reopen**, which resumes the session.
+
+With undo, the warning stops being the safety net, so turning it off is safe.
+
+**State.**
+- **Web:** `confirmCloseAgent()` and the workspace close both use
+  `confirm()` (`web/src/manage.ts:57`, `:74`).
+- **Capra:** `Alert.alert` (`mobile/src/manage.ts:81`, `:106`).
+- **Server:** close is a hard `pane.close` (`server.js` ~L1989).
+- **Resume already works:** `createChat({ kind, cwd, workspaceId, name,
+  resume })` accepts a session id for claude, grok, codex and pi
+  (`server.js:1006`), and the roster's `Agent.sessionId` has the id. So
+  reopen is mostly client work.
+
+**Shape.**
+1. **Inline confirm (web).** The first click on × turns that pill's × into a
+   red "close?" for ~3 s, and a second click closes. Context-menu close: a
+   confirm row inside the same `Pop`. Workspace close: a small `Pop` with
+   the pane count and a "don't ask again" checkbox.
+2. **Don't warn me again.** The checkbox in that confirm, plus a toggle in
+   prefs. Stored in `lib/prefs.js` (server-side), so phone and desktop agree.
+3. **Closed → reopen.** Before closing, the client keeps `{kind, cwd,
+   workspaceId, name, sessionId}`. Afterwards: a toast "closed fix-auth ·
+   reopen" for ~10 s, plus a short "recently closed" list (Ctrl+Shift+T on
+   web, a row in Capra's list). Reopen = `createChat` with `resume`. With no
+   `sessionId` there's no reopen button; the toast says it can't come back.
+4. **Capra:** replace the `Alert.alert` with the same flow. Capra's
+   `toast.tsx` is text-only today, so it needs an action button.
+
+**Open.**
+- Reopen lands as a new tab at the end of the space, not where it was.
+  Fine, or move it back (does herdr have `tab.move`?).
+- Workspace close: reopen all of its chats, or reopen nothing?
+- A chat closed while it's working: still warn, even with warnings off? I
+  lean yes; see #25.
+
+**Where.** `web/src/manage.ts`, `TabStrip.tsx`, `ui/ContextMenu`/`Pop`, a web
+toast; `mobile/src/manage.ts`, `mobile/src/toast.tsx`; `lib/prefs.js`.
+
+---
+
+## 25. Closing a chat with background tasks still running `[idea]`
+
+**Want.** Armen: an agent with background tasks asks about them when it's
+closed, and we need to handle that.
+
+**State.** Our close is `pane.close`, a hard kill with no `/exit`, so today
+nothing gets the chance to ask. Background work dies with the pane, or, for
+claude 2.1.310+, may get parked into a bg worker (see the parked-sessions
+notes in memory). Not reproduced; needs a test on a throwaway claude pane
+with a background `sleep 300` running.
+
+**Shape.**
+- **Know before closing.** Find live background work for the pane: claude
+  background Bash/agents started in the transcript with no finish, and
+  gaffer items started from the pane (#13, layer 2). Show it in the confirm:
+  "2 background tasks still running: close anyway / cancel". This warning
+  ignores #24's "don't warn me again".
+- **If close goes graceful** (`/exit` first, `pane.close` as the fallback),
+  the agent's own "background tasks are running" prompt would show as a
+  blocked card in the chat instead of leaving the pane hanging.
+- **Park instead of kill?** If claude can hand background work to its bg
+  worker, offer "close, keep tasks running". Reopen (#24) then resumes into
+  the parked session.
+
+**Open.** What claude, codex, grok and pi actually do on exit with
+background work. Repro each before building any of this.
+
+---
+
+## 26. Capra: question and plan cards are too big, and all at once `[shaped]` — bug
+
+**Want.** Armen: on the phone the cards for AskUserQuestion, plan approval
+and menus take up the whole screen, and they show every question at once
+instead of one after another. Wants a fixture so they can be worked on
+without a live agent.
+
+**State.**
+- **Every question at once, which also answers the wrong one.** The ask card
+  maps every question in one card (`mobile/src/components/BlockedCard.tsx:68`;
+  web does the same at `web/src/components/BlockedCard.tsx:60`). Each option
+  sends just its digit (`i+1`), but the TUI shows one question at a time. So
+  tapping an answer on question 2 while the TUI is on question 1 answers
+  question 1.
+- **Too tall.** The plan card prints up to 24 lines of plan text
+  (`numberOfLines={24}`, BlockedCard ~L179) before the buttons. With the
+  hazard tape and option descriptions, it fills the screen on Armen's Extra
+  Large text size.
+- **No fixture for most of them.** The only fixtures are `blocked-ask.json`
+  (one question, two options) and `blocked-permission.json`. There's nothing
+  for a multi-question ask, a multiSelect, a plan, a menu with a free-text
+  row, or grok's plan dialect.
+
+**Shape.**
+1. **One question at a time.** The card shows question `n/N`, with a dot
+   stepper. After an answer, advance to the next question. The card is built
+   from the tool call's input (`lib/adapters.js:1350`), not from the screen,
+   so it doesn't know which question the TUI is on. Teaching
+   `lib/screen.js` to read that would keep the card from drifting; until
+   then, advance locally and re-sync on the next screen read. A final
+   "submit" step if the TUI has one. Same fix on web.
+2. **A height budget.** Cap the card at ~45% of the screen, so the
+   transcript stays visible above it. Plan text collapses to ~6 lines plus
+   "read plan", which opens it full-screen in `MdView` on its own screen
+   (not a ScrollView inside the card, per the black-box rule). Descriptions
+   go one line each, with a tap to expand. The tape and brackets get thinner
+   on phone.
+3. **Fixtures.** New `e2e/fixtures/blocked-*.json`: a 3-question ask (one
+   multiSelect, long descriptions), a long-markdown plan, a menu with a
+   free-text row, and a grok plan. Each gets a matching `screen-*.txt` of
+   what the TUI shows, so the parse is tested too. Web e2e uses them as they
+   are. For Capra, a "cards" mode on the lab screen (`mobile/app/lab.tsx`,
+   `capra://lab`) draws each fixture in a fake chat, for the
+   simulator/emulator loop and screenshots at Extra Large.
+
+**Where.** `mobile/src/components/BlockedCard.tsx`,
+`web/src/components/BlockedCard.tsx`, `lib/adapters.js` + `lib/screen.js`,
+`e2e/fixtures/`, `mobile/app/lab.tsx`.
 
 ---
 
@@ -544,6 +777,16 @@ code where cheap; the rest may already be done — triage before building.
 ---
 
 ## Done
+
+- **Markdown emphasis in the transcript** — `8e170a6` (2026-11-03, outside
+  this list): `*em*`/`_em_` render (snake_case, `__init__`, `a*b*c` stay
+  literal), bold carries nested inlines (em, code, links; `***both***`),
+  headings strip inner `**` instead of doubling them. Capra uses the Chakra
+  Petch italic faces (iOS won't slant a custom font). Web + Capra.
+- **Capra paragraphs broke mid-sentence** — `34f01f2` (2026-11-03): the
+  segmenter's soft cap (end at the next newline) and hard cap were both 2000
+  chars, so the hard cut always won. Soft cap is now 1200; a hard cut that's
+  still needed lands on the last space within 200 chars.
 
 - **Capra share sheet leaked the token** — already fixed in `9c1af7b`
   (FileViewer downloads to cache, shares the local file). Only tokened share
