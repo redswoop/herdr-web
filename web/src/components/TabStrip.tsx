@@ -6,7 +6,7 @@
 import { useCallback, useState, type MouseEvent } from 'react';
 import { STATUS_WORD, chipName, workspaceTabs, type Agent, type Roster } from '@herdr/shared';
 import type { SpawnTarget } from '../spawn';
-import { agentMenuItems, renameAgentTo, workspaceMenuItems } from '../manage';
+import { agentMenuItems, confirmCloseAgent, renameAgentTo, workspaceMenuItems } from '../manage';
 import { shortPath } from '../util';
 import { ContextMenu, menuAt, type MenuState } from './ui/ContextMenu';
 
@@ -57,7 +57,7 @@ export function TabStrip({
       chipName(a),
       `${a.displayAgent ?? a.agent} · ${STATUS_WORD[a.status] ?? a.status}`,
       a.cwd ? shortPath(a.cwd) : null,
-      'right-click: rename / close',
+      'right-click: rename / close · middle-click or ×: close',
     ]
       .filter(Boolean)
       .join('\n');
@@ -75,14 +75,21 @@ export function TabStrip({
       {tabs.map((a) => {
         const current = a.paneId === agent.paneId;
         const n = tabNo.get(a.tabId);
+        const close = () => void confirmCloseAgent(a, () => afterClose(a));
+        // a div, not a button: the × is a button of its own and buttons can't nest
         return (
-          <button
+          <div
             key={a.paneId}
             role="tab"
+            tabIndex={0}
             aria-selected={current}
             className={`pill ${a.status} ${current ? 'current' : ''}`}
             title={hover(a)}
             onClick={() => !current && onSelect(a.paneId)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (!current) onSelect(a.paneId); }
+            }}
+            onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); close(); } }}
             onContextMenu={tabMenu(a)}
             onDoubleClick={() => {
               const t = prompt('Rename — the tab and the agent both take the new name.', chipName(a));
@@ -92,7 +99,17 @@ export function TabStrip({
             {n != null && <span className="pill-n">{n}</span>}
             <span className={`status-dot ${a.status}`} />
             <span className="pill-name">{short(chipName(a))}</span>
-          </button>
+            <button
+              className="pill-x"
+              title={`close ${chipName(a)}`}
+              aria-label={`close ${chipName(a)}`}
+              onClick={(e) => { e.stopPropagation(); close(); }}
+              onDoubleClick={(e) => e.stopPropagation()}
+              onAuxClick={(e) => e.stopPropagation()}
+            >
+              ×
+            </button>
+          </div>
         );
       })}
       <button className="ghost strip-new" title={`new chat in ${title}`} aria-label={`new chat in ${title}`} onClick={() => onNewChat(spawn)}>

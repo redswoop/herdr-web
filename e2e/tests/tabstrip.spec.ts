@@ -37,4 +37,32 @@ test.describe('tab strip', () => {
     await expect(page.getByRole('tablist').getByRole('tab')).toHaveCount(1);
   });
 
+  test('each pill has an ×; it confirms, closes, and lands on the neighbour', async ({ page }) => {
+    await openApp(page, { hash: '/agent/w1:p1' });
+    const strip = page.getByRole('tablist');
+    const x = strip.getByRole('button', { name: /^close fix-auth/i });
+    await expect(x).toBeVisible(); // the lit tab shows its × without hover
+    // declining the confirm leaves everything as it was
+    page.once('dialog', (d) => d.dismiss());
+    await x.click();
+    await expect(strip.getByRole('tab')).toHaveCount(2);
+    await expect(page).toHaveURL(/#\/agent\/w1(:|%3A)p1$/);
+    page.once('dialog', (d) => d.accept());
+    await x.click();
+    await expect(page).toHaveURL(/#\/agent\/w1(:|%3A)p2$/);
+    const log = await mockLog();
+    expect(log.manage).toContainEqual(expect.objectContaining({ paneId: 'w1:p1', action: 'close' }));
+    await expect(strip.getByRole('tab')).toHaveCount(1);
+  });
+
+  test('middle-click on a pill closes it, not the chat you are reading', async ({ page }) => {
+    await openApp(page, { hash: '/agent/w1:p1' });
+    const strip = page.getByRole('tablist');
+    page.once('dialog', (d) => d.accept());
+    await strip.getByRole('tab', { name: /fix-ui/i }).click({ button: 'middle' });
+    const log = await mockLog();
+    expect(log.manage).toContainEqual(expect.objectContaining({ paneId: 'w1:p2', action: 'close' }));
+    await expect(page).toHaveURL(/#\/agent\/w1(:|%3A)p1$/);
+    await expect(strip.getByRole('tab')).toHaveCount(1);
+  });
 });

@@ -523,6 +523,58 @@ async function answerByNav(paneId, { option, feedback, kind }) {
   return true;
 }
 
+// Multi-select AskUserQuestion (claude v2.1.318+): digits toggle boxes, and
+// a bare Enter on an option row toggles that box too — it does NOT submit.
+// Committing takes the cursor on the unnumbered "Submit" row under the
+// free-text row, Enter, then Enter again on the "Review your answers"
+// confirm ("1. Submit answers / 2. Cancel"). Older TUIs had no Submit row
+// and Enter committed outright — fall back to that when none is drawn.
+// Returns true, or null when the screen no longer holds a menu (caller 409s).
+async function submitMultiSelect(paneId, kind) {
+  const read = async () => parseMenuFor(kind, await readScreen(paneId));
+  const settle = (ms = 300) => new Promise((r) => setTimeout(r, ms));
+  const send = (keys) => agentRpc('agent.send_keys', { target: paneId, keys });
+  let menu = await read();
+  if (!menu) return null;
+  if (!menu.submit) {
+    await send(['Enter']);
+    return true;
+  }
+  // cursor order on screen: options 1..after, Submit, after+1..N
+  const order = [];
+  for (const o of menu.options) {
+    order.push(o.n);
+    if (o.n === menu.submit.after) order.push('submit');
+  }
+  const posOf = (m) => (m.submit?.selected ? order.indexOf('submit')
+    : order.indexOf(m.options.find((o) => o.selected)?.n));
+  const target = order.indexOf('submit');
+  for (let tries = 0; tries < 3; tries += 1) {
+    const at = posOf(menu);
+    if (at === target) break;
+    if (at < 0) return null;
+    const keys = Array.from({ length: Math.abs(target - at) }, () => (target > at ? 'Down' : 'Up'));
+    await send(keys);
+    await settle();
+    menu = await read();
+    if (!menu?.submit) return null;
+  }
+  if (!menu.submit.selected) return null;
+  await send(['Enter']);
+  // the review step: a plain numbered menu whose first row is "Submit answers"
+  for (let i = 0; i < 10; i += 1) {
+    await settle();
+    const screen = await readScreen(paneId);
+    const confirm = parseMenuFor(kind, screen);
+    if (confirm && /^Submit answers/.test(confirm.options[0]?.label ?? '')) {
+      if (!(await answerByNav(paneId, { option: 1, kind }))) return null;
+      return true;
+    }
+    if (!/Review your answers|Ready to submit/.test(screen) && !confirm) return true; // no review step
+  }
+  return true;
+}
+
 // Grok radio menus: a bare digit selects the row, and on permission prompts
 // ("1/3:select") submits it outright; ask/picker menus want an Enter after.
 // Press the digit, then Enter only if the menu is still up with the target
@@ -1939,7 +1991,14 @@ const server = http.createServer(async (req, res) => {
       // answer by cursor navigation instead of digits — required for menus
       // with a free-text row (the plan prompt), safe for any ❯ menu.
       if (req.method === 'POST' && action === 'answer') {
-        const { keys, expect, option, feedback } = await readBody(req);
+        const { keys, expect, option, feedback, submit } = await readBody(req);
+        if (submit) {
+          const kind = roster.agents.find((x) => x.paneId === paneId)?.agent;
+          const ok = await submitMultiSelect(paneId, kind);
+          if (!ok) return sendJson(res, 409, { error: 'screen changed', screen: await readScreen(paneId) });
+          if (dialogWatch.has(paneId)) setTimeout(() => refreshRoster(), 400);
+          return sendJson(res, 200, { ok: true });
+        }
         if (option != null || feedback != null) {
           if (option != null && !Number.isInteger(option)) throw httpErr(400, 'option: integer');
           if (feedback != null && typeof feedback !== 'string') throw httpErr(400, 'feedback: string');

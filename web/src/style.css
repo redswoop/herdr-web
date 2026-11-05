@@ -1610,6 +1610,19 @@ video.lb-media { cursor: auto; background: #000; }
 }
 .pill:hover { background: var(--surface-2); color: var(--text); }
 .pill.current { background: var(--surface-2); color: var(--text); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.pill { cursor: pointer; user-select: none; }
+.pill:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+/* the × rides along hidden; hover or the lit tab reveals it, and it keeps
+   its width so the pill doesn't jump when it appears */
+.pill-x {
+  flex: none; width: 14px; height: 14px; margin: 0 -3px 0 -1px; padding: 0;
+  border-radius: 50%; border: 0; background: transparent;
+  color: var(--sub); font-size: calc(13px * var(--fs)); line-height: 14px;
+  opacity: 0; transition: opacity 0.12s, background 0.12s, color 0.12s;
+}
+.pill:hover .pill-x, .pill.current .pill-x, .pill:focus-within .pill-x { opacity: 0.6; }
+.pill-x:hover { opacity: 1 !important; background: var(--surface-3, var(--surface-2)); color: var(--text); }
+.pill-x:focus-visible { opacity: 1; outline: 1px solid var(--accent); }
 .pill-n { font-family: var(--mono); font-size: calc(10px * var(--fs)); opacity: 0.6; }
 .pill.current .pill-n { opacity: 0.9; color: var(--accent); }
 .pill-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

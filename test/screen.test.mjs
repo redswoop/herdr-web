@@ -674,3 +674,44 @@ test('pi screens: composer sits between the last two rules, footer is chrome', a
   const working = ' read note.txt\n── ⠼ Working ─────────────────────────────\n──────────────────────\n~/src/app (main)\n1.1%/131k (auto)   m • medium\n';
   assert.equal(trimSalvage(working, 'x'), 'read note.txt');
 });
+
+// claude v2.1.318 (2026-11): multi-select ask draws [ ]/[✔] boxes and an
+// unnumbered "Submit" cursor row under the free-text row.
+const CLAUDE_ASK_MULTI = `
+←  ☒ Symptom  ✔ Submit  →
+
+│ What exactly goes wrong in the last stretch?
+
+❯ 1. [ ] Video won't seek/play there
+         Playhead jumps back, freezes, or shows black near the end
+  2. [✔] M does nothing
+         Pressing M (or the button) adds no marker in that region
+  3. [✔] Label won't stick
+         I type a label but it vanishes or doesn't save
+  4. [✔] Can't reach the row
+         The last row in the list is hidden or won't scroll into view
+  5. [ ] Type something
+     Submit
+────────────────────────────────────────────────────────────────────
+  6. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+`;
+
+test('claude multi-select ask: Submit row is reported, not glued to the input row', () => {
+  const m = parseMenuScreen(CLAUDE_ASK_MULTI);
+  assert.ok(m);
+  assert.equal(m.form, 'ask');
+  assert.deepEqual(m.submit, { after: 5, selected: false });
+  assert.equal(m.options[4].input, true);
+  assert.equal(m.options[4].description, '');
+  assert.equal(m.options[0].selected, true);
+  assert.equal(m.options.length, 6);
+});
+
+test('claude multi-select ask: cursor on Submit still parses as a menu', () => {
+  const m = parseMenuScreen(CLAUDE_ASK_MULTI.replace('❯ 1. [ ]', '  1. [ ]').replace('     Submit', '❯    Submit'));
+  assert.ok(m);
+  assert.deepEqual(m.submit, { after: 5, selected: true });
+  assert.ok(!m.options.some((o) => o.selected));
+});

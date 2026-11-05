@@ -35,7 +35,7 @@ export function BlockedCard({
   const opt = (
     id: string,
     label: string,
-    keys: string[],
+    keys: string[] | AnswerBody,
     { desc, expect, cls }: { desc?: string; expect?: string | null; cls?: string } = {},
   ) => (
     <Pressable
@@ -47,7 +47,7 @@ export function BlockedCard({
         busy === id && styles.busy,
       ]}
       disabled={busy !== null}
-      onPress={() => answer(id, { keys, expect: expect ?? null })}
+      onPress={() => answer(id, Array.isArray(keys) ? { keys, expect: expect ?? null } : keys)}
     >
       {busy === id ? (
         <ActivityIndicator color={t.colors.text} />
@@ -77,7 +77,7 @@ export function BlockedCard({
             {q.multiSelect && (
               <View style={styles.multiRow}>
                 <View style={{ flex: 1 }}>
-                  {opt(`${qi}:done`, 'done ⏎', ['Enter'], { cls: 'confirm', desc: 'multi-select: taps toggle' })}
+                  {opt(`${qi}:done`, 'done ⏎', { submit: true }, { cls: 'confirm', desc: 'multi-select: taps toggle' })}
                 </View>
                 {!!onToggleScreen && (
                   <Pressable style={styles.peek} onPress={onToggleScreen} hitSlop={6}>

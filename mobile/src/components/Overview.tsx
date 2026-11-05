@@ -24,6 +24,7 @@ import {
 import { Brackets } from '../cyber';
 import { AlarmSweep, RailPacket, Scramble, StatusDot } from '../cyber-fx';
 import { alpha, useStyles, useTheme, type Tokens } from '../theme';
+import { agentMenu } from '../manage';
 import { Icon } from './Icon';
 
 const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
@@ -146,7 +147,13 @@ export function Overview({
             )}
           </View>
           {c.agents.map((a) => (
-            <Pressable key={a.paneId} style={styles.agentRow} onPress={() => onSelect(a.paneId)}>
+            <Pressable
+              key={a.paneId}
+              style={styles.agentRow}
+              onPress={() => onSelect(a.paneId)}
+              onLongPress={() => agentMenu(a, { onOpen: () => onSelect(a.paneId) })}
+              delayLongPress={350}
+            >
               <StatusDot status={a.status} size={8} />
               <View style={{ flex: 1 }}>
                 <View style={styles.agentNameRow}>

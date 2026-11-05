@@ -71,9 +71,7 @@ export function BlockedCard({
               // ticked, only the TUI can. Pair `done` with a screen affordance
               // so the selection is checkable before it's committed.
               <div className="opt-split">
-                {opt(`${qi}:done`, 'done ⏎ (multi-select: taps toggle)', ['Enter'], {
-                  cls: 'confirm',
-                })}
+                {btn(`${qi}:done`, 'done ⏎ (multi-select: taps toggle)', { submit: true }, undefined, 'confirm')}
                 {onToggleScreen && (
                   <button
                     className={`option opt-aux ${screenLive ? 'on' : ''}`}

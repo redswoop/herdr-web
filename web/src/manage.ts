@@ -46,12 +46,16 @@ export function agentMenuItems(a: Agent, opts: { onClosed?: () => void } = {}): 
     {
       label: a.status === 'working' ? 'Close agent (it is working)' : 'Close agent',
       danger: true,
-      run: async () => {
-        if (!confirm(`Close ${name}?\n\nEnds the agent and its pane. The session file stays on disk for /resume.`)) return;
-        if (await run(closeAgent(a.paneId))) opts.onClosed?.();
-      },
+      run: () => confirmCloseAgent(a, opts.onClosed),
     },
   ];
+}
+
+/** The one close flow: confirm, end the pane, then let the caller move on.
+ *  Shared by the context menu and the tab strip's × so they can't drift. */
+export async function confirmCloseAgent(a: Agent, onClosed?: () => void) {
+  if (!confirm(`Close ${chipName(a)}?\n\nEnds the agent and its pane. The session file stays on disk for /resume.`)) return;
+  if (await run(closeAgent(a.paneId))) onClosed?.();
 }
 
 export function workspaceMenuItems(workspaceId: string, title: string, agentCount: number): MenuItem[] {

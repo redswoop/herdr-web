@@ -297,6 +297,9 @@ export interface AnswerBody {
   option?: number;
   /** type into the menu's free-text row and Enter (plan reject-with-feedback) */
   feedback?: string;
+  /** multi-select ask: commit the ticked boxes — walks ❯ onto the TUI's
+   *  Submit row, Enters, and clears the "Review your answers" confirm */
+  submit?: true;
 }
 
 /** claude's permission modes, footer-parsed server-side (GET/POST /mode) */
@@ -348,6 +351,9 @@ export type BlockedCtx =
       /** unnumbered cursor menu (claude's folder-trust prompt): digits do
        *  nothing — answer with {option}, never keys */
       nav?: true;
+      /** multi-select ask: the unnumbered "Submit" cursor row that commits the
+       *  ticked boxes, drawn right after option `after` */
+      submit?: { after: number; selected: boolean };
     }
   | {
       kind: 'plan';
