@@ -1,11 +1,27 @@
-import { useMemo, useState } from 'react';
-import { Alert, Linking, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
-import { bySource, getPlatform, type Agent, type Roster, type Signal, type SignalItem, type SignalSnapshot, type SignalState } from '@herdr/shared';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import {
+  TONE_GLYPH,
+  attentionRows,
+  bySource,
+  getPlatform,
+  staleRows,
+  toneOf,
+  type AttentionRow as Row,
+  type Roster,
+  type Signal,
+  type SignalItem,
+  type SignalSnapshot,
+  type SignalState,
+  type SignalTone,
+} from '@herdr/shared';
 import { alpha, useStyles, useTheme, type Tokens } from '../theme';
 import { Sparkline } from './Sparkline';
 
-// The signals deck, phone-sized: the same tiles as web/src/components/Deck.tsx
-// stacked in one column. Pure view over the signal store (src/signals.tsx).
+// The signals deck, phone-sized, same shape as web/src/components/Deck.tsx:
+// one wrapping strip of dense cells (name · sparkline · one number), the
+// attention rows under it, and one detail section at a time behind a tap.
+// Pure view over the signal store (src/signals.tsx).
 
 const fmtBytes = (n: number | null | undefined) => {
   if (n == null || !Number.isFinite(n)) return '?';
@@ -14,6 +30,13 @@ const fmtBytes = (n: number | null | undefined) => {
   if (a >= 1e9) return `${(n / 1e9).toFixed(1)} GB`;
   if (a >= 1e6) return `${(n / 1e6).toFixed(0)} MB`;
   return `${Math.round(n / 1e3)} kB`;
+};
+const shortG = (n: number | null | undefined) => {
+  if (n == null || !Number.isFinite(n)) return '?';
+  if (n >= 1e12) return `${(n / 1e12).toFixed(1)}T`;
+  if (n >= 1e10) return `${Math.round(n / 1e9)}G`;
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}G`;
+  return `${Math.round(n / 1e6)}M`;
 };
 const fmtDur = (s: number | null | undefined) => {
   if (s == null || !Number.isFinite(s) || s < 0) return '?';
@@ -29,54 +52,43 @@ const agoShort = (ms: number, now = Date.now()) => {
   if (s < 86_400) return `${Math.round(s / 3600)}h`;
   return `${Math.round(s / 86_400)}d`;
 };
+const shortMount = (t: string) => (t === '/' ? '/' : t.replace(/^\/mnt\//, '').replace(/^\/home\/[^/]+/, '~'));
 
 /** a key without its `@host` suffix (multi-host merges qualify keys) */
 const baseKey = (k: string) => k.replace(/@[^@/]*$/, '');
 const RANK: Record<SignalState, number> = { 'needs-you': 0, alarm: 1, down: 2, warn: 3, busy: 4, ok: 5, idle: 6 };
 const worst = (list: Signal[]): SignalState => list.reduce<SignalState>((w, s) => (RANK[s.state] < RANK[w] ? s.state : w), 'idle');
-const GLYPH: Record<SignalState, string> = { 'needs-you': '✋', alarm: '⚠', down: '✕', warn: '△', busy: '▶', ok: '●', idle: '○' };
 
-function stateColor(t: Tokens, s: SignalState | undefined): string {
-  switch (s) {
-    case 'needs-you': case 'alarm': case 'down': return t.colors.blocked;
-    case 'warn': return t.colors.working;
-    case 'busy': return t.colors.working;
-    case 'ok': return t.colors.done;
-    default: return t.colors.idle;
+/** three colours a human has to learn; everything else is plain */
+function toneColor(t: Tokens, tone: SignalTone): string {
+  switch (tone) {
+    case 'needs-you': case 'broken': return t.colors.blocked;
+    case 'working': return t.colors.working;
+    default: return t.colors.sub;
   }
 }
+const stateColor = (t: Tokens, s: SignalState | undefined) => toneColor(t, toneOf(s));
+const glyph = (s: SignalState | undefined) => { const tone = toneOf(s); return tone ? TONE_GLYPH[tone] : ''; };
+
+type Act = (key: string, action: string) => Promise<unknown>;
+
+// ---------- small parts ----------
 
 function Bar({ pct, state, style }: { pct: number | null | undefined; state?: SignalState; style?: StyleProp<ViewStyle> }) {
   const t = useTheme();
   const p = Math.max(0, Math.min(100, pct ?? 0));
-  const color = state === 'ok' || !state ? t.colors.accent : stateColor(t, state);
+  const color = toneOf(state) ? stateColor(t, state) : t.colors.accent;
   return (
-    <View style={[{ height: 4, borderRadius: t.r(2), backgroundColor: t.colors.surface3, overflow: 'hidden' }, style]}>
+    <View style={[{ height: 3, borderRadius: t.r(2), backgroundColor: t.colors.surface3, overflow: 'hidden' }, style]}>
       <View style={{ width: `${p}%`, height: '100%', backgroundColor: color }} />
     </View>
   );
 }
 
-function Tile({ title, state, right, children }: { title: string; state: SignalState; right?: string; children: React.ReactNode }) {
-  const t = useTheme();
-  const styles = useStyles(makeStyles);
-  const c = stateColor(t, state);
-  return (
-    <View style={[styles.tile, { borderLeftColor: c }]}>
-      <View style={styles.tileHead}>
-        <Text style={[styles.glyph, { color: c }]}>{GLYPH[state]}</Text>
-        <Text style={styles.tileTitle}>{title}</Text>
-        {!!right && <Text style={styles.tileRight} numberOfLines={1}>{right}</Text>}
-      </View>
-      {children}
-    </View>
-  );
-}
-
-function Pill({ label, onPress, tone }: { label: string; onPress: () => void; tone?: 'hot' | 'plain' }) {
+function Pill({ label, onPress, tone, disabled }: { label: string; onPress: () => void; tone?: 'hot' | 'plain'; disabled?: boolean }) {
   const styles = useStyles(makeStyles);
   return (
-    <Pressable style={[styles.pill, tone === 'hot' && styles.pillHot]} onPress={onPress} hitSlop={6}>
+    <Pressable style={[styles.pill, tone === 'hot' && styles.pillHot, disabled && { opacity: 0.5 }]} onPress={onPress} hitSlop={6} disabled={disabled}>
       <Text style={styles.pillText}>{label}</Text>
     </Pressable>
   );
@@ -89,7 +101,7 @@ function ItemRows({ items, max = 10 }: { items: SignalItem[]; max?: number }) {
     <View style={{ gap: 3 }}>
       {items.slice(0, max).map((i) => (
         <View key={i.id} style={styles.item}>
-          <Text style={[styles.glyph, { color: stateColor(t, i.state ?? 'ok') }]}>{GLYPH[i.state ?? 'ok']}</Text>
+          <Text style={[styles.glyph, { color: stateColor(t, i.state ?? 'ok') }]}>{glyph(i.state)}</Text>
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={[styles.itemLabel, (i.state === 'down' || i.state === 'alarm') && { color: t.colors.blocked }]} numberOfLines={1} onPress={i.href ? () => Linking.openURL(i.href!) : undefined}>
               {i.label}
@@ -103,7 +115,7 @@ function ItemRows({ items, max = 10 }: { items: SignalItem[]; max?: number }) {
   );
 }
 
-function Fold({ label, children }: { label: string; children: React.ReactNode }) {
+function Fold({ label, children }: { label: string; children: ReactNode }) {
   const styles = useStyles(makeStyles);
   const [open, setOpen] = useState(false);
   return (
@@ -116,64 +128,268 @@ function Fold({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
-function sessionFor(sig: Signal, roster: Roster): Agent | undefined {
-  const a = sig.attach;
-  if (!a) return undefined;
-  if (a.paneId) return roster.agents.find((x) => x.paneId === a.paneId);
-  if (a.cwd) {
-    const cwd = a.cwd.replace(/\/$/, '');
-    return roster.agents.find((x) => (x.cwd ?? '').replace(/\/$/, '') === cwd) ?? roster.agents.find((x) => x.repoRoot && cwd.startsWith(x.repoRoot));
-  }
-  return undefined;
+/** the tail is the point: open scrolled to the end */
+function LogTail({ text }: { text: string }) {
+  const styles = useStyles(makeStyles);
+  const ref = useRef<ScrollView>(null);
+  return (
+    <ScrollView ref={ref} style={styles.log} nestedScrollEnabled onContentSizeChange={() => ref.current?.scrollToEnd({ animated: false })}>
+      <Text style={styles.logText} selectable>{text}</Text>
+    </ScrollView>
+  );
 }
 
-type Act = (key: string, action: string) => Promise<unknown>;
+// ---------- new since you last looked ----------
 
-function JobRow({ s, roster, onSelect, act }: { s: Signal; roster: Roster; onSelect: (p: string) => void; act: Act }) {
+const SEEN_KEY = 'herdr.seen';
+function loadSeen(): Record<string, string> {
+  try { return JSON.parse(getPlatform().kv.get(SEEN_KEY) || '{}') as Record<string, string>; } catch { return {}; }
+}
+/** ids whose version this viewer has not had on screen for a few seconds yet */
+export function useSeen(items: { id: string; version: string }[], dwellMs = 4000): Set<string> {
+  const seen = useRef<Record<string, string> | null>(null);
+  if (seen.current == null) seen.current = loadSeen();
+  const fresh = useMemo(() => new Set(items.filter((i) => seen.current![i.id] !== i.version).map((i) => i.id)), [items]);
+  const [, bump] = useState(0);
+  useEffect(() => {
+    if (!fresh.size) return;
+    const timer = setTimeout(() => {
+      for (const i of items) seen.current![i.id] = i.version;
+      try { getPlatform().kv.set(SEEN_KEY, JSON.stringify(seen.current)); } catch {}
+      bump((n) => n + 1);
+    }, dwellMs);
+    return () => clearTimeout(timer);
+  }, [fresh, items, dwellMs]);
+  return fresh;
+}
+
+// ---------- the attention row ----------
+
+/** One row per thing that wants you: what, from where, when, what it means,
+ *  then the verbs. Tapping the body expands in place; only the labeled
+ *  "open" pill navigates. */
+export function AttentionRow({ row, act, onOpenSession, compact, fresh }: { row: Row; act: Act; onOpenSession?: (paneId: string) => void; compact?: boolean; fresh?: boolean }) {
   const t = useTheme();
   const styles = useStyles(makeStyles);
   const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const [log, setLog] = useState<string | null>(null);
+  const [pending, setPending] = useState<string | null>(null);
+  const s = row.sig;
+  const c = toneColor(t, row.tone);
+
+  const fetchLog = async () => {
+    setBusy('log');
+    try { setLog(String(((await act(row.key, 'log')) as { text?: string })?.text ?? '').trimEnd() || '(empty log)'); } catch (e) { setErr(String((e as Error).message ?? e)); } finally { setBusy(null); }
+  };
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (next && log == null && row.actions.includes('log')) void fetchLog();
+  };
   const go = (a: string) => {
     const run = async () => {
-      setBusy(a);
-      try { await act(s.key, a); } catch (e) { Alert.alert(`${a} failed`, String((e as Error).message ?? e)); } finally { setBusy(null); }
+      setBusy(a); setErr(null);
+      try { await act(row.key, a); setPending(a === 'retry' ? 're-running' : a === 'ack' ? 'cleared' : a); } catch (e) { setErr(String((e as Error).message ?? e)); } finally { setBusy(null); }
     };
-    if (a === 'cancel') Alert.alert('cancel job?', s.title, [{ text: 'keep', style: 'cancel' }, { text: 'cancel it', style: 'destructive', onPress: run }]);
+    if (a === 'cancel') Alert.alert(`cancel "${row.title}"?`, row.help.cancel ?? '', [{ text: 'keep', style: 'cancel' }, { text: 'cancel it', style: 'destructive', onPress: run }]);
     else void run();
   };
-  const sess = sessionFor(s, roster);
-  const n = s.done != null && s.total ? `${Math.round(s.done)}/${Math.round(s.total)}${s.unit ? ` ${s.unit}` : ''}` : s.pct != null ? `${s.pct}%` : '';
+
+  const when = row.at ? agoShort(row.at) : null;
+  const where = row.from.label ? (compact ? null : `from ${row.from.label}`) : row.from.where ? `from a finished session in ${row.from.where}` : null;
+  const since = row.commitsSince ? `${row.commitsSince} commit${row.commitsSince === 1 ? '' : 's'} since` : null;
+  const meaning = row.meaning ?? s.detail ?? '';
+  const verbs = row.actions.filter((a) => a !== 'log');
+  const facts = [s.sub, s.host, s.startedAt ? `started ${agoShort(s.startedAt)}` : null, s.runMs != null ? `ran ${fmtDur(s.runMs / 1000)}` : null, s.detail && s.detail !== meaning ? s.detail : null].filter(Boolean).join(' · ');
+
   return (
-    <View style={styles.job}>
-      <View style={styles.row}>
-        <Text style={[styles.glyph, { color: stateColor(t, s.state) }]}>{GLYPH[s.state]}</Text>
-        <Text style={styles.jobTitle} numberOfLines={1}>{s.title}</Text>
-        <Text style={styles.sub} numberOfLines={1}>{s.sub}{s.host ? ` · ${s.host}` : ''}</Text>
-      </View>
-      {(s.pct != null || s.done != null) && <Bar pct={s.pct} state={s.state} />}
-      <Text style={styles.sub} numberOfLines={2}>
-        {n}{n && s.detail ? ' · ' : ''}{s.detail}{s.eta != null && s.state === 'busy' ? ` · ~${fmtDur(s.eta)}` : ''}
-      </Text>
-      {(!!s.actions?.length || sess) && (
+    <View style={[styles.arow, { borderLeftColor: row.stale ? t.colors.hairline : c }, row.stale && { opacity: 0.6 }]}>
+      <Pressable style={styles.arowBody} onPress={toggle} onLongPress={() => row.help[verbs[0]] && Alert.alert(verbs.map((v) => `${v}: ${row.help[v] ?? ''}`).join('\n'))}>
+        <Text style={[styles.glyph, { color: c, marginTop: 2 }]}>{TONE_GLYPH[row.tone]}</Text>
+        <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
+          <View style={styles.row}>
+            {fresh && <View style={[t.dot(6), { backgroundColor: t.colors.accent }]} />}
+            <Text style={styles.arowTitle} numberOfLines={open ? undefined : 2}>{row.title}</Text>
+          </View>
+          {(where || when || since || row.stale) && (
+            <Text style={styles.sub} numberOfLines={1}>{[where, when, since, row.stale ? 'stale' : null].filter(Boolean).join(' · ')}</Text>
+          )}
+          {!!meaning && <Text style={styles.arowMeaning} numberOfLines={open ? undefined : 3}>{meaning}</Text>}
+        </View>
+      </Pressable>
+      {(verbs.length > 0 || pending || (!compact && row.from.live && row.from.paneId && onOpenSession)) && (
         <View style={styles.pills}>
-          {sess && <Pill label={`↗ ${sess.label ?? sess.sessionTitle ?? sess.paneId}`} onPress={() => onSelect(sess.paneId)} tone="hot" />}
-          {s.actions?.map((a) => <Pill key={a} label={busy === a ? '…' : a} onPress={() => go(a)} />)}
+          {pending && <Text style={styles.sub}>{pending}</Text>}
+          {!compact && row.from.live && row.from.paneId && onOpenSession && (
+            <Pill label={`open · ${row.from.label}`} tone="hot" onPress={() => onOpenSession(row.from.paneId!)} />
+          )}
+          {verbs.map((a) => <Pill key={a} label={busy === a ? '…' : a} disabled={busy != null || pending != null} onPress={() => go(a)} />)}
+          {!!err && <Text style={[styles.sub, { color: t.colors.blocked }]}>{err}</Text>}
+        </View>
+      )}
+      {open && (
+        <View style={{ gap: 4 }}>
+          {!!facts && <Text style={styles.sub}>{facts}</Text>}
+          {row.actions.includes('log') && (log == null ? <Text style={styles.sub}>loading log…</Text> : <LogTail text={log} />)}
         </View>
       )}
     </View>
   );
 }
 
+/** the rows a chat owns, under its header; nothing on a quiet session */
+export function ChatRows({ snap, roster, paneId, act }: { snap: SignalSnapshot; roster: Roster; paneId: string; act: Act }) {
+  const styles = useStyles(makeStyles);
+  const rows = useMemo(() => attentionRows(snap, roster, { paneId }), [snap, roster, paneId]);
+  if (!rows.length) return null;
+  return (
+    <View style={styles.chatRows}>
+      {rows.slice(0, 3).map((r) => <AttentionRow key={r.key} row={r} act={act} compact />)}
+    </View>
+  );
+}
+
+// ---------- the strip ----------
+
+type Section = 'jobs' | 'disk' | 'compute' | 'downloads' | 'printers' | 'services';
+const OPEN_KEY = 'herdr.deckOpen';
+const SECTIONS: Section[] = ['jobs', 'disk', 'compute', 'downloads', 'printers', 'services'];
+const loadOpen = (): Section | null => {
+  const v = getPlatform().kv.get(OPEN_KEY);
+  return v && (SECTIONS as string[]).includes(v) ? (v as Section) : null;
+};
+
+function Cell({ state, open, onPress, children }: { state: SignalState; open: boolean; onPress: () => void; children: ReactNode }) {
+  const t = useTheme();
+  const styles = useStyles(makeStyles);
+  const tone = toneOf(state);
+  return (
+    <Pressable style={[styles.cell, open && styles.cellOpen, tone && { borderColor: alpha(toneColor(t, tone), 0.5) }, !tone && !open && { opacity: 0.7 }]} onPress={onPress} hitSlop={4}>
+      {children}
+    </Pressable>
+  );
+}
+
+function Spk({ points, color, floor, ceil }: { points?: [number, number][]; color: string; floor?: number; ceil?: number }) {
+  if (!points || points.length < 2) return null;
+  return <Sparkline points={points} color={color} floor={floor} ceil={ceil} height={12} width={26} />;
+}
+
+// ---------- detail sections: the answer first, then evidence ----------
+
+function Answer({ text }: { text: string }) {
+  const styles = useStyles(makeStyles);
+  return <Text style={styles.answer}>{text}</Text>;
+}
+
+function diskAnswer(list: Signal[]): string {
+  const moving = list.filter((s) => Math.abs(s.rate ?? 0) > 2e6);
+  const down = list.filter((s) => s.state === 'down');
+  const low = list.filter((s) => s.state === 'alarm' || s.state === 'warn');
+  const bits: string[] = [];
+  for (const d of down) bits.push(`${shortMount(d.title)} unreachable`);
+  for (const d of moving) {
+    const r = d.rate ?? 0;
+    if (r < 0 && d.value != null) bits.push(`${shortMount(d.title)} filling ${fmtBytes(-r * 60)}/min, empty in ${fmtDur(d.value / -r)}`);
+    else bits.push(`${shortMount(d.title)} freeing ${fmtBytes(r * 60)}/min`);
+  }
+  for (const d of low) if (!moving.includes(d) && !down.includes(d)) bits.push(`${shortMount(d.title)} low: ${fmtBytes(d.value)} left`);
+  return bits.length ? bits.join(' · ') : 'nothing moving';
+}
+
+function gpuAnswer(local: Signal[], jobs: Signal[]): string {
+  const g = local[0];
+  if (!g) return '';
+  const render = jobs.find((j) => j.needs === 'gpu' && (j.jobState === 'running' || j.jobState === 'yielded'));
+  if (render) return `${render.jobState === 'yielded' ? 'yielded' : 'rendering'}: ${render.title}${render.eta ? ` · ~${fmtDur(render.eta)} left` : ''}`;
+  const free = g.mem ? (g.mem.total - g.mem.used) / 1024 : null;
+  const top = g.items?.[0];
+  const mib = top ? Number((top.sub ?? '').replace(/\D/g, '')) : 0;
+  const holder = top ? `${top.label} holds ${mib >= 1024 ? `${(mib / 1024).toFixed(0)} GB` : `${mib} MB`}` : 'nobody on it';
+  if (free == null) return holder;
+  return `${free.toFixed(0)} GB free · ${holder}${(g.value ?? 0) < 5 && top ? ' · idle' : ''}`;
+}
+
+function JobRow({ s, act }: { s: Signal; act: Act }) {
+  const t = useTheme();
+  const styles = useStyles(makeStyles);
+  const n = s.done != null && s.total ? `${Math.round(s.done)}/${Math.round(s.total)}${s.unit ? ` ${s.unit}` : ''}` : s.pct != null ? `${s.pct}%` : '';
+  const verbs = (s.actions ?? []).filter((a) => a !== 'log');
+  return (
+    <View style={styles.job}>
+      <View style={styles.row}>
+        <Text style={[styles.glyph, { color: stateColor(t, s.state) }]}>{glyph(s.state)}</Text>
+        <Text style={styles.jobTitle} numberOfLines={1}>{s.title}</Text>
+        <Text style={styles.sub} numberOfLines={1}>{s.sub}{s.host ? ` · ${s.host}` : ''}</Text>
+      </View>
+      {s.state === 'busy' && (s.pct != null || s.done != null) && <Bar pct={s.pct} state={s.state} />}
+      <Text style={styles.sub} numberOfLines={2}>
+        {n}{n && s.detail ? ' · ' : ''}{s.detail}
+        {s.eta != null && s.state === 'busy' ? ` · ~${fmtDur(s.eta)}` : ''}
+        {s.state !== 'busy' && s.finishedAt ? `${s.runMs != null ? ` · ran ${fmtDur(s.runMs / 1000)}` : ''} · ${agoShort(s.finishedAt)}` : ''}
+      </Text>
+      {verbs.length > 0 && (
+        <View style={styles.pills}>
+          {verbs.map((a) => <Pill key={a} label={a} onPress={() => (a === 'cancel' ? Alert.alert('cancel job?', s.title, [{ text: 'keep', style: 'cancel' }, { text: 'cancel it', style: 'destructive', onPress: () => void act(s.key, a) }]) : void act(s.key, a))} />)}
+        </View>
+      )}
+    </View>
+  );
+}
+
+function PrinterRow({ s, act }: { s: Signal; act: Act }) {
+  const t = useTheme();
+  const styles = useStyles(makeStyles);
+  const tp = s.temps;
+  const trays = (s.items ?? []).filter((i) => i.id.startsWith('ams:') || i.id === 'ext');
+  const hms = (s.items ?? []).filter((i) => i.id.startsWith('hms:'));
+  const fatal = hms.filter((i) => i.state === 'alarm');
+  const temps = [
+    tp && tp.nozzle != null ? `nozzle ${Math.round(tp.nozzle)}°${tp.nozzleTarget ? `/${Math.round(tp.nozzleTarget)}` : ''}` : null,
+    tp && tp.bed != null ? `bed ${Math.round(tp.bed)}°${tp.bedTarget ? `/${Math.round(tp.bedTarget)}` : ''}` : null,
+    tp && tp.chamber != null && tp.chamber > 5 ? `chamber ${Math.round(tp.chamber)}°` : null,
+  ].filter(Boolean).join(' · ');
+  return (
+    <View style={styles.job}>
+      <View style={styles.row}>
+        <Text style={[styles.glyph, { color: stateColor(t, s.state) }]}>{glyph(s.state)}</Text>
+        <Text style={styles.jobTitle} numberOfLines={1}>{s.title}</Text>
+        <Text style={[styles.sub, { flex: 1 }]} numberOfLines={1}>{s.sub ?? ''}</Text>
+      </View>
+      {(s.state === 'busy' || s.state === 'needs-you') && s.pct != null && <Bar pct={s.pct} state={s.state} />}
+      <Text style={styles.sub} numberOfLines={2}>
+        {s.pct != null && s.state !== 'idle' ? `${s.pct}% · ` : ''}{s.detail}{s.eta != null && s.state === 'busy' ? ` · ~${fmtDur(s.eta)}` : ''}
+      </Text>
+      {!!temps && <Text style={styles.sub} numberOfLines={1}>{temps}</Text>}
+      {!!s.actions?.length && (
+        <View style={styles.pills}>
+          {s.actions.map((a) => <Pill key={a} label={a} tone={a === 'resume' ? 'hot' : 'plain'} onPress={() => act(s.key, a)} />)}
+        </View>
+      )}
+      {fatal.length > 0 && <ItemRows items={fatal} />}
+      {hms.length > fatal.length && <Fold label={`${hms.length} HMS`}><ItemRows items={hms.filter((i) => i.state !== 'alarm')} max={20} /></Fold>}
+      {trays.length > 0 && (
+        <Fold label={s.feeding ? `feeding ${s.feeding.type ?? '?'}${s.feeding.remain != null && s.feeding.remain >= 0 ? ` · ${s.feeding.remain}% left` : ''}` : `${trays.length} trays`}>
+          <ItemRows items={trays} max={20} />
+        </Fold>
+      )}
+    </View>
+  );
+}
+
+// ---------- the deck ----------
+
 export function Deck({ snap, live, roster, onSelect, act }: { snap: SignalSnapshot; live: boolean; roster: Roster; onSelect: (paneId: string) => void; act: Act }) {
   const t = useTheme();
   const styles = useStyles(makeStyles);
-  const [open, setOpen] = useState<boolean>(() => getPlatform().kv.get(DECK_KEY) !== 'closed');
-  const toggle = () => {
-    setOpen((v) => {
-      getPlatform().kv.set(DECK_KEY, v ? 'closed' : 'open');
-      return !v;
-    });
-  };
+  const [open, setOpen] = useState<Section | null>(loadOpen);
+  const toggle = (s: Section) => setOpen((cur) => {
+    const next = cur === s ? null : s;
+    getPlatform().kv.set(OPEN_KEY, next ?? '');
+    return next;
+  });
   const p = useMemo(() => {
     const gaffer = bySource(snap, 'gaffer');
     return {
@@ -187,38 +403,142 @@ export function Deck({ snap, live, roster, onSelect, act }: { snap: SignalSnapsh
       sabH: snap.signals.find((s) => baseKey(s.key) === 'sab:history'),
       printers: bySource(snap, 'bambu'),
       services: bySource(snap, 'services'),
+      rows: attentionRows(snap, roster),
+      stale: staleRows(snap, roster),
     };
-  }, [snap]);
-  const attention = snap.signals.filter((s) => s.source !== 'herd' && (s.state === 'needs-you' || s.state === 'alarm' || s.state === 'down')).length;
-  const running = p.jobs.filter((j) => j.state === 'busy').length;
-  const summary = [attention ? `${attention} need a look` : 'all quiet', running ? `${running} running` : null, p.sabQ?.state === 'busy' ? `downloading ${p.sabQ.pct ?? 0}%` : null].filter(Boolean).join(' · ');
+  }, [snap, roster]);
+  const fresh = useSeen(useMemo(() => p.rows.map((r) => ({ id: r.key, version: String(r.at ?? 0) })), [p.rows]));
   if (!snap.updatedAt && !live) return null;
+  if (!snap.signals.length) return null;
+
+  const inRows = new Set([...p.rows, ...p.stale].map((r) => r.key));
+  const jobCounts = { needs: 0, alarm: 0, busy: 0 };
+  for (const j of p.jobs) {
+    if (j.state === 'needs-you') jobCounts.needs++;
+    else if (j.state === 'alarm' || j.state === 'down') jobCounts.alarm++;
+    else if (j.state === 'busy') jobCounts.busy++;
+  }
+  const cpu = p.sys.find((s) => baseKey(s.key) === 'sys:cpu');
+  const mem = p.sys.find((s) => baseKey(s.key) === 'sys:mem');
+  const svcBad = p.services.flatMap((s) => (s.items ?? []).filter((i) => i.state === 'down' || i.state === 'warn'));
+  const svcUp = p.services.reduce((n, s) => n + (s.items ?? []).filter((i) => i.state === 'ok').length, 0);
+  const failing = snap.sources.filter((s) => s.ok === false);
+  const dl = p.sabQ;
+  const workingC = t.colors.working;
 
   return (
     <View style={styles.deck}>
-      <Pressable style={styles.deckHead} onPress={toggle}>
-        <View style={[t.dot(7), { backgroundColor: live ? t.colors.done : t.colors.idle }]} />
-        <Text style={styles.deckTitle}>signals</Text>
-        <Text style={styles.deckSummary} numberOfLines={1}>{summary}</Text>
-        <Text style={styles.sub}>{open ? '▾' : '▸'}</Text>
-      </Pressable>
+      <View style={styles.strip}>
+        {(p.jobs.length > 0 || p.board) && (
+          <Cell state={worst(p.jobs.length ? p.jobs : p.board ? [p.board] : [])} open={open === 'jobs'} onPress={() => toggle('jobs')}>
+            <Text style={styles.cellName}>jobs</Text>
+            {jobCounts.needs > 0 && <Text style={[styles.cellN, { color: t.colors.blocked }]}>✋{jobCounts.needs}</Text>}
+            {jobCounts.alarm - p.stale.length > 0 && <Text style={[styles.cellN, { color: t.colors.blocked }]}>✕{jobCounts.alarm - p.stale.length}</Text>}
+            {jobCounts.busy > 0 && <Text style={[styles.cellN, { color: workingC }]}>▶{jobCounts.busy}</Text>}
+            {p.stale.length > 0 && <Text style={styles.cellSub}>{p.stale.length} stale</Text>}
+            {!p.jobs.length && <Text style={[styles.cellN, { color: t.colors.sub }]}>—</Text>}
+          </Cell>
+        )}
+        {p.disk.map((d) => {
+          const rate = d.rate ?? 0;
+          const moving = Math.abs(rate) > 2e6;
+          const c = rate > 0 ? t.colors.done : t.colors.blocked;
+          return (
+            <Cell key={d.key} state={d.state} open={open === 'disk'} onPress={() => toggle('disk')}>
+              <Text style={styles.cellName}>{shortMount(d.title)}</Text>
+              {moving && <Spk points={d.history} color={c} />}
+              <Text style={[styles.cellN, moving && { color: c }]}>{d.state === 'down' ? '✕' : shortG(d.value)}</Text>
+              {moving && <Text style={styles.cellSub}>{rate > 0 ? '↑' : '↓'}{shortG(Math.abs(rate) * 60)}/m</Text>}
+            </Cell>
+          );
+        })}
+        {p.gpu.map((g) => (
+          <Cell key={g.key} state={g.state} open={open === 'compute'} onPress={() => toggle('compute')}>
+            <Text style={styles.cellName}>{g.title.replace(/^(RTX|GeForce)\s*/i, '')}</Text>
+            <Spk points={g.history} color={workingC} floor={0} ceil={100} />
+            <Text style={styles.cellN}>{g.value ?? 0}%</Text>
+            {!!g.mem && <Text style={styles.cellSub}>{((g.mem.total - g.mem.used) / 1024).toFixed(0)}G free</Text>}
+          </Cell>
+        ))}
+        {p.hosts.map((h) => (
+          <Cell key={h.key} state={h.state} open={open === 'compute'} onPress={() => toggle('compute')}>
+            <Text style={styles.cellName}>{h.title}</Text>
+            <Text style={styles.cellN}>{h.state === 'down' ? '✕' : h.mem ? `${((h.mem.total - h.mem.used) / 1024).toFixed(0)}G free` : ''}</Text>
+          </Cell>
+        ))}
+        {(cpu || mem) && (
+          <Cell state={worst(p.sys)} open={open === 'compute'} onPress={() => toggle('compute')}>
+            {cpu && <><Text style={styles.cellName}>cpu</Text><Spk points={cpu.history} color={workingC} floor={0} ceil={100} /><Text style={styles.cellN}>{cpu.value ?? '?'}%</Text></>}
+            {mem && <><Text style={styles.cellName}>mem</Text><Text style={styles.cellN}>{mem.value ?? '?'}%</Text></>}
+          </Cell>
+        )}
+        {dl && (
+          <Cell state={dl.state} open={open === 'downloads'} onPress={() => toggle('downloads')}>
+            <Text style={styles.cellName}>⬇</Text>
+            {dl.state === 'busy' ? (
+              <><Spk points={dl.history} color={workingC} floor={0} /><Text style={styles.cellN}>{shortG(dl.value)}/s</Text><Text style={styles.cellSub}>{dl.items?.length ?? 0}</Text></>
+            ) : (
+              <Text style={[styles.cellN, { color: t.colors.sub }]}>{dl.items?.length ? 'paused' : 'idle'}</Text>
+            )}
+          </Cell>
+        )}
+        {p.printers.map((pr) => (
+          <Cell key={pr.key} state={pr.state} open={open === 'printers'} onPress={() => toggle('printers')}>
+            <Text style={styles.cellName}>{pr.title}</Text>
+            {pr.state === 'busy' ? (
+              <><Spk points={pr.history} color={workingC} floor={0} ceil={100} /><Text style={styles.cellN}>{pr.pct ?? 0}%</Text>{pr.eta != null && <Text style={styles.cellSub}>~{fmtDur(pr.eta)}</Text>}</>
+            ) : pr.state === 'needs-you' ? (
+              <Text style={[styles.cellN, { color: t.colors.blocked }]}>✋ {pr.pct ?? 0}%</Text>
+            ) : pr.state === 'alarm' || pr.state === 'down' ? (
+              <Text style={[styles.cellN, { color: t.colors.blocked }]}>✕</Text>
+            ) : (
+              <Text style={[styles.cellN, { color: t.colors.sub }]}>{pr.state === 'ok' ? 'done' : 'idle'}</Text>
+            )}
+          </Cell>
+        ))}
+        {p.services.length > 0 && (
+          <Cell state={worst(p.services)} open={open === 'services'} onPress={() => toggle('services')}>
+            <Text style={styles.cellName}>svc</Text>
+            <Text style={styles.cellN}>{svcUp}</Text>
+            {svcBad.length > 0 && <Text style={styles.cellSub}>△ {svcBad.length === 1 ? svcBad[0].label : svcBad.length}</Text>}
+          </Cell>
+        )}
+        {failing.length > 0 && (
+          <View style={[styles.cell, { borderColor: alpha(t.colors.blocked, 0.5) }]}>
+            <Text style={[styles.cellN, { color: t.colors.blocked }]}>✕ {failing.map((f) => f.id).join(' ')}</Text>
+          </View>
+        )}
+      </View>
+
+      {p.rows.length > 0 && (
+        <View style={styles.rows}>
+          {p.rows.slice(0, 6).map((r) => <AttentionRow key={r.key} row={r} act={act} onOpenSession={onSelect} fresh={fresh.has(r.key)} />)}
+          {p.rows.length > 6 && <Text style={styles.sub}>+{p.rows.length - 6} more</Text>}
+        </View>
+      )}
+
       {open && (
-        <View style={{ gap: 8 }}>
-          {(p.jobs.length > 0 || p.board) && (
-            <Tile title="jobs" state={worst(p.jobs.length ? p.jobs : p.board ? [p.board] : [])} right={p.board?.detail}>
-              {p.jobs.map((s) => <JobRow key={s.key} s={s} roster={roster} onSelect={onSelect} act={act} />)}
-              {!p.jobs.length && <Text style={styles.sub}>nothing running</Text>}
-              {!!p.board?.items?.length && (
-                <Fold label={`${p.board.items.length} finished lately`}><ItemRows items={p.board.items} /></Fold>
+        <View style={styles.detail}>
+          <Pressable onPress={() => toggle(open)} hitSlop={6}><Text style={styles.detailTitle}>{open} ▴</Text></Pressable>
+          {open === 'jobs' && (
+            <>
+              {p.jobs.filter((j) => !inRows.has(j.key)).map((s) => <JobRow key={s.key} s={s} act={act} />)}
+              {!p.jobs.filter((j) => !inRows.has(j.key)).length && <Text style={styles.sub}>nothing else running</Text>}
+              {p.stale.length > 0 && (
+                <Fold label={`${p.stale.length} stale failure${p.stale.length === 1 ? '' : 's'}`}>
+                  <View style={{ gap: 6 }}>{p.stale.map((r) => <AttentionRow key={r.key} row={r} act={act} onOpenSession={onSelect} />)}</View>
+                </Fold>
               )}
-            </Tile>
+              {!!p.board?.items?.length && <Fold label={`${p.board.items.length} finished lately`}><ItemRows items={p.board.items} /></Fold>}
+            </>
           )}
-          {p.disk.length > 0 && (
-            <Tile title="disk" state={worst(p.disk)} right={p.disk.length > 1 ? `${p.disk.length} volumes` : undefined}>
+          {open === 'disk' && (
+            <>
+              <Answer text={diskAnswer(p.disk)} />
               {p.disk.map((s) => {
                 const rate = s.rate ?? 0;
                 const moving = Math.abs(rate) > 2e6;
-                const c = moving ? (rate > 0 ? t.colors.done : t.colors.blocked) : t.colors.accent;
+                const c = rate > 0 ? t.colors.done : t.colors.blocked;
                 return (
                   <View key={s.key} style={styles.block}>
                     <View style={styles.row}>
@@ -227,15 +547,15 @@ export function Deck({ snap, live, roster, onSelect, act }: { snap: SignalSnapsh
                       <Text style={styles.sub}>{s.total ? `of ${fmtBytes(s.total)}` : ''}</Text>
                     </View>
                     <Bar pct={s.pct} state={s.state} />
-                    {!!s.history && s.history.length > 2 && <Sparkline points={s.history} color={c} height={22} />}
-                    <Text style={styles.sub} numberOfLines={1}>{s.detail?.replace(/^[^·]*free of [^·]*(· )?/, '') || (s.remote ? 'nas' : '')}</Text>
+                    {moving && !!s.history && s.history.length > 2 && <Sparkline points={s.history} color={c} height={20} />}
                   </View>
                 );
               })}
-            </Tile>
+            </>
           )}
-          {(p.gpu.length > 0 || p.hosts.length > 0 || p.sys.length > 0) && (
-            <Tile title="compute" state={worst([...p.gpu, ...p.hosts, ...p.sys])}>
+          {open === 'compute' && (
+            <>
+              <Answer text={gpuAnswer(p.gpu, p.jobs)} />
               {p.gpu.map((g) => (
                 <View key={g.key} style={styles.block}>
                   <View style={styles.row}>
@@ -244,7 +564,7 @@ export function Deck({ snap, live, roster, onSelect, act }: { snap: SignalSnapsh
                     <Text style={styles.sub} numberOfLines={1}>{g.mem ? `${(g.mem.used / 1024).toFixed(1)} / ${(g.mem.total / 1024).toFixed(0)} GB` : ''}{g.temp != null ? ` · ${g.temp}°` : ''}{g.power != null ? ` · ${g.power} W` : ''}</Text>
                   </View>
                   <Bar pct={g.mem ? (g.mem.used / g.mem.total) * 100 : g.pct} state={g.state} />
-                  {!!g.history && <Sparkline points={g.history} color={stateColor(t, g.state === 'ok' ? 'busy' : g.state)} floor={0} ceil={100} height={20} />}
+                  {!!g.history && <Sparkline points={g.history} color={workingC} floor={0} ceil={100} height={20} />}
                   {!!g.items?.length && <Text style={styles.sub} numberOfLines={1}>{g.items.slice(0, 3).map((i) => `${i.label} ${i.sub?.replace(' MiB', 'M') ?? ''}`).join(' · ')}</Text>}
                 </View>
               ))}
@@ -266,66 +586,29 @@ export function Deck({ snap, live, roster, onSelect, act }: { snap: SignalSnapsh
                         <Text style={styles.hud}>{s.title}</Text>
                         <Text style={styles.big}>{s.value ?? '?'}%</Text>
                       </View>
-                      {!!s.history && <Sparkline points={s.history} color={stateColor(t, s.state === 'ok' ? 'busy' : s.state)} floor={0} ceil={100} height={16} />}
+                      {!!s.history && <Sparkline points={s.history} color={workingC} floor={0} ceil={100} height={16} />}
                     </View>
                   ))}
                 </View>
               )}
-            </Tile>
+            </>
           )}
-          {p.sabQ && (
-            <Tile title="downloads" state={p.sabQ.state} right={p.sabQ.host}>
+          {open === 'downloads' && dl && (
+            <>
               <View style={styles.row}>
-                <Text style={[styles.big, p.sabQ.state === 'busy' && { color: t.colors.working }]}>{p.sabQ.state === 'busy' ? `${fmtBytes(p.sabQ.value)}/s` : p.sabQ.items?.length ? 'paused' : 'idle'}</Text>
-                <Text style={[styles.sub, { flex: 1 }]} numberOfLines={1}>{p.sabQ.detail}</Text>
-                {p.sabQ.actions?.map((a) => <Pill key={a} label={a} onPress={() => act(p.sabQ!.key, a)} />)}
+                <Text style={[styles.big, dl.state === 'busy' && { color: workingC }]}>{dl.state === 'busy' ? `${fmtBytes(dl.value)}/s` : dl.items?.length ? 'paused' : 'idle'}</Text>
+                <Text style={[styles.sub, { flex: 1 }]} numberOfLines={1}>{dl.detail}</Text>
+                {dl.actions?.map((a) => <Pill key={a} label={a} onPress={() => act(dl.key, a)} />)}
               </View>
-              {p.sabQ.state === 'busy' && !!p.sabQ.history && <Sparkline points={p.sabQ.history} color={t.colors.working} floor={0} height={20} />}
-              {!!p.sabQ.items?.length && <ItemRows items={p.sabQ.items} />}
+              {dl.state === 'busy' && !!dl.history && <Sparkline points={dl.history} color={workingC} floor={0} height={20} />}
+              {!!dl.items?.length && <ItemRows items={dl.items} />}
               {!!p.sabH?.items?.length && <Fold label={p.sabH.detail ?? 'history'}><ItemRows items={p.sabH.items} max={6} /></Fold>}
-            </Tile>
+            </>
           )}
-          {p.printers.length > 0 && (
-            <Tile title="printers" state={worst(p.printers)}>
-              {p.printers.map((s) => {
-                const tp = s.temps;
-                const trays = (s.items ?? []).filter((i) => i.id.startsWith('ams:') || i.id === 'ext');
-                const hms = (s.items ?? []).filter((i) => i.id.startsWith('hms:'));
-                const fatal = hms.filter((i) => i.state === 'alarm');
-                const temps = [
-                  tp && tp.nozzle != null ? `nozzle ${Math.round(tp.nozzle)}°${tp.nozzleTarget ? `/${Math.round(tp.nozzleTarget)}` : ''}` : null,
-                  tp && tp.bed != null ? `bed ${Math.round(tp.bed)}°${tp.bedTarget ? `/${Math.round(tp.bedTarget)}` : ''}` : null,
-                  tp && tp.chamber != null && tp.chamber > 5 ? `chamber ${Math.round(tp.chamber)}°` : null,
-                ].filter(Boolean).join(' · ');
-                return (
-                  <View key={s.key} style={styles.block}>
-                    <View style={styles.row}>
-                      <Text style={[styles.glyph, { color: stateColor(t, s.state) }]}>{GLYPH[s.state]}</Text>
-                      <Text style={styles.strong}>{s.title}</Text>
-                      <Text style={[styles.sub, { flex: 1 }]} numberOfLines={1}>{s.sub ?? ''}</Text>
-                      {s.actions?.map((a) => <Pill key={a} label={a} tone={a === 'resume' ? 'hot' : 'plain'} onPress={() => act(s.key, a)} />)}
-                    </View>
-                    {(s.state === 'busy' || s.state === 'needs-you') && s.pct != null && <Bar pct={s.pct} state={s.state} />}
-                    <View style={styles.row}>
-                      {s.pct != null && s.state !== 'idle' && <Text style={styles.big}>{s.pct}%</Text>}
-                      <Text style={[styles.sub, { flex: 1 }]} numberOfLines={2}>{s.detail}</Text>
-                      {s.eta != null && s.state === 'busy' && <Text style={styles.sub}>~{fmtDur(s.eta)}</Text>}
-                    </View>
-                    {!!temps && <Text style={styles.sub} numberOfLines={1}>{temps}</Text>}
-                    {fatal.length > 0 && <ItemRows items={fatal} />}
-                    {hms.length > fatal.length && <Fold label={`${hms.length} HMS`}><ItemRows items={hms.filter((i) => i.state !== 'alarm')} max={20} /></Fold>}
-                    {trays.length > 0 && (
-                      <Fold label={s.feeding ? `feeding ${s.feeding.type ?? '?'}${s.feeding.remain != null && s.feeding.remain >= 0 ? ` · ${s.feeding.remain}% left` : ''}` : `${trays.length} trays`}>
-                        <ItemRows items={trays} max={20} />
-                      </Fold>
-                    )}
-                  </View>
-                );
-              })}
-            </Tile>
-          )}
-          {p.services.length > 0 && (
-            <Tile title="services" state={worst(p.services)} right={p.services.map((s) => `${s.items?.filter((i) => i.state === 'ok' || i.state === 'warn').length ?? 0} ${s.title}`).join(' · ')}>
+          {open === 'printers' && p.printers.map((s) => <PrinterRow key={s.key} s={s} act={act} />)}
+          {open === 'services' && (
+            <>
+              <Answer text={svcBad.length ? `${svcBad.map((i) => `${i.label}${i.state === 'down' ? ' down' : i.sub ? ` ${i.sub}` : ''}`).join(' · ')} · ${svcUp} up` : `all ${svcUp} up`} />
               {p.services.map((s) => {
                 const bad = (s.items ?? []).filter((i) => i.state === 'down' || i.state === 'warn');
                 return (
@@ -335,7 +618,7 @@ export function Deck({ snap, live, roster, onSelect, act }: { snap: SignalSnapsh
                   </View>
                 );
               })}
-            </Tile>
+            </>
           )}
         </View>
       )}
@@ -343,76 +626,78 @@ export function Deck({ snap, live, roster, onSelect, act }: { snap: SignalSnapsh
   );
 }
 
-const DECK_KEY = 'herdr.deckOpen';
+// ---------- per-card lines ----------
 
-/** The line under a session row: the recap when there is one, else the
- *  agent's last words. Blocked sessions lead with NEXT — the question. */
-export function Beat({ beat, status }: { beat: Signal | undefined; status: string }) {
+/** Two lines per project card: what is going on across its sessions, and
+ *  what you do next. */
+export function Recap({ sig, fresh }: { sig: Signal | undefined; fresh?: boolean }) {
+  const t = useTheme();
   const styles = useStyles(makeStyles);
-  if (!beat) return null;
-  const r = beat.recap;
-  const now = r?.now || beat.said || beat.asked;
-  if (!now) return null;
-  const next = r?.next;
-  const lead = status === 'blocked' && next ? next : now;
-  const tail = status === 'blocked' && next ? now : next;
+  const r = sig?.recap;
+  if (!r?.now) return null;
   return (
-    <View style={styles.beat}>
-      <Text style={[styles.beatNow, status === 'blocked' && styles.beatHot]} numberOfLines={2}>{lead}</Text>
-      {!!tail && <Text style={styles.sub} numberOfLines={1}>{status === 'blocked' ? '' : '→ '}{tail}</Text>}
-      <Text style={styles.beatMeta}>{beat.turns ? `${beat.turns} turn${beat.turns === 1 ? '' : 's'}` : ''}{beat.turnAt ? ` · ${agoShort(beat.turnAt)}` : ''}{r ? ' · ◆' : ''}</Text>
+    <View style={styles.recap}>
+      <View style={styles.row}>
+        {fresh && <View style={[t.dot(6), { backgroundColor: t.colors.accent, marginTop: 4 }]} />}
+        <Text style={styles.recapNow} numberOfLines={3}>{r.now}</Text>
+      </View>
+      {!!r.next && <Text style={styles.sub} numberOfLines={2}>{r.next}</Text>}
     </View>
   );
 }
 
-/** Up to four chips worth a glance from the list view. */
-export function Meanwhile({ snap, onPress }: { snap: SignalSnapshot; onPress: () => void }) {
-  const t = useTheme();
+/** The one per-row line that earns its pixels: the question a blocked
+ *  session is waiting on. */
+export function Question({ beat }: { beat: Signal | undefined }) {
   const styles = useStyles(makeStyles);
-  const picks = useMemo(() => {
-    const out: { key: string; text: string; state: SignalState }[] = [];
-    for (const s of snap.signals) {
-      if (s.source === 'herd') continue;
-      if (s.state === 'needs-you' || s.state === 'alarm' || s.state === 'down' || s.state === 'warn') out.push({ key: s.key, text: s.kind === 'list' ? `${s.title}: ${s.detail ?? ''}` : s.title, state: s.state });
-      else if (s.kind === 'job' && s.state === 'busy') out.push({ key: s.key, text: `${s.title}${s.pct != null ? ` ${s.pct}%` : ''}${s.eta ? ` ~${fmtDur(s.eta)}` : ''}`, state: 'busy' });
-      else if (s.source === 'disk' && Math.abs(s.rate ?? 0) > 2e6) out.push({ key: s.key, text: `${s.title} ${(s.rate ?? 0) > 0 ? '↑' : '↓'} ${fmtBytes(Math.abs((s.rate ?? 0) * 60))}/min`, state: (s.rate ?? 0) > 0 ? 'ok' : 'warn' });
-    }
-    return out.sort((a, b) => RANK[a.state] - RANK[b.state]).slice(0, 4);
-  }, [snap]);
-  if (!picks.length) return null;
-  return (
-    <View style={styles.meanwhile}>
-      {picks.map((p) => {
-        const c = stateColor(t, p.state);
-        return (
-          <Pressable key={p.key} style={[styles.chip, { borderColor: alpha(c, 0.45), backgroundColor: alpha(c, 0.1) }]} onPress={onPress}>
-            <Text style={[styles.glyph, { color: c }]}>{GLYPH[p.state]}</Text>
-            <Text style={styles.chipText} numberOfLines={1}>{p.text}</Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
+  const q = beat?.recap?.next || beat?.said;
+  if (!q) return null;
+  return <Text style={styles.question} numberOfLines={2}>{q}</Text>;
 }
 
 const makeStyles = (t: Tokens) =>
   StyleSheet.create({
-    deck: { gap: 8, marginBottom: 6 },
-    deckHead: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
-    deckTitle: { color: t.cyber ? t.colors.red : t.colors.text, fontSize: t.sz('ui', 12), ...t.font(t.cyber ? 'display' : 'ui', '700'), letterSpacing: 2, textTransform: 'uppercase' },
-    deckSummary: { flex: 1, ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: t.sz('ui', 12) },
-    tile: {
-      backgroundColor: t.cyber ? alpha(t.colors.surface, 0.9) : t.colors.surface,
+    deck: { gap: 8, marginBottom: 4 },
+    strip: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
+    cell: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 6,
+      paddingVertical: 3,
+      borderRadius: t.r(4),
+      borderWidth: 1,
+      borderColor: t.colors.hairline,
+      backgroundColor: t.cyber ? alpha(t.colors.surface, 0.7) : t.colors.surface,
+    },
+    cellOpen: { borderColor: alpha(t.colors.accent, 0.6), opacity: 1 },
+    cellName: { ...t.font('mono'), color: t.colors.sub, fontSize: t.sz('ui', 10) },
+    cellN: { ...t.font('mono', '700'), color: t.colors.text, fontSize: t.sz('ui', 11), fontVariant: ['tabular-nums'] },
+    cellSub: { ...t.font('mono'), color: t.colors.sub, fontSize: t.sz('ui', 10) },
+    rows: { gap: 6 },
+    chatRows: { gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.colors.hairline },
+    arow: {
+      gap: 5,
+      paddingVertical: 6,
+      paddingLeft: 8,
+      paddingRight: 8,
+      borderLeftWidth: 2,
+      borderRadius: t.r(4),
+      backgroundColor: t.cyber ? alpha(t.colors.surface, 0.8) : t.colors.surface,
+    },
+    arowBody: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
+    arowTitle: { ...t.font('ui', '600'), color: t.colors.text, fontSize: t.sz('ui', 13), flexShrink: 1 },
+    arowMeaning: { ...t.font('ui'), color: t.colors.text, fontSize: t.sz('ui', 12) },
+    detail: {
+      gap: 6,
+      padding: 10,
       borderRadius: t.radius.md,
-      borderLeftWidth: 3,
       borderWidth: t.cyber ? 0 : 1,
       borderColor: t.colors.hairline,
-      padding: 10,
-      gap: 6,
+      backgroundColor: t.cyber ? alpha(t.colors.surface, 0.9) : t.colors.surface,
     },
-    tileHead: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
-    tileTitle: { color: t.colors.text, fontSize: t.sz('ui', 12), ...t.font(t.cyber ? 'display' : 'ui', '700'), letterSpacing: 1.5, textTransform: 'uppercase' },
-    tileRight: { flex: 1, textAlign: 'right', ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: t.sz('ui', 11) },
+    detailTitle: { color: t.cyber ? t.colors.red : t.colors.text, fontSize: t.sz('ui', 11), ...t.font(t.cyber ? 'display' : 'ui', '700'), letterSpacing: 1.5, textTransform: 'uppercase' },
+    answer: { ...t.font('ui', '600'), color: t.colors.text, fontSize: t.sz('ui', 13) },
     glyph: { fontSize: t.sz('ui', 11), width: 14, textAlign: 'center' },
     row: { flexDirection: 'row', alignItems: 'baseline', gap: 6, minWidth: 0 },
     block: { gap: 3, paddingVertical: 3 },
@@ -430,71 +715,9 @@ const makeStyles = (t: Tokens) =>
     pill: { paddingHorizontal: 9, paddingVertical: 3, borderRadius: t.r(999), borderWidth: 1, borderColor: t.colors.hairline, backgroundColor: t.colors.surface2 },
     pillHot: { borderColor: alpha(t.colors.accent, 0.5) },
     pillText: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.text, fontSize: t.sz('ui', 11) },
-    beat: { paddingLeft: 18, paddingBottom: 6, gap: 1 },
-    beatNow: { ...t.font('ui'), color: t.colors.text, fontSize: t.sz('ui', 12), lineHeight: undefined },
-    beatHot: { color: t.colors.blocked, ...t.font('ui', '600') },
-    beatMeta: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.sub, fontSize: t.sz('ui', 10) },
-    scene: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.colors.hairline },
-    sceneChip: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: '47%', flex: 1, paddingHorizontal: 8, paddingVertical: 4, borderRadius: t.radius.sm, borderWidth: 1 },
-    sceneRead: { ...t.font('ui', '600'), color: t.colors.text, fontSize: t.sz('ui', 12) },
-    meanwhile: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 12, paddingBottom: 6 },
-    chip: { flexDirection: 'row', alignItems: 'center', gap: 5, maxWidth: '100%', paddingHorizontal: 8, paddingVertical: 3, borderRadius: t.r(999), borderWidth: 1 },
-    chipText: { ...t.font(t.cyber ? 'mono' : 'ui'), color: t.colors.text, fontSize: t.sz('ui', 11), flexShrink: 1 },
+    log: { maxHeight: 180, borderRadius: t.r(4), backgroundColor: t.colors.surface2, padding: 6 },
+    logText: { ...t.font('mono'), color: t.colors.text, fontSize: t.sz('ui', 10) },
+    recap: { gap: 1, paddingBottom: 6 },
+    recapNow: { ...t.font('ui'), color: t.colors.text, fontSize: t.sz('ui', 12), flexShrink: 1 },
+    question: { ...t.font('ui', '600'), color: t.colors.blocked, fontSize: t.sz('ui', 12), paddingLeft: 18, paddingBottom: 6 },
   });
-
-// ---------- scene strip: what's on stage for one chat ----------
-
-function reading(s: Signal, item: string | null): { text: string; pct: number | null; state: SignalState } {
-  if (item && s.items) {
-    const i = s.items.find((x) => x.id === item);
-    if (i) return { text: `${i.label} ${i.sub ?? ''}`.trim(), pct: null, state: i.state ?? s.state };
-  }
-  if (s.kind === 'job') {
-    const n = s.done != null && s.total ? `${Math.round(s.done)}/${Math.round(s.total)}` : s.pct != null ? `${s.pct}%` : '';
-    return { text: `${s.title} ${n}${s.eta && s.state === 'busy' ? ` ~${fmtDur(s.eta)}` : ''}${s.state === 'needs-you' ? ' · needs you' : s.state === 'alarm' ? ' · failed' : ''}`.trim(), pct: s.pct ?? null, state: s.state };
-  }
-  if (s.source === 'disk') {
-    const rate = s.rate ?? 0;
-    const mv = Math.abs(rate) > 2e6 ? ` ${rate > 0 ? '↑' : '↓'}${fmtBytes(Math.abs(rate) * 60)}/min` : '';
-    return { text: `${s.title} ${fmtBytes(s.value)} free${mv}`, pct: s.pct ?? null, state: s.state };
-  }
-  if (s.source === 'gpu') return { text: `${s.title} ${s.value ?? 0}% · ${s.mem ? `${(s.mem.used / 1024).toFixed(1)}/${(s.mem.total / 1024).toFixed(0)} GB` : ''}`, pct: s.mem ? (s.mem.used / s.mem.total) * 100 : null, state: s.state };
-  if (s.kind === 'list') return { text: `${s.title}: ${s.detail ?? ''}`, pct: null, state: s.state };
-  return { text: `${s.title} ${s.detail ?? ''}`.trim(), pct: null, state: s.state };
-}
-
-/** The director's picks for this chat, as live chips under the header.
- *  Nothing on a quiet session. */
-export function SceneStrip({ snap, paneId, onPress }: { snap: SignalSnapshot; paneId: string; onPress: () => void }) {
-  const t = useTheme();
-  const styles = useStyles(makeStyles);
-  const scene = snap.signals.find((s) => s.key === `scene:${paneId}` || s.key.startsWith(`scene:${paneId}@`));
-  if (!scene?.items?.length) return null;
-  const host = paneId.split('@')[1];
-  const byKey = new Map(snap.signals.map((s) => [s.key, s]));
-  const stage = scene.items
-    .map((i) => {
-      const sig = byKey.get(i.id) ?? (host ? byKey.get(`${i.id}@${host}`) : undefined);
-      return sig ? { sig, why: i.label, item: i.item ?? null } : null;
-    })
-    .filter((x): x is { sig: Signal; why: string; item: string | null } => !!x);
-  if (!stage.length) return null;
-  return (
-    <View style={styles.scene}>
-      {stage.map(({ sig, why, item }) => {
-        const r = reading(sig, item);
-        const c = stateColor(t, r.state);
-        return (
-          <Pressable key={sig.key} style={[styles.sceneChip, { borderColor: alpha(c, 0.4), backgroundColor: alpha(c, 0.07) }]} onPress={onPress}>
-            <Text style={[styles.glyph, { color: c }]}>{GLYPH[r.state] ?? '●'}</Text>
-            <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-              <Text style={styles.sceneRead} numberOfLines={1}>{r.text}</Text>
-              {r.pct != null && <Bar pct={r.pct} state={r.state} />}
-              <Text style={styles.beatMeta} numberOfLines={1}>{why}</Text>
-            </View>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}

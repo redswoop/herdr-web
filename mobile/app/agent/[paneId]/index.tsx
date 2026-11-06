@@ -25,7 +25,7 @@ import {
 } from '@herdr/shared';
 import { useRoster } from '../../../src/roster';
 import { AgentHeader } from '../../../src/components/AgentHeader';
-import { SceneStrip } from '../../../src/components/Deck';
+import { ChatRows } from '../../../src/components/Deck';
 import { useSignals } from '../../../src/signals';
 import { agentMenu } from '../../../src/manage';
 import { fileScreenFor } from '../../../src/file-routes';
@@ -386,7 +386,7 @@ export default function AgentScreen() {
         }}
         onOpenDir={onOpenFile}
       />
-      <SceneStrip snap={signals.snap} paneId={paneId} onPress={goBack} />
+      <ChatRows snap={signals.snap} roster={roster} paneId={paneId} act={signals.act} />
       {blocked && (
         <View style={styles.blockedBanner}>
           <StripeFill />

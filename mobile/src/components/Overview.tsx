@@ -28,7 +28,7 @@ import { alpha, useStyles, useTheme, type Tokens } from '../theme';
 import { agentMenu } from '../manage';
 import { Icon } from './Icon';
 import { useSignals } from '../signals';
-import { Beat, Deck } from './Deck';
+import { Deck, Question, Recap, useSeen } from './Deck';
 
 const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
 const shortPath = (p: string) => p.replace(/^\/(?:home|Users)\/[^/]+/, '~');
@@ -41,6 +41,8 @@ interface Card {
   /** server id (null = primary); the same path on two boxes is two cards */
   host: string | null;
   agents: Agent[];
+  /** the agent most of this card's sessions run; rows name only the odd one out */
+  majority: string;
   spawn?: SpawnTarget;
 }
 
@@ -57,12 +59,16 @@ function buildCards(roster: Roster): Card[] {
       repo: a.repoRoot === place,
       host,
       agents: [],
+      majority: a.agent,
     };
     c.agents.push(a);
     cards.set(key, c);
   }
   for (const c of cards.values()) {
     c.agents.sort(byAttention);
+    const byAgent = new Map<string, number>();
+    for (const a of c.agents) byAgent.set(a.agent, (byAgent.get(a.agent) ?? 0) + 1);
+    c.majority = [...byAgent.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? c.majority;
     if (c.path) {
       const counts = new Map<string, number>();
       for (const a of c.agents) counts.set(a.workspaceId, (counts.get(a.workspaceId) ?? 0) + 1);
@@ -92,11 +98,16 @@ export function Overview({
 
   const cards = useMemo(() => buildCards(roster), [roster]);
   const signals = useSignals();
-  const beats = useMemo(() => {
-    const m = new Map<string, Signal>();
-    for (const s of signals.snap.signals) if (s.key.startsWith('beat:')) m.set(s.key.slice(5), s);
-    return m;
+  const { beats, recaps } = useMemo(() => {
+    const beats = new Map<string, Signal>();
+    const recaps = new Map<string, Signal>();
+    for (const s of signals.snap.signals) {
+      if (s.key.startsWith('beat:')) beats.set(s.key.slice(5), s);
+      else if (s.key.startsWith('ws:')) recaps.set(s.key.slice(3), s);
+    }
+    return { beats, recaps };
   }, [signals.snap]);
+  const freshRecaps = useSeen(useMemo(() => [...recaps.entries()].map(([k, s]) => ({ id: `ws:${k}`, version: String(s.recap?.at ?? 0) })), [recaps]));
   const multiHost = getServers().length > 1;
 
   const blocked = roster.agents.filter((a) => a.status === 'blocked').length;
@@ -157,6 +168,7 @@ export function Overview({
               </Pressable>
             )}
           </View>
+          <Recap sig={recaps.get(c.key)} fresh={freshRecaps.has(`ws:${c.key}`)} />
           {c.agents.map((a) => (
             <Pressable
               key={a.paneId}
@@ -173,16 +185,17 @@ export function Overview({
                   </Text>
                   {a.focused ? <Icon name="focus" size={13} color={t.colors.accent} /> : null}
                 </View>
-                <Text style={styles.agentSub}>
-                  {STATUS_WORD[a.status] ?? a.status}
-                  {a.displayAgent || a.agent ? ` · ${a.displayAgent ?? a.agent}` : ''}
-                </Text>
+                {(a.status !== 'idle' || a.agent !== c.majority) && (
+                  <Text style={styles.agentSub}>
+                    {[a.status !== 'idle' ? STATUS_WORD[a.status] ?? a.status : null, a.agent !== c.majority ? a.displayAgent ?? a.agent : null].filter(Boolean).join(' · ')}
+                  </Text>
+                )}
+                {a.status === 'blocked' && <Question beat={beats.get(a.paneId)} />}
               </View>
               <RailPacket active={a.status === 'working'} edge="bottom" size={1} color={t.colors.working} period={3000} />
               {a.status === 'blocked' && <AlarmSweep />}
             </Pressable>
           ))}
-          {c.agents.map((a) => beats.get(a.paneId) ? <Beat key={`b:${a.paneId}`} beat={beats.get(a.paneId)} status={a.status} /> : null)}
         </View>
       ))}
 
