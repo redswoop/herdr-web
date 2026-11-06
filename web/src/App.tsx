@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AgentView } from './components/AgentView';
 import { NewChatDialog } from './components/NewChatDialog';
 import { Overview } from './components/Overview';
+import { useSignals } from './hooks/useSignals';
 import { Sidebar } from './components/Sidebar';
 import { TabStrip } from './components/TabStrip';
 import { TokenGate } from './components/TokenGate';
@@ -62,6 +63,7 @@ export default function App() {
   const agent = pane ? roster.agents.find((a) => a.paneId === pane) : undefined;
   const blockedCount = roster.agents.filter((a) => a.status === 'blocked').length;
   const wide = useMediaQuery(WIDE);
+  const signals = useSignals(!authNeeded);
 
   if (authNeeded) return <TokenGate />;
 
@@ -105,6 +107,9 @@ export default function App() {
       onShowList={onShowList}
       connected={connected}
       sync={sync}
+      signals={signals.snap}
+      signalsLive={signals.live}
+      act={signals.act}
     />
   );
 
@@ -120,6 +125,9 @@ export default function App() {
           paneId={pane}
           agent={agent}
           file={route.file}
+          signals={signals.snap}
+          roster={roster}
+          act={signals.act}
           onBack={() => {
             location.hash = '';
           }}

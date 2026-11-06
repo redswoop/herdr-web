@@ -29,5 +29,8 @@
   "overrides": {
     "expo-font": "57.0.1",
     "expo-updates": "57.0.11"
+  },
+  "dependencies": {
+    "mqtt": "^5.10.1"
   }
 }

@@ -235,7 +235,7 @@ export function Sidebar({
     <nav className="sidebar">
       <header className="bar home-bar">
         <h1>
-          <button className="home-link" onClick={onHome} title="overview" aria-label="overview">
+          <button className="home-link" onClick={onHome} title="overview" aria-label="herd: overview">
             🐑 herd
           </button>
         </h1>

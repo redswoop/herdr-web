@@ -17,6 +17,7 @@ import {
 import { PushStore, Coordinator } from './lib/notify.js';
 import { loadPrefs, savePrefs } from './lib/prefs.js';
 import { places, savePins } from './lib/places.js';
+import { SignalStore, SignalRunner, loadConfig as loadSignalsConfig, configPath as signalsConfigPath } from './lib/signals.js';
 import { shortHost, resolveBindHost, publicUrl, capraLink, tailscaleInfo } from './lib/host.js';
 
 // A stray rejection (e.g. a background refresh path that missed a catch) must
@@ -99,7 +100,9 @@ function tokenEq(a, b) {
 }
 const BUILD = await (async () => {
   const h = createHash('sha1');
-  const files = ['server.js', ...(await fsp.readdir(path.join(ROOT, 'lib'))).sort().map((f) => `lib/${f}`)];
+  const libs = (await fsp.readdir(path.join(ROOT, 'lib'))).filter((f) => f.endsWith('.js')).sort().map((f) => `lib/${f}`);
+  const probes = (await fsp.readdir(path.join(ROOT, 'lib', 'probes'))).filter((f) => f.endsWith('.js')).sort().map((f) => `lib/probes/${f}`);
+  const files = ['server.js', ...libs, ...probes];
   for (const f of files) h.update(await fsp.readFile(path.join(ROOT, f)));
   return h.digest('hex').slice(0, 7);
 })();
@@ -190,6 +193,7 @@ async function doRefreshRoster() {
       }
     }
     const sessions = await allocateSessions(snapAgents);
+    lastSessions = sessions;
     const agents = await Promise.all(snapAgents.map(async (a) => {
       const session = sessions.get(a.pane_id) ?? null;
       const repoRoot = await gitRootOf(a.cwd);
@@ -291,6 +295,18 @@ async function doRefreshRoster() {
     try { res.write(payload); } catch { rosterClients.delete(res); }
   }
 }
+
+// ---------- signals (lib/signals.js + lib/probes/*) ----------
+// paneId -> {file, sessionId} from the last good roster refresh: the herd
+// probe reads transcript tails through it (no second session resolver).
+let lastSessions = new Map();
+const signalStore = new SignalStore();
+const signalRunner = new SignalRunner(signalStore, {
+  roster: () => roster,
+  sessionFile: (paneId) => lastSessions.get(paneId)?.file ?? null,
+  config: await loadSignalsConfig(),
+  hostname: HOSTNAME,
+});
 
 let refreshTimer = null;
 function scheduleRefresh() { // debounce bursts of herdr events
@@ -1823,6 +1839,61 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // Signals: probes → store → this. Snapshot, stream, actions, and the
+    // push door (the job-reporter convention: any script can report in).
+    if (seg[1] === 'signals') {
+      if (req.method === 'GET' && !seg[2]) return sendJson(res, 200, signalStore.snapshot());
+      if (req.method === 'GET' && seg[2] === 'stream') {
+        startSse(res);
+        res.write(`event: signals\ndata: ${JSON.stringify(signalStore.snapshot())}\n\n`);
+        signalStore.clients.add(res);
+        res.on('close', () => signalStore.clients.delete(res));
+        return;
+      }
+      if (req.method === 'POST' && seg[2] === 'act') {
+        const { key, action, body } = await readBody(req);
+        try {
+          return sendJson(res, 200, await signalRunner.act(String(key ?? ''), String(action ?? ''), body));
+        } catch (e) {
+          throw httpErr(e.status ?? 502, e.message);
+        }
+      }
+      if (req.method === 'POST' && !seg[2]) {
+        const b = await readBody(req);
+        const key = String(b?.key ?? '');
+        if (!/^[a-z0-9_-]{1,24}:[^\s]{1,120}$/.test(key)) throw httpErr(400, 'key must look like source:thing');
+        if (b.delete) {
+          signalStore.signals.delete(key);
+          signalStore.history.delete(key);
+          signalStore.broadcast([key]);
+          return sendJson(res, 200, { ok: true, deleted: key });
+        }
+        const ttl = Math.min(Math.max(Number(b.ttl ?? 600), 5), 7 * 86_400) * 1000;
+        const rec = {
+          key,
+          source: 'push',
+          kind: ['gauge', 'job', 'list', 'text'].includes(b.kind) ? b.kind : 'text',
+          title: String(b.title ?? key.split(':').slice(1).join(':')).slice(0, 80),
+          state: String(b.state ?? 'ok'),
+          host: String(b.host ?? ''),
+          detail: b.detail == null ? '' : String(b.detail).slice(0, 400),
+          value: typeof b.value === 'number' ? b.value : undefined,
+          unit: b.unit ? String(b.unit).slice(0, 8) : undefined,
+          done: typeof b.done === 'number' ? b.done : undefined,
+          total: typeof b.total === 'number' ? b.total : undefined,
+          pct: typeof b.pct === 'number' ? b.pct : (typeof b.done === 'number' && b.total ? Math.round((b.done / b.total) * 100) : undefined),
+          eta: typeof b.eta === 'number' ? b.eta : undefined,
+          href: b.href ? String(b.href).slice(0, 400) : undefined,
+          items: Array.isArray(b.items) ? b.items.slice(0, 40) : undefined,
+          attach: b.attach && typeof b.attach === 'object' ? { cwd: b.attach.cwd, paneId: b.attach.paneId } : undefined,
+          expiresAt: Date.now() + ttl,
+        };
+        signalStore.put(rec);
+        signalStore.broadcast([key]);
+        return sendJson(res, 200, { ok: true, key, expiresAt: rec.expiresAt });
+      }
+    }
+
     if (req.method === 'GET' && seg[1] === 'file' && !seg[2]) {
       return sendJson(res, 200, await fileInfo(url));
     }
@@ -2208,6 +2279,10 @@ async function serveStatic(pathname, res) {
   }
 }
 
+signalRunner.loadProbes().then((ids) => {
+  signalRunner.start();
+  console.log(`  signals: ${ids.join(' ')} (config ${signalsConfigPath()})`);
+});
 server.listen(PORT, HOST, () => {
   console.log(`herdr-web listening on http://${HOST}:${PORT}${TOKEN ? ' (token auth on)' : ''}`);
   console.log(`  host ${HOSTNAME}, public ${PUBLIC_URL}; enrol a phone: npm run link (or GET /api/link)`);

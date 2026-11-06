@@ -39,6 +39,7 @@ export { useRoster, hostUp } from './hooks/useRoster';
 export { useAgentSession, clearPaneMemory } from './hooks/useAgentSession';
 export { useBlockedContext } from './hooks/useBlockedContext';
 export { useAgentMode } from './hooks/useAgentMode';
+export { useSignals, bySource } from './hooks/useSignals';
 export {
   FONT_AREAS,
   FONT_MIN,
@@ -51,3 +52,4 @@ export {
   type FontKey,
   type Fonts,
 } from './fonts';
+export * from './rows';

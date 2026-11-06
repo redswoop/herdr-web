@@ -19,6 +19,7 @@ import {
   hostOf,
   type Agent,
   type Roster,
+  type Signal,
   type SpawnTarget,
 } from '@herdr/shared';
 import { Brackets } from '../cyber';
@@ -26,6 +27,8 @@ import { AlarmSweep, RailPacket, Scramble, StatusDot } from '../cyber-fx';
 import { alpha, useStyles, useTheme, type Tokens } from '../theme';
 import { agentMenu } from '../manage';
 import { Icon } from './Icon';
+import { useSignals } from '../signals';
+import { Beat, Deck } from './Deck';
 
 const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
 const shortPath = (p: string) => p.replace(/^\/(?:home|Users)\/[^/]+/, '~');
@@ -88,6 +91,12 @@ export function Overview({
   const styles = useStyles(makeStyles);
 
   const cards = useMemo(() => buildCards(roster), [roster]);
+  const signals = useSignals();
+  const beats = useMemo(() => {
+    const m = new Map<string, Signal>();
+    for (const s of signals.snap.signals) if (s.key.startsWith('beat:')) m.set(s.key.slice(5), s);
+    return m;
+  }, [signals.snap]);
   const multiHost = getServers().length > 1;
 
   const blocked = roster.agents.filter((a) => a.status === 'blocked').length;
@@ -116,6 +125,8 @@ export function Overview({
               (working ? ` · ${working} working` : '')}
         </Text>
       </View>
+
+      <Deck snap={signals.snap} live={signals.live} roster={roster} onSelect={onSelect} act={signals.act} />
 
       {cards.map((c) => (
         <View key={c.key} style={styles.card}>
@@ -171,6 +182,7 @@ export function Overview({
               {a.status === 'blocked' && <AlarmSweep />}
             </Pressable>
           ))}
+          {c.agents.map((a) => beats.get(a.paneId) ? <Beat key={`b:${a.paneId}`} beat={beats.get(a.paneId)} status={a.status} /> : null)}
         </View>
       ))}
 

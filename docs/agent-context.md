@@ -77,6 +77,24 @@ as bold lines, so keep them short. Lists are shown as the text you wrote (a
 `- ` or `1. ` lead, no indent), so keep items short. URLs become links even
 inside fences. There is no inline image syntax; use a path.
 
+## Put long work on the signals deck
+
+herdr-web's home page has a signals deck: disk, GPU, gaffer jobs, downloads, the Bambu printers,
+services, and a beat per session. Anything gaffer runs shows up there by
+itself. For a loop you run yourself (a cleanup pass, a big copy, a batch
+with a count), report it so the user can watch it from the home page or the
+phone instead of asking you:
+
+```
+node ~/src/herdr-web/scripts/signal.mjs job:<name> --title "what this is" --state busy --done N --total M --cwd "$PWD"
+node ~/src/herdr-web/scripts/signal.mjs job:<name> --state ok --detail "done, 12 GB freed"
+```
+
+Refresh it as the count moves (it expires 10 minutes after the last push);
+`--cwd "$PWD"` links it back to this session. `--state needs-you` with a
+`--detail` is a question the user sees on the deck. Prefer gaffer for anything
+over a few minutes (see your instructions); this is for the rest.
+
 ## Input the user can give you from the phone
 
 The user may be reading this on a phone with a soft keyboard. Permission

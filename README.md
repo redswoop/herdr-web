@@ -178,6 +178,9 @@ All under `/api`, JSON in/out. `:pane` is a herdr pane id like `w1:p2`.
 | `GET /api/places?cwd=` · `PUT /api/places` | viewer jumps: `home` = git toplevel of `cwd` (else `cwd`), `pins` = this host's pinned folders; PUT `{pins}` replaces the list (stored `~/`-relative) |
 | `GET`/`PUT /api/prefs` | appearance prefs that follow you across devices (theme, palette, colors) |
 | `GET /api/push/pubkey` · `POST /api/push/subscribe` · `…/unsubscribe` · `…/test` | Web Push plumbing |
+| `GET /api/signals` · `GET /api/signals/stream` | the signal store (`lib/signals.js`): every probed fact — disk free + rate, GPU, gaffer jobs, SAB queue, services, per-session beats/recaps (`beat:<pane>`) and the director's per-session cast (`scene:<pane>`) — with sparkline history; `stream` is SSE (`event: signals`, whole snapshot per change) |
+| `POST /api/signals/act` | `{key, action}` → the probe's verb on that signal (gaffer `ack`/`retry`/`pause`/`resume`/`cancel`/`top`, SAB `pause`/`resume`) |
+| `POST /api/signals` | push a signal from any script (the job-reporter door): `{key: "src:thing", title?, kind?, state?, detail?, value?, done?, total?, pct?, eta?, href?, items?, attach?: {cwd}, ttl?}`; `{key, delete: true}` removes it; pushed signals expire after `ttl` seconds (default 600) |
 
 ## Security model
 

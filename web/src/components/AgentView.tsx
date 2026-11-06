@@ -20,6 +20,9 @@ import type { Agent, AnswerBody, RestoredDraft, RewindState, SessionEntry } from
 import { BlockedCard } from './BlockedCard';
 import { ResumeCard } from './ResumeCard';
 import { SessionChip, StatusLine } from './StatusLine';
+import { attentionRows } from '@herdr/shared';
+import { AttentionRow } from './AttentionRow';
+import type { Roster, SignalSnapshot } from '../types';
 import { RewindCard } from './RewindCard';
 import { Composer } from './Composer';
 import { FileViewer } from './FileViewer';
@@ -35,6 +38,9 @@ export function AgentView({
   agent,
   file,
   onBack,
+  signals,
+  roster,
+  act,
 }: {
   /** the route's pane id — the stable identity. `agent` is roster metadata
    *  that momentarily vanishes when herdr blips (herdrDown returns an empty
@@ -43,6 +49,10 @@ export function AgentView({
   paneId: string;
   agent: Agent | undefined;
   file: string | null;
+  /** the signal store: this chat shows the rows for things it launched */
+  signals?: SignalSnapshot;
+  roster?: Roster;
+  act?: (key: string, action: string) => Promise<unknown>;
   onBack: () => void;
 }) {
   const status = agent?.status;
@@ -513,6 +523,10 @@ export function AgentView({
           ))}
         </Pop>
       </header>
+      {signals && act && (() => {
+        const rows = attentionRows(signals, roster ?? null, { paneId });
+        return rows.length ? <div className="attention in-chat">{rows.map((r) => <AttentionRow key={r.key} row={r} act={act} compact />)}</div> : null;
+      })()}
 
       {blocked && (
         <div className="blocked-banner">

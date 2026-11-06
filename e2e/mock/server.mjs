@@ -286,6 +286,18 @@ const server = http.createServer(async (req, res) => {
 
   if (!checkAuth(req, res, url)) return;
 
+  // signals: an empty store is a valid store (no probes in the mock)
+  if (req.method === 'GET' && seg[1] === 'signals' && !seg[2]) {
+    return sendJson(res, 200, { signals: [], sources: [], updatedAt: Date.now() });
+  }
+  if (req.method === 'GET' && seg[1] === 'signals' && seg[2] === 'stream') {
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store' });
+    res.write(`event: signals\ndata: ${JSON.stringify({ signals: [], sources: [], updatedAt: Date.now() })}\n\n`);
+    const ping = setInterval(() => res.write('event: ping\ndata: {}\n\n'), 10_000);
+    res.on('close', () => clearInterval(ping));
+    return;
+  }
+
   // roster
   if (req.method === 'GET' && seg[1] === 'roster' && !seg[2]) {
     return sendJson(res, 200, roster);

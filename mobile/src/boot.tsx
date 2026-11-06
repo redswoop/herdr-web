@@ -8,6 +8,7 @@ import { currentTokens, initPrefs, pullPrefs, subscribePrefs } from './prefs';
 import { initUpdates } from './updates';
 import { startIconSync } from './app-icon';
 import { RosterProvider } from './roster';
+import { SignalsProvider } from './signals';
 import { DEFAULT_TOKENS, FONT_FILES, ThemeProvider, useTokensFrom } from './theme';
 
 interface BootCtx {
@@ -74,7 +75,7 @@ export function BootProvider({ children }: { children: ReactNode }) {
     <BootContext.Provider value={{ remount, gen }}>
       <ThemeProvider tokens={tokens}>
         <View key={gen} style={[styles.fill, { backgroundColor: tokens.colors.bg }]}>
-          <RosterProvider>{children}</RosterProvider>
+          <RosterProvider><SignalsProvider>{children}</SignalsProvider></RosterProvider>
         </View>
       </ThemeProvider>
     </BootContext.Provider>

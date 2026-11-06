@@ -30,6 +30,8 @@ import { useRoster } from '../src/roster';
 import { agentMenu, workspaceMenu } from '../src/manage';
 import { Icon } from '../src/components/Icon';
 import { Overview } from '../src/components/Overview';
+import { Meanwhile } from '../src/components/Deck';
+import { useSignals } from '../src/signals';
 import { Screen } from '../src/cyber';
 import { ChamferPlate } from '../src/cyber-skia';
 import { AlarmSweep, FlickerIn, RailPacket, Scramble, StatusDot } from '../src/cyber-fx';
@@ -61,6 +63,7 @@ export default function RosterScreen() {
   const t = useTheme();
   const styles = useStyles(makeStyles);
   const { roster, connected, authNeeded, refresh, refreshing, hosts } = useRoster();
+  const signals = useSignals();
   const multiHost = hosts.length > 1;
   const downHosts = hosts.filter((h) => h.updatedAt > 0 && !h.connected);
   const router = useRouter();
@@ -244,6 +247,8 @@ export default function RosterScreen() {
             </Pressable>
           ))}
       </View>
+
+      {homeView === 'list' && <Meanwhile snap={signals.snap} onPress={() => pickHomeView('cards')} />}
 
       {homeView === 'cards' ? (
         <Overview

@@ -75,6 +75,34 @@ Corollaries that keep biting people who forget them:
   Shift+tab itself is raw CSI Z — `['Escape','[','Z']` in ONE send_keys call
   (herdr's `Shift+Tab` key name is accepted but claude never sees a backtab).
 
+## Signals (the LCARS layer)
+
+Probes → store → views, and the arrows never skip a step. `lib/probes/*.js`
+each answer one question on their own cadence and return a list of signal
+records; `lib/signals.js` keeps the current value per key, a capped history
+(so the UI gets sparklines and a least-squares rate for free), diffs each
+probe's output against its last, and fans the whole snapshot out over SSE.
+The web deck (`components/Deck.tsx`) and the sidebar's meanwhile strip are
+readers; neither knows a service URL. Conventions:
+
+- A probe module exports `{ id, title, every, run(ctx), act?(), start?(ctx, kick), stop?() }`
+  and is auto-loaded by filename. `run` returns records or `{ signals, nextIn }`
+  to pace itself. A throwing `run` marks the source failing and keeps its last
+  signals — one dead NAS must not blank the deck.
+- Keys are `<source>:<thing>`. States are the fixed set `ok warn alarm busy
+  idle needs-you down`, ranked in that order of urgency for sorting.
+- `attach: {cwd|paneId}` is how a signal becomes plot: the deck links a gaffer
+  job back to the session whose cwd launched it.
+- Anything can report in with `POST /api/signals` (ttl-expiring). That is the
+  job-reporter convention for loops gaffer doesn't run.
+- Config is `~/.local/state/herdr-web/signals.json`, one section per probe id;
+  `enabled: false` skips a probe. SAB needs `url`+`apiKey`; gaffer reads its
+  own `~/.config/gaffer` by default.
+- The herd probe's LLM recap goes through the arbiter on :8081 and only ever
+  uses a model that is already loaded; it never loads, never swaps, never runs
+  while a gaffer gpu job is running or yielded on this box, and only at act
+  breaks. Everything about that is in `lib/recap.js`'s header.
+
 ## Multi-host
 
 One client, many servers (`PLAN-MULTIHOST.md`). Each machine runs its own
@@ -104,6 +132,10 @@ Push (VAPID + aes128gcm) is hand-rolled on `node:crypto` rather than pulling
 | `lib/screen.js` | pure screen-text parsers: claude ❯ menus, grok radio menus, rewind panel, mode footer, composer text, salvage trimming — fixture-tested |
 | `lib/notify.js` | blocked-notification lifecycle: debounce, coalesce into one slot, retract on resolve |
 | `lib/webpush.js` | RFC 8291/8292/8188 crypto, validated against the RFC test vectors |
+| `lib/signals.js` | the signal store (current values + capped history + rate slope), the probe runner (per-probe cadence, failure isolation, `act()` dispatch, pushed-signal expiry), SSE fan-out |
+| `lib/probes/*.js` | one module per thing watched: `disk` (statfs + freeing/filling rate), `gpu` (nvidia-smi + holders), `sys` (cpu/mem), `gaffer` (board over its API + SSE kick, verbs), `sab` (usenet queue/history), `services` (systemd/docker/http), `herd` (per-session beats from transcript tails) |
+| `lib/recap.js` | two-line session recaps from the local model, under strict rules (resident model only, never while the GPU renders, act breaks only); also the shared `chat()`/`residentModel()`/`gpuBusy()` the director uses |
+| `lib/director.js` + `lib/probes/scene.js` | per-session cast: the scene probe finds candidates mechanically (jobs launched from the cwd, disks/services the transcript names), the director ranks and captions ≤3 of them with the local model (same rules as recaps), else a quiet rule (attached + loud only); emitted as `scene:<paneId>` and shown as the chat's scene strip |
 
 Conventions:
 
@@ -210,7 +242,8 @@ applied uniformly:
   (phone home surface: list | cards), `herdr.liveTail` (live TUI tail
   open | closed while an agent works), `herdr.textDraft.<pane>` and
   `herdr.attDraft.<pane>` (composer draft text/attachments — survive iOS
-  PWA eviction). Add new ones to this list.
+  PWA eviction), `herdr.deckOpen` (signals deck folded on the overview).
+  Add new ones to this list.
 - SSE cannot report a 401, so auth is probed with a plain fetch first
   (`useRoster`) — keep that pattern for new streams.
 

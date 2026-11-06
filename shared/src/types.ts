@@ -369,3 +369,109 @@ export type BlockedCtx =
       /** pending inline comments on grok's preview (approve-with-comments) */
       comments?: number;
     };
+
+// ---------- signals (lib/signals.js) ----------
+
+export type SignalState = 'ok' | 'warn' | 'alarm' | 'busy' | 'idle' | 'needs-you' | 'down';
+export type SignalKind = 'gauge' | 'job' | 'list' | 'text';
+/** the three things a human tells apart at a glance; null = plain */
+export type SignalTone = 'needs-you' | 'broken' | 'working' | null;
+
+export interface SignalItem {
+  id: string;
+  label: string;
+  sub?: string;
+  state?: SignalState;
+  pct?: number;
+  href?: string;
+  at?: number | null;
+  /** a swatch, e.g. a filament colour (#rrggbb) */
+  color?: string | null;
+  /** scene casts: the row inside the referenced list signal this pick is about */
+  item?: string | null;
+}
+
+/** One probed fact. The fields past `detail` are per-kind extras. */
+export interface Signal {
+  key: string;
+  source: string;
+  kind: SignalKind;
+  title: string;
+  sub?: string;
+  state: SignalState;
+  tone?: SignalTone;
+  host?: string;
+  detail?: string;
+  /** failures: what the output means, one line for a human */
+  meaning?: string | null;
+  /** failures: commits in the job's cwd since it finished */
+  commitsSince?: number | null;
+  actionHelp?: Record<string, string>;
+  href?: string;
+  updatedAt: number;
+  /** gauges: the number the sparkline tracks */
+  value?: number | null;
+  unit?: string;
+  total?: number | null;
+  used?: number;
+  pct?: number | null;
+  /** jobs */
+  done?: number | null;
+  eta?: number | null;
+  rate?: number | null;
+  phase?: string;
+  jobState?: string;
+  needs?: string;
+  startedAt?: number | null;
+  /** bambu: temperatures, layer, and the tray feeding the nozzle */
+  temps?: { nozzle: number | null; nozzleTarget: number | null; bed: number | null; bedTarget: number | null; chamber: number | null };
+  layer?: { n: number; of: number } | null;
+  wifi?: string | null;
+  feeding?: { unit: number | null; slot: number | null; type?: string; color: string | null; remain: number | null } | null;
+  finishedAt?: number | null;
+  runMs?: number | null;
+  /** lists */
+  items?: SignalItem[];
+  /** gpu/host extras */
+  mem?: { used: number; total: number } | null;
+  temp?: number;
+  power?: number | null;
+  powerLimit?: number | null;
+  self?: boolean;
+  remote?: boolean;
+  /** the session this belongs to, if the probe could tell */
+  attach?: { cwd?: string; repoRoot?: string; paneId?: string };
+  actions?: string[];
+  /** store-kept: [[epoch ms, value]…] */
+  history?: [number, number][];
+  since?: number;
+  first?: number;
+  expiresAt?: number;
+  /** herd beats (kind text, key beat:<paneId>) */
+  status?: AgentStatus;
+  agent?: string;
+  cwd?: string | null;
+  turns?: number;
+  asked?: string;
+  said?: string;
+  turnAt?: number | null;
+  recap?: { now: string; next: string; at: number; model?: string } | null;
+  /** scene casts (kind list, key scene:<paneId>): who picked them */
+  by?: 'director' | 'rule';
+}
+
+export interface SignalSource {
+  id: string;
+  title: string;
+  every: number;
+  ok: boolean | null;
+  error: string | null;
+  ranAt: number;
+  ms: number;
+}
+
+export interface SignalSnapshot {
+  signals: Signal[];
+  sources: SignalSource[];
+  updatedAt: number;
+}

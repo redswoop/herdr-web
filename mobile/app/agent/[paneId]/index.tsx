@@ -25,6 +25,8 @@ import {
 } from '@herdr/shared';
 import { useRoster } from '../../../src/roster';
 import { AgentHeader } from '../../../src/components/AgentHeader';
+import { SceneStrip } from '../../../src/components/Deck';
+import { useSignals } from '../../../src/signals';
 import { agentMenu } from '../../../src/manage';
 import { fileScreenFor } from '../../../src/file-routes';
 import { BlockedCard } from '../../../src/components/BlockedCard';
@@ -123,6 +125,7 @@ export default function AgentScreen() {
     if (restoredDraft) setRewindDraft(null);
   }, [restoredDraft]);
 
+  const signals = useSignals();
   const goBack = useCallback(() => {
     if (navigation.canGoBack()) router.back();
     else router.replace('/');
@@ -383,6 +386,7 @@ export default function AgentScreen() {
         }}
         onOpenDir={onOpenFile}
       />
+      <SceneStrip snap={signals.snap} paneId={paneId} onPress={goBack} />
       {blocked && (
         <View style={styles.blockedBanner}>
           <StripeFill />
