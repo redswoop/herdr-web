@@ -437,7 +437,7 @@ export function AgentView({
             agent={agent}
             readout={readout}
             commands={commands}
-            disabled={working || blocked || rewindBusy}
+            disabled={status === 'working' || blocked || rewindBusy}
             onSend={(text) => sendFromComposer(text)}
             onOpenDir={openFile}
           />
@@ -463,7 +463,7 @@ export function AgentView({
                 agent={agent}
                 readout={readout}
                 commands={commands}
-                disabled={working || blocked || rewindBusy}
+                disabled={status === 'working' || blocked || rewindBusy}
                 onSend={(text) => sendFromComposer(text)}
                 onOpenDir={(p) => {
                   closeDetails();
@@ -486,7 +486,7 @@ export function AgentView({
         <SessionChip
           status={status}
           commands={commands}
-          disabled={working || blocked || rewindBusy}
+          disabled={status === 'working' || blocked || rewindBusy}
           onSend={(text) => sendFromComposer(text)}
           onPanel={(ui) => {
             if (ui === 'rewind') void openRewind();

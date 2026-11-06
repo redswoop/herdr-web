@@ -30,15 +30,23 @@ export function useKindCommands(kind: string | undefined, host?: string | null):
   useEffect(() => {
     if (!kind) return setCmds([]);
     let dead = false;
-    fetchKinds(host)
-      .then((kinds) => {
-        if (!dead) setCmds(kinds.find((k) => k.kind === kind)?.commands ?? []);
-      })
-      .catch(() => {
-        if (!dead) setCmds([]);
-      });
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    // a phone waking before its network does fails this once; keep trying
+    // (backing off to 30 s) rather than leaving the readouts inert until
+    // the pane is reopened
+    const load = (wait: number) => {
+      fetchKinds(host)
+        .then((kinds) => {
+          if (!dead) setCmds(kinds.find((k) => k.kind === kind)?.commands ?? []);
+        })
+        .catch(() => {
+          if (!dead) timer = setTimeout(() => load(Math.min(wait * 2, 30_000)), wait);
+        });
+    };
+    load(2000);
     return () => {
       dead = true;
+      if (timer) clearTimeout(timer);
     };
   }, [kind, host]);
   return cmds;
@@ -130,8 +138,12 @@ export function ctxHeat(r: SessionReadout): '' | 'warm' | 'hot' {
 /** The pick-list value the session is on now, marked in the deck's picker. */
 export function currentValue(cmd: KindCommand, r: SessionReadout): string | null {
   if (cmd.verb === 'effort') return r.effort;
-  // model values are claude's aliases (opus, sonnet …) — match the family
-  if (cmd.verb === 'model') return cmd.values?.find((v) => r.model?.startsWith(`claude-${v}-`)) ?? null;
+  // model values are either the id itself (pi: provider/id) or claude's
+  // aliases (opus, sonnet …) — exact first, then the family
+  if (cmd.verb === 'model') {
+    if (r.model && cmd.values?.includes(r.model)) return r.model;
+    return cmd.values?.find((v) => r.model?.startsWith(`claude-${v}-`)) ?? null;
+  }
   return null;
 }
 
@@ -139,7 +151,8 @@ export function currentValue(cmd: KindCommand, r: SessionReadout): string | null
 export function shortModel(id: string | null | undefined): string | null {
   if (!id) return null;
   const m = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?/.exec(id);
-  if (!m) return id;
+  if (!m) return id.slice(id.lastIndexOf('/') + 1); // pi's provider/id: the id
+
   return m[3] ? `${m[1]} ${m[2]}.${m[3]}` : `${m[1]} ${m[2]}`;
 }
 

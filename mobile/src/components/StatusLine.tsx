@@ -7,7 +7,7 @@
    so the row still truncates as one line on a narrow phone. The header's
    status pill opens the session sheet here too (new · rewind · resume), so
    every header control shares one skinned bottom sheet. */
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -145,21 +145,32 @@ export function StatusLine({
 
   return (
     <>
-      <Text style={style} numberOfLines={1}>
+      {/* one Pressable per readout, not nested Text onPress: a nested span's
+          hit box is the ink of the word (~12 pt), so thumbs on the dot or
+          just above the baseline hit nothing. hitSlop pads it to row height. */}
+      <View style={styles.row}>
         {segs.map((s, i) => (
-          <Text key={s.key}>
-            {i > 0 && ' · '}
-            <Text
-              style={[live(!!s.on), s.color ? { color: s.color, ...(heat === 'hot' ? t.glow(s.color, 6) : {}) } : null]}
+          <Fragment key={s.key}>
+            {i > 0 && <Text style={style}> · </Text>}
+            <Pressable
               onPress={s.on && !off ? s.on : undefined}
               onLongPress={s.long && !off ? s.long : undefined}
-              suppressHighlighting={!s.on || off}
+              disabled={!s.on || off}
+              hitSlop={{ top: 10, bottom: 10, left: 3, right: 3 }}
+              accessibilityRole={s.on ? 'button' : undefined}
+              accessibilityLabel={s.on ? `${s.key}: ${s.text}` : undefined}
+              style={({ pressed }) => [s.key === 'cwd' ? styles.shrink : null, pressed && s.on && !off ? styles.pressed : null]}
             >
-              {s.text}
-            </Text>
-          </Text>
+              <Text
+                style={[style, live(!!s.on), s.color ? { color: s.color, ...(heat === 'hot' ? t.glow(s.color, 6) : {}) } : null]}
+                numberOfLines={1}
+              >
+                {s.text}
+              </Text>
+            </Pressable>
+          </Fragment>
         ))}
-      </Text>
+      </View>
 
       <Modal visible={!!pop || session} transparent animationType="fade" onRequestClose={close}>
         {/* padding on Android too: edge-to-edge (API 35+) never resizes the
@@ -270,6 +281,9 @@ const makeStyles = (t: Tokens) =>
   StyleSheet.create({
     // a readout that's a control: a shade brighter than the rest of the line
     ctl: { color: t.cyber ? t.colors.accent : t.colors.text, textDecorationLine: t.cyber ? 'none' : 'underline', textDecorationStyle: 'dotted' },
+    row: { flexDirection: 'row', alignItems: 'center', flexShrink: 1, minWidth: 0 },
+    shrink: { flexShrink: 1, minWidth: 0 },
+    pressed: { opacity: 0.5 },
     sheetRoot: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.55)' },
     sheet: {
       margin: 10,

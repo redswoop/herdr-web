@@ -78,6 +78,11 @@ describe('currentValue', () => {
     expect(currentValue({ verb: 'model', label: 'model', values: ['fable'] }, r)).toBeNull();
     expect(currentValue({ verb: 'compact', label: 'compact' }, r)).toBeNull();
   });
+  it('pi: a provider/id model matches its own entry', () => {
+    const p = { model: 'llama.cpp/qwen3.8-27b', effort: 'off', ctx: null, window: null };
+    expect(currentValue({ verb: 'model', label: 'model', values: ['llama.cpp/qwen3.8-27b', 'openai/gpt-5'] }, p)).toBe('llama.cpp/qwen3.8-27b');
+    expect(currentValue({ verb: 'effort', label: 'thinking', values: ['off', 'low'] }, p)).toBe('off');
+  });
 });
 
 describe('formatting', () => {
@@ -85,6 +90,7 @@ describe('formatting', () => {
     expect(shortModel('claude-opus-5-5')).toBe('opus 5.5');
     expect(shortModel('claude-sonnet-4-5-20250929')).toBe('sonnet 4.5');
     expect(shortModel('claude-fable-5')).toBe('fable 5');
+    expect(shortModel('llama.cpp/qwen3.8-27b-heretic')).toBe('qwen3.8-27b-heretic');
     expect(shortModel('gpt-x')).toBe('gpt-x');
     expect(shortModel(null)).toBeNull();
   });

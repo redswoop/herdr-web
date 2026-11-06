@@ -1061,11 +1061,13 @@ async function listKinds() {
         break;
       } catch {}
     }
+    // a manifest may be a function (pi's model list comes from a store file)
+    const cmds = adapterFor(m.agent)?.commands;
     return {
       kind: m.agent,
       version: m.active_version ?? null,
       installed,
-      commands: adapterFor(m.agent)?.commands ?? [],
+      commands: (typeof cmds === 'function' ? await cmds() : cmds) ?? [],
     };
   }));
 }

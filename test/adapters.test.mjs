@@ -669,12 +669,18 @@ test('pi messages: prompts, thinking, tool calls paired with results, usage per 
       { type: 'toolCall', id: 'tc1', name: 'read', arguments: { path: 'note.txt' } },
     ],
     usage: { input: 580, output: 99, cacheRead: 1057, cacheWrite: 0 },
+    model: 'qwen3.8-27b-heretic',
+    provider: 'llama.cpp',
+    thinkingLevel: 'off',
     stopReason: 'toolUse',
   }));
   assert.deepEqual(evs.map((e) => e.kind), ['thought', 'tool_use']);
   assert.deepEqual(evs[1].input, { path: 'note.txt' });
   assert.deepEqual(evs[1].usage, { out: 99, ctx: 1637 });
   assert.equal(evs[0].msgId, evs[1].msgId);
+  // header readout: model as provider/id (pi's own /model form) + thinking level
+  assert.equal(evs[1].model, 'llama.cpp/qwen3.8-27b-heretic');
+  assert.equal(evs[1].effort, 'off');
   const [r] = pi.translate(piMsg('a3', {
     role: 'toolResult', toolCallId: 'tc1', toolName: 'read', content: [{ type: 'text', text: 'quokka\n' }], isError: false,
   }));
@@ -773,3 +779,28 @@ test('readEventsCached: parses only what was appended, re-reads after truncation
   assert.deepEqual(r.events.map((e) => e.text), ['z']);
 });
 
+
+test('pi command manifest: thinking levels, models from models-store.json as provider/id', async () => {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'pi-store-'));
+  await fsp.writeFile(path.join(dir, 'models-store.json'), JSON.stringify({
+    'llama.cpp': { models: [{ id: 'qwen3.8-27b', provider: 'llama.cpp' }, { id: 'bonsai' }, { id: 'qwen3.8-27b' }], checkedAt: 1 },
+    openai: { models: [{ id: 'gpt-5' }] },
+  }));
+  const prev = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = dir;
+  try {
+    const cmds = await pi.commands();
+    const by = Object.fromEntries(cmds.map((c) => [c.verb, c]));
+    assert.deepEqual(by.effort.values, ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+    assert.equal(by.effort.send, '/thinking');
+    assert.deepEqual(by.model.values, ['llama.cpp/qwen3.8-27b', 'llama.cpp/bonsai', 'openai/gpt-5']);
+    assert.equal(by.new.effect, 'session');
+    assert.equal(by.resume.ui, 'resume');
+    // no store at all: no model verb (a bare /model would open pi's selector UI)
+    process.env.PI_CODING_AGENT_DIR = path.join(dir, 'nope');
+    assert.ok(!(await pi.commands()).some((c) => c.verb === 'model'));
+  } finally {
+    if (prev === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = prev;
+    await fsp.rm(dir, { recursive: true, force: true });
+  }
+});

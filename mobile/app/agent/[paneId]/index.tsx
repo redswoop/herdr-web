@@ -370,7 +370,9 @@ export default function AgentScreen() {
         onModeOpen={setModeOpen}
         readout={readout}
         commands={commands}
-        disabled={working || blocked || rewindBusy}
+        // roster status, not `working`: that one carries the optimistic
+        // just-sent flag, which killed the readouts for 10 s after every pick
+        disabled={status === 'working' || blocked || rewindBusy}
         onBack={goBack}
         onSetMode={setMode}
         onMenu={agent ? () => agentMenu(agent, { onClosed: goBack, onFiles: () => onOpenFile(agent.cwd ?? '~') }) : undefined}
