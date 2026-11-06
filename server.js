@@ -17,7 +17,7 @@ import {
 import { PushStore, Coordinator } from './lib/notify.js';
 import { loadPrefs, savePrefs } from './lib/prefs.js';
 import { places, savePins } from './lib/places.js';
-import { shortHost, resolveBindHost, publicUrl, capraLink } from './lib/host.js';
+import { shortHost, resolveBindHost, publicUrl, capraLink, tailscaleInfo } from './lib/host.js';
 
 // A stray rejection (e.g. a background refresh path that missed a catch) must
 // not kill a daemon whose whole job is staying up — log loudly and carry on.
@@ -72,6 +72,9 @@ const ALLOWED_HOSTS = new Set(
     'localhost', '127.0.0.1', '::1', HOST, HOSTNAME, os.hostname(), os.hostname().split('.')[0],
     `${os.hostname().split('.')[0]}.local`,
     (() => { try { return new URL(PUBLIC_URL).hostname; } catch { return ''; } })(),
+    // --public-url replaces PUBLIC_URL, but --host auto still hands out the
+    // MagicDNS name — keep answering to it
+    (await tailscaleInfo())?.dns ?? '',
     ...Object.values(os.networkInterfaces()).flat().map((i) => i?.address ?? ''),
     ...(argOf('--allow-host', '') ?? '').split(','),
   ].map((h) => h.trim().toLowerCase().replace(/^\[|\]$/g, '')).filter(Boolean),
@@ -475,7 +478,8 @@ async function readScreenAnsi(paneId) {
 // became "4443" in the feedback box. `feedback` types into the free-text row
 // and submits (reject-with-feedback). Returns true, or null when the screen no
 // longer holds a matching menu — the caller 409s.
-const INPUT_PLACEHOLDER = /^(Tell Claude what to change|Type something\.?)$/;
+// (a multi-select's free-text row carries a box too: "[ ] Type something")
+const INPUT_PLACEHOLDER = /^(\[[ ✔✓x]\]\s+)?(Tell Claude what to change|Type something\.?)$/;
 async function answerByNav(paneId, { option, feedback, kind }) {
   if (kind === 'grok') {
     if (isGrokPlanApproval(await readScreen(paneId))) {
@@ -483,9 +487,7 @@ async function answerByNav(paneId, { option, feedback, kind }) {
     }
     return answerGrokMenu(paneId, { option });
   }
-  const read = async () => parseMenuFor(kind, await readScreen(paneId));
-  const settle = () => new Promise((r) => setTimeout(r, 300));
-  const send = (keys) => agentRpc('agent.send_keys', { target: paneId, keys });
+  const { read, settle, send } = menuDriver(paneId, kind);
   let menu = await read();
   if (!menu) return null;
   const inputOpt = menu.options.find((o) => o.input);
@@ -498,8 +500,12 @@ async function answerByNav(paneId, { option, feedback, kind }) {
     const n = Math.max(100, [...(inputOpt.label ?? '')].length + 20);
     for (let i = 0; i < n; i += 1) keys.push('Backspace');
   }
-  const sel = (menu.options.find((o) => o.selected) ?? menu.options[0]).n;
-  for (let i = 0; i < Math.abs(targetN - sel); i += 1) keys.push(targetN > sel ? 'Down' : 'Up');
+  // positions in cursor order, not option numbers: a multi-select's
+  // unnumbered Submit row sits between options and may hold the cursor
+  const order = cursorOrder(menu);
+  const at = Math.max(0, cursorPos(menu));
+  const target = order.indexOf(targetN);
+  for (let i = 0; i < Math.abs(target - at); i += 1) keys.push(target > at ? 'Down' : 'Up');
   if (keys.length) {
     await send(keys);
     await settle();
@@ -523,38 +529,77 @@ async function answerByNav(paneId, { option, feedback, kind }) {
   return true;
 }
 
+// Shared plumbing for the keystroke drivers below: read the parsed menu,
+// let the TUI redraw, send keys.
+function menuDriver(paneId, kind) {
+  return {
+    read: async () => parseMenuFor(kind, await readScreen(paneId)),
+    settle: (ms = 300) => new Promise((r) => setTimeout(r, ms)),
+    send: (keys) => agentRpc('agent.send_keys', { target: paneId, keys }),
+  };
+}
+// Cursor order on screen: options 1..after, the unnumbered Submit row (when
+// a multi-select draws one), after+1..N. Positions in this array are what
+// Up/Down counts are measured in.
+function cursorOrder(menu) {
+  const order = [];
+  for (const o of menu.options) {
+    order.push(o.n);
+    if (menu.submit && o.n === menu.submit.after) order.push('submit');
+  }
+  return order;
+}
+function cursorPos(menu) {
+  const order = cursorOrder(menu);
+  return menu.submit?.selected ? order.indexOf('submit')
+    : order.indexOf(menu.options.find((o) => o.selected)?.n);
+}
+const BOXED = /^\[[ ✔✓x]\]\s/;
+
 // Multi-select AskUserQuestion (claude v2.1.318+): digits toggle boxes, and
 // a bare Enter on an option row toggles that box too — it does NOT submit.
 // Committing takes the cursor on the unnumbered "Submit" row under the
 // free-text row, Enter, then Enter again on the "Review your answers"
 // confirm ("1. Submit answers / 2. Cancel"). Older TUIs had no Submit row
-// and Enter committed outright — fall back to that when none is drawn.
-// Returns true, or null when the screen no longer holds a menu (caller 409s).
+// (and no [ ] boxes) and Enter committed outright — fall back to that only
+// on that evidence. The Submit row is the first thing to scroll off a tall
+// menu: when boxes are drawn but no row is, walk the cursor down until it
+// scrolls in. Returns true only once the menu is gone or the confirm was
+// answered; null when the screen stopped cooperating (caller 409s).
 async function submitMultiSelect(paneId, kind) {
-  const read = async () => parseMenuFor(kind, await readScreen(paneId));
-  const settle = (ms = 300) => new Promise((r) => setTimeout(r, ms));
-  const send = (keys) => agentRpc('agent.send_keys', { target: paneId, keys });
+  const { read, settle, send } = menuDriver(paneId, kind);
   let menu = await read();
   if (!menu) return null;
-  if (!menu.submit) {
+  if (!menu.options.some((o) => BOXED.test(o.label))) {
+    // a plain menu has nothing to "submit" — the client sent the wrong verb
+    if (menu.form !== 'ask') throw httpErr(400, 'submit: not a multi-select menu');
     await send(['Enter']);
     return true;
   }
-  // cursor order on screen: options 1..after, Submit, after+1..N
-  const order = [];
-  for (const o of menu.options) {
-    order.push(o.n);
-    if (o.n === menu.submit.after) order.push('submit');
+  if (!menu.submit) {
+    // no Submit row drawn at all (not seen live — the row is pinned — but
+    // cheap to survive): step down until one appears, bounded
+    const limit = menu.options.length + 2;
+    for (let i = 0; i < limit && !menu?.submit; i += 1) {
+      await send(['Down']);
+      await settle();
+      menu = await read();
+      if (!menu) return null;
+    }
+    if (!menu.submit) return null;
   }
-  const posOf = (m) => (m.submit?.selected ? order.indexOf('submit')
-    : order.indexOf(m.options.find((o) => o.selected)?.n));
-  const target = order.indexOf('submit');
-  for (let tries = 0; tries < 3; tries += 1) {
-    const at = posOf(menu);
+  // A short pane scrolls the options under the pinned Submit row and the
+  // numbering on screen has holes, so the on-screen order can't say how
+  // many rows lie between the cursor and Submit: step one row at a time
+  // and re-read. A menu that fits is walked in one batch.
+  for (let tries = 0; tries < 12; tries += 1) {
+    const order = cursorOrder(menu);
+    const target = order.indexOf('submit');
+    const at = cursorPos(menu);
     if (at === target) break;
     if (at < 0) return null;
-    const keys = Array.from({ length: Math.abs(target - at) }, () => (target > at ? 'Down' : 'Up'));
-    await send(keys);
+    const n = menu.scrolled ? 1 : Math.abs(target - at);
+    await send(Array.from({ length: n }, () => (target > at ? 'Down' : 'Up')));
     await settle();
     menu = await read();
     if (!menu?.submit) return null;
@@ -572,6 +617,9 @@ async function submitMultiSelect(paneId, kind) {
     }
     if (!/Review your answers|Ready to submit/.test(screen) && !confirm) return true; // no review step
   }
+  // still drawn with its Submit row after all that: the Enter never landed
+  // (keystroke race, parked-worker relay). Don't tell the client "ok".
+  if ((await read())?.submit) return null;
   return true;
 }
 
@@ -581,16 +629,15 @@ async function submitMultiSelect(paneId, kind) {
 // selected — covers both without double-answering. Free-text feedback isn't
 // wired for grok yet; callers get a 409 and fall back to typing a prompt.
 async function answerGrokMenu(paneId, { option }) {
-  const read = async () => parseMenuFor('grok', await readScreen(paneId));
-  const settle = () => new Promise((r) => setTimeout(r, 300));
+  const { read, settle, send } = menuDriver(paneId, 'grok');
   let menu = await read();
   if (!menu || option == null) return null;
   if (!menu.options.some((o) => o.n === option && !o.input)) return null;
-  await agentRpc('agent.send_keys', { target: paneId, keys: [String(option)] });
+  await send([String(option)]);
   await settle();
   menu = await read();
   if (menu?.options.find((o) => o.n === option)?.selected) {
-    await agentRpc('agent.send_keys', { target: paneId, keys: ['Enter'] });
+    await send(['Enter']);
   }
   return true;
 }
@@ -1704,10 +1751,14 @@ const server = http.createServer(async (req, res) => {
       return await serveStatic(url.pathname, res);
     }
     // A multi-host web client runs from ONE server's origin and talks to the
-    // others cross-origin. Open CORS is safe here: the cookie is
+    // others cross-origin. Open CORS is safe ONLY with a token: the cookie is
     // SameSite=Strict so it never rides along, and every cross-origin call
-    // has to carry ?token= — the same gate as any other caller.
-    if (req.headers.origin) {
+    // has to carry ?token= — the same gate as any other caller. Tokenless
+    // (loopback default, --insecure) there is no gate, so ACAO:* would let any
+    // page the browser has open read /api/file?path=~/.ssh/… — stay silent and
+    // let the browser's same-origin policy do its job. Multi-host fan-out
+    // always runs with tokens, so nothing legitimate loses access.
+    if (req.headers.origin && TOKEN) {
       res.setHeader('access-control-allow-origin', '*');
       if (req.method === 'OPTIONS') {
         res.writeHead(204, {
@@ -1882,6 +1933,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'GET' && action === 'stream') {
         const { adapter, session } = await resolveAgent(paneId, { optional: true });
         let offset = Number(url.searchParams.get('offset') ?? 0);
+        let tail; // bytes before `offset`, so a rewind-then-regrow reads as a reset
         let ticks = 0;
         let resetSent = false; // the client reloads on reset — say it once
         // what herdr said this pane was running when we opened. pi/codex /new
@@ -1890,6 +1942,16 @@ const server = http.createServer(async (req, res) => {
         // (vs. the value at open, not the resolved file: can't reset-loop)
         const reportedAtOpen = reportedSessions.get(paneId);
         startSse(res);
+        // ?session= says which session file the client's offset belongs to.
+        // A pane that /clear'd, /resume'd or got parked while the client was
+        // away is on a different file now: its bytes past the offset are a
+        // different conversation, not this one's tail — reload, don't append.
+        const expectSession = url.searchParams.get('session');
+        if (expectSession && expectSession !== (session?.sessionId ?? '')) {
+          resetSent = true;
+          res.write('event: reset\ndata: {}\n\n');
+          return;
+        }
         const tick = async () => {
           if (resetSent) return;
           if (reportedSessions.get(paneId) !== reportedAtOpen) {
@@ -1911,7 +1973,7 @@ const server = http.createServer(async (req, res) => {
             }
           }
           if (session) {
-            const r = await readEvents(adapter, session.file, offset);
+            const r = await readEvents(adapter, session.file, offset, { tail });
             if (r.reset) {
               // the file shrank (rewind/compaction rewrote it) — replaying
               // from 0 would duplicate the whole transcript; reload instead
@@ -1920,6 +1982,7 @@ const server = http.createServer(async (req, res) => {
               return;
             }
             offset = r.offset;
+            tail = r.tail;
             if (r.events.length) {
               res.write(`event: events\ndata: ${JSON.stringify(trimEvents(r.events))}\n\n`);
               // where the client can resume from later without a reload
@@ -1992,8 +2055,9 @@ const server = http.createServer(async (req, res) => {
       // with a free-text row (the plan prompt), safe for any ❯ menu.
       if (req.method === 'POST' && action === 'answer') {
         const { keys, expect, option, feedback, submit } = await readBody(req);
-        if (submit) {
-          const kind = roster.agents.find((x) => x.paneId === paneId)?.agent;
+        const kind = roster.agents.find((x) => x.paneId === paneId)?.agent;
+        if (submit !== undefined) {
+          if (submit !== true) throw httpErr(400, 'submit: true');
           const ok = await submitMultiSelect(paneId, kind);
           if (!ok) return sendJson(res, 409, { error: 'screen changed', screen: await readScreen(paneId) });
           if (dialogWatch.has(paneId)) setTimeout(() => refreshRoster(), 400);
@@ -2002,7 +2066,6 @@ const server = http.createServer(async (req, res) => {
         if (option != null || feedback != null) {
           if (option != null && !Number.isInteger(option)) throw httpErr(400, 'option: integer');
           if (feedback != null && typeof feedback !== 'string') throw httpErr(400, 'feedback: string');
-          const kind = roster.agents.find((x) => x.paneId === paneId)?.agent;
           const ok = await answerByNav(paneId, { option, feedback, kind });
           if (!ok) return sendJson(res, 409, { error: 'screen changed', screen: await readScreen(paneId) });
           // herdr never saw a watched confirm as blocked, so no event will
@@ -2020,7 +2083,6 @@ const server = http.createServer(async (req, res) => {
         // unnumbered cursor menus (claude's folder-trust prompt, pi's select)
         // ignore digits — the permission card and older clients still send
         // one; steer it through cursor nav instead of dropping the tap
-        const kind = roster.agents.find((x) => x.paneId === paneId)?.agent;
         if (keys.length === 1 && /^[1-9]$/.test(keys[0])
           && parseMenuFor(kind, await readScreen(paneId))?.nav) {
           const ok = await answerByNav(paneId, { option: +keys[0], kind });

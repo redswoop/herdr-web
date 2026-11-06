@@ -123,3 +123,11 @@ test('auth: POST endpoints are gated too', async () => {
   });
   assert.equal(r.status, 401);
 });
+
+test('auth: cross-origin calls get CORS only with the token (multi-host fan-out)', async () => {
+  const r = await fetch(`${BASE}/api/roster?token=${TOKEN}`, { headers: { origin: 'http://other-host' } });
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('access-control-allow-origin'), '*');
+  const pre = await fetch(`${BASE}/api/roster`, { method: 'OPTIONS', headers: { origin: 'http://other-host' } });
+  assert.equal(pre.status, 204);
+});

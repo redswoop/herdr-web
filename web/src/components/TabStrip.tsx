@@ -87,6 +87,7 @@ export function TabStrip({
             title={hover(a)}
             onClick={() => !current && onSelect(a.paneId)}
             onKeyDown={(e) => {
+              if (e.target !== e.currentTarget) return; // the × has its own Enter/Space
               if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (!current) onSelect(a.paneId); }
             }}
             onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); close(); } }}
@@ -105,7 +106,6 @@ export function TabStrip({
               aria-label={`close ${chipName(a)}`}
               onClick={(e) => { e.stopPropagation(); close(); }}
               onDoubleClick={(e) => e.stopPropagation()}
-              onAuxClick={(e) => e.stopPropagation()}
             >
               ×
             </button>

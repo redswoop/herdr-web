@@ -5,6 +5,7 @@
    keyboard-correct. */
 import {
   chipName,
+  clearPaneMemory,
   closeAgent,
   closeWorkspace,
   describeError,
@@ -55,7 +56,10 @@ export function agentMenuItems(a: Agent, opts: { onClosed?: () => void } = {}): 
  *  Shared by the context menu and the tab strip's × so they can't drift. */
 export async function confirmCloseAgent(a: Agent, onClosed?: () => void) {
   if (!confirm(`Close ${chipName(a)}?\n\nEnds the agent and its pane. The session file stays on disk for /resume.`)) return;
-  if (await run(closeAgent(a.paneId))) onClosed?.();
+  if (await run(closeAgent(a.paneId))) {
+    clearPaneMemory(a.paneId); // herdr reuses pane ids; a new pane must not inherit this transcript
+    onClosed?.();
+  }
 }
 
 export function workspaceMenuItems(workspaceId: string, title: string, agentCount: number): MenuItem[] {

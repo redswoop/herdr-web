@@ -715,3 +715,111 @@ test('claude multi-select ask: cursor on Submit still parses as a menu', () => {
   assert.deepEqual(m.submit, { after: 5, selected: true });
   assert.ok(!m.options.some((o) => o.selected));
 });
+
+// Live captures from a 12-row pane (claude 2.1.318, 2026-11-05): the OPTIONS
+// scroll in a two-row window; Submit, the rule and "Chat about this" are
+// pinned below it. ↑/↓ share the cursor column, so the cursor row hides its
+// own marker.
+const RULE60 = '─'.repeat(60);
+const MULTI_SCROLL_TOP = `
+Which of these apply?
+
+❯ 1. [ ] Alpha
+         The first option.
+↓ 2. [ ] Bravo
+         The second option.
+     Submit
+${RULE60}
+  6. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+`;
+const MULTI_SCROLL_MID = `
+Which of these apply?
+
+↑ 2. [ ] Bravo
+         The second option.
+❯ 3. [ ] Charlie
+         The third option.
+     Submit
+${RULE60}
+  6. Chat about this
+`;
+const MULTI_SCROLL_SUBMIT = `
+←  ☐ Pick  ✔ Submit  →
+Which of these apply?
+
+↑ 4. [ ] Delta
+         The fourth option.
+  5. [ ] Type something
+❯    Submit
+${RULE60}
+  6. Chat about this
+
+Enter to select · ↑/↓ to navigate · ctrl+g to edit in VS Code · Esc to cancel
+`;
+
+test('claude multi-select, short pane: options scroll under the pinned Submit row', () => {
+  const top = parseMenuScreen(MULTI_SCROLL_TOP);
+  assert.ok(top);
+  assert.equal(top.scrolled, true);
+  assert.deepEqual(top.options.map((o) => o.n), [1, 2, 6]);
+  assert.deepEqual(top.submit, { after: 2, selected: false });
+  assert.equal(top.options[0].selected, true);
+  assert.equal(top.options[1].description, 'The second option.');
+
+  assert.ok(!top.options.some((o) => o.input), 'the rule under a scrolled window does not mark Bravo as the free-text row');
+  assert.equal(top.form, 'ask');
+
+  const mid = parseMenuScreen(MULTI_SCROLL_MID);
+  assert.ok(mid, 'numbering starts at 2 behind the ↑ marker');
+  assert.deepEqual(mid.options.map((o) => o.n), [2, 3, 6]);
+  assert.equal(mid.options[1].selected, true);
+  assert.ok(!mid.options.some((o) => o.input));
+
+  // cursor on the window's top row hides the ↑ — still a menu
+  const hidden = parseMenuScreen(MULTI_SCROLL_MID.replace('↑ 2. [ ]', '❯ 2. [ ]').replace('❯ 3. [ ]', '  3. [ ]'));
+  assert.ok(hidden);
+  assert.equal(hidden.scrolled, true);
+  assert.equal(hidden.options[0].selected, true);
+
+  const sub = parseMenuScreen(MULTI_SCROLL_SUBMIT);
+  assert.ok(sub);
+  assert.deepEqual(sub.submit, { after: 5, selected: true });
+  assert.equal(sub.options[1].input, true, 'the pinned rule still marks the free-text row');
+  assert.equal(sub.form, 'ask');
+  assert.ok(!sub.options.some((o) => o.selected));
+});
+
+test('claude menu: a numbering hole without a Submit row is prose, not a menu', () => {
+  assert.equal(parseMenuScreen('Pick\n❯ 1. Yes\n  2. No\n  6. Maybe\n'), null);
+  assert.equal(parseMenuScreen('Pick\n\n    3. [ ] Label\n  ❯ 4. [ ] Cant\n'), null, 'no marker, no Submit, no menu');
+});
+
+test('claude single-select: a prose line "Submit" in the detail is not a Submit row', () => {
+  const screen = `
+╭──────────────────────────────────────────╮
+│ Bash command                             │
+│                                          │
+│   git commit -m "Form:                   │
+│   Submit                                 │
+│   button"                                │
+│                                          │
+│ Do you want to proceed?                  │
+│ ❯ 1. Yes                                 │
+│   2. Yes, and don't ask again            │
+│   3. No                                  │
+╰──────────────────────────────────────────╯
+`.replace(/│\s*$/gm, '').replace(/^│ ?/gm, '');
+  const m = parseMenuScreen(screen);
+  assert.ok(m);
+  assert.equal(m.submit, undefined);
+  assert.equal(m.options.length, 3);
+  assert.match(m.detail, /Submit/);
+  // and the same word right after an unboxed option is prose too
+  const after = parseMenuScreen('Pick one\n❯ 1. Yes\n  2. No\n     Submit\n');
+  assert.ok(after);
+  assert.equal(after.submit, undefined);
+  assert.equal(after.options[1].description, 'Submit');
+});
+

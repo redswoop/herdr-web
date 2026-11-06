@@ -1,7 +1,28 @@
 import { test, expect } from '@playwright/test';
-import { mockLog, openAgent } from '../helpers/app';
+import { mockLog, mockState, openAgent } from '../helpers/app';
 
 test.describe('agent transcript', () => {
+  test('coming back to a pane whose session changed shows only the new conversation', async ({ page }) => {
+    // pane memory replays the old stream offset on return; the stream must
+    // be told which session file that offset belongs to, or the new file's
+    // tail lands on the old transcript (2026-11-05 review)
+    await openAgent(page, 'w1:p1');
+    await expect(page.getByText(/list the auth module files/i)).toBeVisible();
+    await page.evaluate(() => void (location.hash = '#/agent/w1%3Ap2'));
+    await expect(page.getByText(/list the auth module files/i)).toBeHidden();
+    await mockState({
+      switchSession: {
+        'w1:p1': [
+          { kind: 'user', text: 'fresh conversation after clear', ts: new Date().toISOString(), msgId: 'u-fresh' },
+          { kind: 'assistant', text: 'Fresh reply, nothing before me.', ts: new Date().toISOString() },
+        ],
+      },
+    });
+    await page.evaluate(() => void (location.hash = '#/agent/w1%3Ap1'));
+    await expect(page.getByText(/fresh conversation after clear/i)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/list the auth module files/i)).toBeHidden();
+  });
+
   test('renders history, tools, and assistant markdown', async ({ page }) => {
     await openAgent(page, 'w1:p1');
     await expect(page.getByText(/list the auth module files/i)).toBeVisible();

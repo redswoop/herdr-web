@@ -14,7 +14,7 @@ comfy-grok sidecar).
 
 ## Phase 1 — security
 
-- [ ] **Open CORS on a tokenless server** — `server.js:1711`
+- [x] **Open CORS on a tokenless server** — `server.js:1711`
   The `access-control-allow-origin: *` header is set for any request carrying
   an Origin, before `checkAuth`. The comment claims every cross-origin call
   must carry `?token=`, but that only holds when `HERDR_WEB_TOKEN` is set. On
@@ -37,7 +37,22 @@ Context: `submitMultiSelect` in `server.js` (~l.532) and `submitRe` in
 free-text row, and is the first thing to scroll off a tall menu. Enter on an
 option row TOGGLES its box; it does not submit.
 
-- [ ] **Bare-Enter fallback fires on scrolled menus** — `server.js:540`
+> **Executed 2026-11-05.** Everything ticked below shipped and is covered by
+> `npm test` (`test/server-multiselect.test.mjs` is the fake-TUI driver test)
+> plus the tabstrip / transcript e2e specs. One finding corrected the plan:
+> on a short pane the claude TUI does NOT scroll the Submit row off — the
+> OPTIONS scroll in a window and Submit, the rule and "Chat about this" stay
+> pinned under it (verified live on a 12-row pane, claude 2.1.318). The
+> numbering on screen then has holes (`1, 2, 6`), ↑/↓ share the cursor column
+> (the cursor row hides its own marker), and the pinned rule sits under
+> whichever option is last in the window. `parseNumberedMenu` now reports
+> `scrolled: true` for that shape and `submitMultiSelect` single-steps the
+> cursor when it sees it. Left open: the phone check of a long session with
+> the HTML engine (needs the device), and two pre-existing phone-viewport e2e
+> failures (`auth.spec` / `roster.spec` heading locator) that fail on the
+> clean tree too.
+
+- [x] **Bare-Enter fallback fires on scrolled menus** — `server.js:540`
   `if (!menu.submit) send(['Enter'])` treats "no Submit row parsed" as "old
   TUI". It is also absent when the row scrolled off (`↑`/`↓` marker rows,
   which `optRe` tolerates). Enter then flips the cursor row's box and the route
@@ -49,11 +64,11 @@ option row TOGGLES its box; it does not submit.
   Also: the fallback should only apply to multi-select menus at all; a plain
   menu reaching this path is a client bug and should 400.
 
-- [ ] **`submitRe` ignores the scroll-marker prefix** — `lib/screen.js:40`
+- [x] **`submitRe` ignores the scroll-marker prefix** — `lib/screen.js:40`
   `optRe` accepts a leading `↓ `/`↑ ` marker; `submitRe` does not, so a Submit
   row drawn on the marker line is never parsed. Accept the same prefix.
 
-- [ ] **`submitRe` steals prose lines** — `lib/screen.js:40`
+- [x] **`submitRe` steals prose lines** — `lib/screen.js:40`
   The match runs before the description-swallow and anchors on any standalone
   `Submit` line after the first option, so a permission prompt whose detail
   block contains a line `Submit` gains a bogus `submit:{after:n}` and loses
@@ -66,7 +81,7 @@ option row TOGGLES its box; it does not submit.
   Submit row is behind `↓`, (b) a single-select whose description contains
   "Submit", (c) a Submit row on the marker line.
 
-- [ ] **Review-step loop reports success it never saw** — `server.js:563`
+- [x] **Review-step loop reports success it never saw** — `server.js:563`
   After Enter on Submit, the loop polls 10×300 ms. If Enter was dropped
   (keystroke race, parked-worker relay) the multi-select is still drawn:
   `confirm` is non-null, `options[0].label` starts with `[`, neither branch
@@ -76,7 +91,7 @@ option row TOGGLES its box; it does not submit.
   return null (409 "screen changed" with the screen attached). Only return
   true when the menu is gone or the confirm was answered.
 
-- [ ] **`answerByNav` assumes cursor on option 1 when Submit is selected** —
+- [x] **`answerByNav` assumes cursor on option 1 when Submit is selected** —
   `server.js:505`
   `options.find(selected) ?? options[0]` ignores `submit.selected`, so after a
   failed "done" left ❯ on Submit, every nav answer sends the wrong Down/Up
@@ -84,7 +99,7 @@ option row TOGGLES its box; it does not submit.
   Fix: build the same cursor `order` array `submitMultiSelect` builds (hoist
   it, see phase 5) and map `submit.selected` to its index.
 
-- [ ] **`submit` body field is untyped** — `server.js:1996`
+- [x] **`submit` body field is untyped** — `server.js:1996`
   `if (submit)` accepts `'no'`, `1`, `{}`; siblings get 400 validation.
   Require `submit === true`, 400 otherwise.
 
@@ -96,7 +111,7 @@ Enter toggles boxes.
 
 ## Phase 3 — transcript integrity
 
-- [ ] **Pane memory replays an offset into the wrong session file** —
+- [x] **Pane memory replays an offset into the wrong session file** —
   `shared/src/hooks/useAgentSession.ts:267`
   The remembered byte offset is reused on reopen without recording which
   session file it belonged to. Server-side reset detection is relative to the
@@ -112,7 +127,7 @@ Enter toggles boxes.
   size, return to A: transcript is only the new conversation. Add an e2e
   case using the transcript harness pane.
 
-- [ ] **`readEventsCached` misses rewind-then-regrow** — `lib/adapters.js:1377`
+- [x] **`readEventsCached` misses rewind-then-regrow** — `lib/adapters.js:1377`
   Reset keys only on "file shrank". Rewind to a smaller checkpoint, then write
   past the cached offset before the next fetch: `size >= offset`, no reset,
   the tail is appended mid-line to stale events. `/transcript` now always
@@ -125,7 +140,7 @@ Enter toggles boxes.
 
 ## Phase 4 — web/Capra UI
 
-- [ ] **Tab pill swallows keyboard events from the × button** —
+- [x] **Tab pill swallows keyboard events from the × button** —
   `web/src/components/TabStrip.tsx:89`
   The div's `onKeyDown` preventDefaults Enter/Space for any bubbled keydown,
   including the nested `.pill-x` button, so keyboard close is impossible and
@@ -134,18 +149,18 @@ Enter toggles boxes.
   Proof: extend `e2e/tests/tabstrip.spec.ts`: Tab to ×, Enter → confirm
   dialog appears, no navigation.
 
-- [ ] **Middle-click on × does nothing** — `web/src/components/TabStrip.tsx:107`
+- [x] **Middle-click on × does nothing** — `web/src/components/TabStrip.tsx:107`
   `onAuxClick={(e) => e.stopPropagation()}` on the button eats the event the
   div would have closed on; the hover text promises "middle-click or ×".
   Fix: drop the stopPropagation (let the div handle it) or call `close()`.
 
-- [ ] **Changing sort re-fetches an open file** —
+- [x] **Changing sort re-fetches an open file** —
   `web/src/components/FileViewer.tsx:120`
   The fetch effect depends on `order`; a sort change while a file is open
   resets info/raw and re-GETs. Fix: split the folder listing into its own
   effect keyed on `order`, or gate the dependency on `info?.kind === 'dir'`.
 
-- [ ] **TxWebView re-ships the whole transcript on status flips** —
+- [x] **TxWebView re-ships the whole transcript on status flips** —
   `mobile/src/components/TxWebView.tsx:87`
   One effect serialises `items` plus `working`/`cancellableKey`/`error`;
   any of the three changing pushes the full array through
@@ -157,7 +172,7 @@ Enter toggles boxes.
   Proof: console timing in the harness pane with the kitchen-sink
   transcript; a status flip should not log an items push.
 
-- [ ] **`--public-url` drops the MagicDNS host** — `server.js:62`
+- [x] **`--public-url` drops the MagicDNS host** — `server.js:62`
   `ALLOWED_HOSTS` derives the tailnet name only from `PUBLIC_URL`, so a
   custom front plus `--host auto` answers 421 to the ts.net URL the hosting
   rule says to hand out. Fix: add `tailscaleInfo().dns` to the set
@@ -165,15 +180,15 @@ Enter toggles boxes.
 
 ## Phase 5 — hygiene
 
-- [ ] **Three copies of read/settle/send** — `server.js:486, 532, 584`
+- [x] **Three copies of read/settle/send** — `server.js:486, 532, 584`
   `answerByNav`, `submitMultiSelect`, `answerGrokMenu` each redeclare the
   trio and `settle` already differs. Hoist `menuDriver(paneId, kind)` →
   `{ read, settle, send }` and the cursor `order` builder (phase 2 needs it
   in two places).
-- [ ] **Agent-kind lookup pasted into three branches** — `server.js:1996`
+- [x] **Agent-kind lookup pasted into three branches** — `server.js:1996`
   Hoist `const kind = roster.agents.find(...)?.agent` above the answer
   branches.
-- [ ] **Second `.pill` block** — `web/src/style.css:1613`
+- [x] **Second `.pill` block** — `web/src/style.css:1613`
   Fold `cursor: pointer; user-select: none;` into the `.pill` rule at l.1604.
 
 ## Done criteria

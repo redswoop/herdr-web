@@ -117,7 +117,26 @@ export function FileViewer({
     return () => {
       gone = true;
     };
-  }, [path, cwd, order]);
+    // `order` is read here but is not a dependency: the sort is a
+    // folder-listing concern (the effect below re-lists), and re-running
+    // this one would blank an open file and GET it again
+  }, [path, cwd]);
+  const orderRef = useRef(order);
+  useEffect(() => {
+    if (orderRef.current === order) return;
+    orderRef.current = order;
+    if (info?.kind !== 'dir') return;
+    let gone = false;
+    fetch(fileUrl(info.path, null) + dirOrderQuery(order))
+      .then(async (r) => {
+        const j = await r.json();
+        if (!gone && r.ok) setInfo(j);
+      })
+      .catch(() => {});
+    return () => {
+      gone = true;
+    };
+  }, [order, info]);
 
   // ⌂ the session's project root + the host's pinned folders
   const [places, setPlaces] = useState<Places | null>(null);

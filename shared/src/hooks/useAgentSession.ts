@@ -16,10 +16,14 @@ import type { AgentStatus, Item, Mine, MineState, RestoredDraft, TEvent } from '
    renders this at once and opens the stream where it left off — no fetch,
    no blank screen (which read as "an aggressive refresh" in use,
    2026-10-20). The server replays everything since the offset and sends a
-   reset if the file changed underneath, so this stays correct. */
+   reset if the file changed underneath, so this stays correct — provided
+   the stream is told WHICH file the offset belongs to (`sessionId`): a pane
+   that /clear'd or got parked while we were away is on a new file, and its
+   bytes past the old offset are not this transcript's tail. */
 type PaneMemory = {
   items: Item[];
   offset: number;
+  sessionId: string | null;
   win: { start: number; total: number } | null;
   nextKey: number;
   maxAt: number;
@@ -76,6 +80,7 @@ export function useAgentSession(
   const clockRef = useRef(createAtClock());
   const nextKey = useCallback(() => keyRef.current++, []);
   const offsetRef = useRef(0); // where the live stream stands; the resume point
+  const sessionIdRef = useRef<string | null>(null); // the session file that offset is into
 
   // remember every state change for the next visit
   useEffect(() => {
@@ -86,6 +91,7 @@ export function useAgentSession(
     paneMemory.set(paneId, {
       items,
       offset: offsetRef.current,
+      sessionId: sessionIdRef.current,
       win: winRef.current,
       nextKey: keyRef.current,
       maxAt: clockRef.current.maxAt(),
@@ -157,6 +163,7 @@ export function useAgentSession(
     if (paneSwitch) {
       winRef.current = memory?.win ?? null;
       offsetRef.current = memory?.offset ?? 0;
+      sessionIdRef.current = memory?.sessionId ?? null;
       keyRef.current = memory?.nextKey ?? keyRef.current;
       setOlder(memory?.win?.start ?? 0);
       setLoadingOlder(false);
@@ -173,7 +180,9 @@ export function useAgentSession(
 
     const listen = (offset: number) => {
       offsetRef.current = offset;
-      es = platform.openSse(apiUrl(`${agentPath(paneId, 'stream')}?offset=${offset}`));
+      const sid = sessionIdRef.current;
+      const q = `?offset=${offset}${sid ? `&session=${encodeURIComponent(sid)}` : ''}`;
+      es = platform.openSse(apiUrl(`${agentPath(paneId, 'stream')}${q}`));
       es.onopen = () => {
         bump();
         if (alive) setLinked(true);
@@ -212,13 +221,15 @@ export function useAgentSession(
         const want = tail && win ? Math.max(tail, win.total - win.start) : tail;
         const r = await get(agentPath(paneId, 'transcript') + (want ? `?tail=${want}` : ''));
         if (!r.ok) throw new Error(await errorOf(r));
-        const { events, offset, start = 0, total = events.length } = (await r.json()) as {
+        const { events, offset, start = 0, total = events.length, sessionId = null } = (await r.json()) as {
           events: TEvent[];
           offset: number;
           start?: number;
           total?: number;
+          sessionId?: string | null;
         };
         if (!alive) return;
+        sessionIdRef.current = sessionId;
         winRef.current = { start, total };
         setOlder(start);
         setError(null);

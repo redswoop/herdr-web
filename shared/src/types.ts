@@ -354,6 +354,8 @@ export type BlockedCtx =
       /** multi-select ask: the unnumbered "Submit" cursor row that commits the
        *  ticked boxes, drawn right after option `after` */
       submit?: { after: number; selected: boolean };
+      /** options scrolled under the pinned Submit/Chat footer (short pane): numbering has holes */
+      scrolled?: boolean;
     }
   | {
       kind: 'plan';

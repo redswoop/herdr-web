@@ -11,7 +11,7 @@
 import type { Item } from '@herdr/shared';
 import type { Theme } from '@herdr/shared/cyber';
 
-export const V = 1;
+export const V = 2;
 
 export interface InitMsg {
   type: 'init';
@@ -34,16 +34,23 @@ export interface InitMsg {
   scrollOnSend: boolean;
 }
 
-export interface StateMsg {
-  type: 'state';
+/** The transcript itself. Sent only when the item list changes: on a
+ *  multi-MB session this is hundreds of ms on the UI thread, so a status
+ *  flip must never ride on it (V2, 2026-11-05). */
+export interface ItemsMsg {
+  type: 'items';
   items: Item[];
   loaded: boolean;
+}
+/** Working/stop/error — cheap, applied without re-diffing the nodes. */
+export interface StatusMsg {
+  type: 'status';
   error: string | null;
   working: boolean;
   cancellableKey: number | null;
 }
 
-export type HostMsg = InitMsg | StateMsg | { type: 'scrollEnd' };
+export type HostMsg = InitMsg | ItemsMsg | StatusMsg | { type: 'scrollEnd' };
 
 export type PageMsg =
   | { type: 'ready'; v: number }
@@ -78,13 +85,14 @@ export function send(msg: PageMsg) {
 
 type Listener = (msg: HostMsg) => void;
 const listeners = new Set<Listener>();
-let last: { init?: InitMsg; state?: StateMsg } = {};
+let last: { init?: InitMsg; items?: ItemsMsg; status?: StatusMsg } = {};
 
 export function onHost(fn: Listener): () => void {
   listeners.add(fn);
   // a late subscriber gets what already landed (init can beat the React mount)
   if (last.init) fn(last.init);
-  if (last.state) fn(last.state);
+  if (last.items) fn(last.items);
+  if (last.status) fn(last.status);
   return () => listeners.delete(fn);
 }
 
@@ -93,7 +101,8 @@ export function installBridge() {
     v: V,
     recv(msg) {
       if (msg.type === 'init') last = { ...last, init: msg };
-      else if (msg.type === 'state') last = { ...last, state: msg };
+      else if (msg.type === 'items') last = { ...last, items: msg };
+      else if (msg.type === 'status') last = { ...last, status: msg };
       for (const fn of listeners) fn(msg);
     },
   };

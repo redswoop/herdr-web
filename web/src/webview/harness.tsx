@@ -128,7 +128,8 @@ function Harness() {
     let items: Item[] = [];
     let working = false;
     const emit = (loaded = true) =>
-      push({ type: 'state', items, loaded, error: null, working, cancellableKey: null });
+      push({ type: 'items', items, loaded });
+      push({ type: 'status', error: null, working, cancellableKey: null });
     emit(false);
     await sleep(50);
     items = applyEvents(items, stampEvents(events.slice(0, cut), nextKey, clock));

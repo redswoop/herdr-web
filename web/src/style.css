@@ -1607,10 +1607,10 @@ video.lb-media { cursor: auto; background: #000; }
   padding: 2px 8px; border-radius: 999px;
   border: 1px solid transparent;
   color: var(--sub); transition: background 0.12s, color 0.12s;
+  cursor: pointer; user-select: none;
 }
 .pill:hover { background: var(--surface-2); color: var(--text); }
 .pill.current { background: var(--surface-2); color: var(--text); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
-.pill { cursor: pointer; user-select: none; }
 .pill:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 /* the × rides along hidden; hover or the lit tab reveals it, and it keeps
    its width so the pill doesn't jump when it appears */

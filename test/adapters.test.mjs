@@ -357,6 +357,33 @@ test('readEvents: incremental offsets, partial lines, truncation reset', async (
   await fsp.rm(dir, { recursive: true, force: true });
 });
 
+test('readEventsCached: rewind-then-regrow past the cached offset rebuilds, not appends', async () => {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'herdr-adapters-'));
+  const file = path.join(dir, 'regrow.jsonl');
+  const echoAdapter = { translate: (o) => [{ kind: 'note', text: o.v }] };
+  const lines = (tag, n) => Array.from({ length: n }, (_, i) => `{"v":"${tag}${i}"}\n`).join('');
+  await fsp.writeFile(file, lines('old', 60)); // ~1 KB
+  const r1 = await readEventsCached(echoAdapter, file);
+  assert.equal(r1.events.length, 60);
+  // rewind to a smaller checkpoint, then write past the old size before the next read
+  await fsp.writeFile(file, lines('old', 20) + lines('new', 100));
+  const r2 = await readEventsCached(echoAdapter, file);
+  assert.deepEqual(r2.events.map((e) => e.text).slice(0, 21), [...Array.from({ length: 20 }, (_, i) => `old${i}`), 'new0']);
+  assert.equal(r2.events.length, 120, 'the stale 40 events are gone');
+  // plain growth still appends incrementally
+  await fsp.appendFile(file, lines('more', 3));
+  const r3 = await readEventsCached(echoAdapter, file);
+  assert.equal(r3.events.length, 123);
+  assert.equal(r3.events.at(-1).text, 'more2');
+  // the raw reader reports the same thing when handed the tail back
+  const a = await readEvents(echoAdapter, file, 0);
+  await fsp.writeFile(file, lines('x', 10) + lines('y', 200));
+  const b = await readEvents(echoAdapter, file, a.offset, { tail: a.tail });
+  assert.equal(b.reset, true);
+  assert.equal(b.events.length, 210);
+  await fsp.rm(dir, { recursive: true, force: true });
+});
+
 test('readEvents: unparseable lines are skipped, not fatal', async () => {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'herdr-adapters-'));
   const file = path.join(dir, 'log.jsonl');

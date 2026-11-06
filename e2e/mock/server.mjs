@@ -173,7 +173,11 @@ function appendEvents(paneId, events) {
   broadcastAgent(paneId, 'events', events);
 }
 
+const sessionGen = {}; // paneId → how many times its session was switched
+const sessionIdOf = (paneId) => `sess-${paneId}${sessionGen[paneId] ? `-${sessionGen[paneId]}` : ''}`;
+
 function resetState() {
+  for (const k of Object.keys(sessionGen)) delete sessionGen[k];
   epoch += 1; // orphan every pending later() from the previous test
   pins = [{ pin: '~/Sync', path: '/home/armen/Sync' }];
   roster = clone(readJson('roster.json'));
@@ -243,6 +247,14 @@ const server = http.createServer(async (req, res) => {
       if (body.appendEvents) {
         for (const [paneId, evs] of Object.entries(body.appendEvents)) {
           appendEvents(paneId, evs);
+        }
+      }
+      // the pane /clear'd (or got parked) while the client was away: a new
+      // session file whose contents replace the old transcript wholesale
+      if (body.switchSession) {
+        for (const [paneId, evs] of Object.entries(body.switchSession)) {
+          transcripts[paneId] = evs;
+          sessionGen[paneId] = (sessionGen[paneId] ?? 0) + 1;
         }
       }
       if (body.herdrDown != null) {
@@ -494,12 +506,18 @@ const server = http.createServer(async (req, res) => {
         events,
         offset: events.length,
         pending: events.length === 0,
-        sessionId: events.length ? `sess-${paneId}` : null,
+        sessionId: events.length ? sessionIdOf(paneId) : null,
       });
     }
 
     if (req.method === 'GET' && action === 'stream') {
       startSse(res);
+      // like the real server: an offset into another session file is a reset
+      const expect = url.searchParams.get('session');
+      if (expect && expect !== sessionIdOf(paneId)) {
+        res.write('event: reset\ndata: {}\n\n');
+        return;
+      }
       if (!agentClients.has(paneId)) agentClients.set(paneId, new Set());
       agentClients.get(paneId).add(res);
       res.on('close', () => agentClients.get(paneId)?.delete(res));

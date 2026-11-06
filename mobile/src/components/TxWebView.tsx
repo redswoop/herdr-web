@@ -16,7 +16,7 @@ import { useScrollOnSend } from '../device-prefs';
 import { TX_HTML } from '../tx-bundle';
 import { tick, toast } from '../toast';
 
-const V = 1;
+const V = 2;
 
 type PageMsg =
   | { type: 'ready'; v: number }
@@ -87,9 +87,16 @@ export function TxWebView({
     if (ready) push(init);
   }, [ready, init, push]);
 
+  // two messages, not one: the item list is the expensive push (serialised
+  // and re-diffed in the page), and a working/stop/error flip must not
+  // re-ship it (2026-11-05 review: hundreds of ms per turn boundary on a
+  // multi-MB session)
   useEffect(() => {
-    if (ready) push({ type: 'state', items, loaded, error, working, cancellableKey });
-  }, [ready, items, loaded, error, working, cancellableKey, push]);
+    if (ready) push({ type: 'items', items, loaded });
+  }, [ready, items, loaded, push]);
+  useEffect(() => {
+    if (ready) push({ type: 'status', error, working, cancellableKey });
+  }, [ready, error, working, cancellableKey, push]);
 
   const onMessage = useCallback(
     (e: WebViewMessageEvent) => {

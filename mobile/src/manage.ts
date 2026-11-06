@@ -5,6 +5,7 @@
 import { ActionSheetIOS, Alert, Platform } from 'react-native';
 import {
   chipName,
+  clearPaneMemory,
   closeAgent,
   closeWorkspace,
   describeError,
@@ -84,7 +85,10 @@ export function agentMenu(a: Agent, opts: { onOpen?: () => void; onClosed?: () =
           text: 'Close',
           style: 'destructive',
           onPress: async () => {
-            if (await run('closed', closeAgent(a.paneId))) opts.onClosed?.();
+            if (await run('closed', closeAgent(a.paneId))) {
+              clearPaneMemory(a.paneId); // herdr reuses pane ids
+              opts.onClosed?.();
+            }
           },
         },
       ]),

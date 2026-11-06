@@ -263,6 +263,14 @@ test('e2e: a tokenless server answers only to its own names (DNS rebinding)', as
   }
 });
 
+test('e2e: a tokenless server never opens CORS (any open page could read /api/file)', async () => {
+  const r = await fetch(`${BASE}/api/roster`, { headers: { origin: 'http://evil.example' } });
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('access-control-allow-origin'), null);
+  const pre = await fetch(`${BASE}/api/roster`, { method: 'OPTIONS', headers: { origin: 'http://evil.example' } });
+  assert.notEqual(pre.status, 204, 'no preflight approval without a token');
+});
+
 test('e2e: places — home is the git toplevel of the cwd; pins round-trip ~/-relative', async () => {
   const repo = path.join(home, 'proj');
   await fsp.mkdir(path.join(repo, 'src', 'lib'), { recursive: true });

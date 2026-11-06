@@ -7,14 +7,15 @@ import { createRoot } from 'react-dom/client';
 import { applyPalette, clearPalette, setSkin } from '@redswoop/cyberdos/web';
 import { configureServers } from '@herdr/shared';
 import { Transcript } from '../components/Transcript';
-import { installBridge, isNative, onHost, send, V, type InitMsg, type StateMsg } from './bridge';
+import { installBridge, isNative, onHost, send, V, type InitMsg, type ItemsMsg, type StatusMsg } from './bridge';
 import { installFonts } from './fonts';
 import '../style.css';
 import '@redswoop/cyberdos/web/cyber.css';
 import '../theme-cyber.css';
 import './page.css';
 
-const EMPTY: StateMsg = { type: 'state', items: [], loaded: false, error: null, working: false, cancellableKey: null };
+type St = Omit<ItemsMsg, 'type'> & Omit<StatusMsg, 'type'>;
+const EMPTY: St = { items: [], loaded: false, error: null, working: false, cancellableKey: null };
 
 function applyInit(m: InitMsg) {
   const root = document.documentElement;
@@ -31,7 +32,7 @@ function applyInit(m: InitMsg) {
 
 function Page() {
   const [init, setInit] = useState<InitMsg | null>(null);
-  const [st, setSt] = useState<StateMsg>(EMPTY);
+  const [st, setSt] = useState<St>(EMPTY);
   const [bad, setBad] = useState<string | null>(null);
   const scrollEnd = useRef<(() => void) | null>(null);
 
@@ -42,7 +43,8 @@ function Page() {
           if (m.v !== V) setBad(`bridge v${m.v} ≠ page v${V}`);
           applyInit(m);
           setInit(m);
-        } else if (m.type === 'state') setSt(m);
+        } else if (m.type === 'items') setSt((s) => ({ ...s, items: m.items, loaded: m.loaded }));
+        else if (m.type === 'status') setSt((s) => ({ ...s, error: m.error, working: m.working, cancellableKey: m.cancellableKey }));
         else if (m.type === 'scrollEnd') scrollEnd.current?.();
       }),
     [],

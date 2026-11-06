@@ -55,6 +55,33 @@ test.describe('tab strip', () => {
     await expect(strip.getByRole('tab')).toHaveCount(1);
   });
 
+  test('keyboard: Tab to a neighbour\'s × and Enter asks to close it, without switching', async ({ page }) => {
+    await openApp(page, { hash: '/agent/w1:p1' });
+    const strip = page.getByRole('tablist');
+    const x = strip.getByRole('button', { name: /^close fix-ui/i });
+    await x.focus();
+    let asked = false;
+    page.once('dialog', (d) => { asked = true; void d.dismiss(); });
+    await page.keyboard.press('Enter');
+    await expect.poll(() => asked).toBe(true);
+    await expect(page).toHaveURL(/#\/agent\/w1(:|%3A)p1$/); // Enter on the × never selects that tab
+    await expect(strip.getByRole('tab')).toHaveCount(2);
+    page.once('dialog', (d) => d.accept());
+    await page.keyboard.press('Enter');
+    await expect.poll(async () => (await mockLog()).manage.some((m) => m.paneId === 'w1:p2' && m.action === 'close')).toBe(true);
+    await expect(strip.getByRole('tab')).toHaveCount(1);
+  });
+
+  test('middle-click on the × itself closes too (the hover text promises it)', async ({ page }) => {
+    await openApp(page, { hash: '/agent/w1:p1' });
+    const strip = page.getByRole('tablist');
+    await strip.getByRole('tab', { name: /fix-ui/i }).hover();
+    page.once('dialog', (d) => d.accept());
+    await strip.getByRole('button', { name: /^close fix-ui/i }).click({ button: 'middle' });
+    await expect.poll(async () => (await mockLog()).manage.some((m) => m.paneId === 'w1:p2' && m.action === 'close')).toBe(true);
+    await expect(strip.getByRole('tab')).toHaveCount(1);
+  });
+
   test('middle-click on a pill closes it, not the chat you are reading', async ({ page }) => {
     await openApp(page, { hash: '/agent/w1:p1' });
     const strip = page.getByRole('tablist');
